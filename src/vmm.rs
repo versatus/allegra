@@ -17,35 +17,35 @@ pub struct InstanceCreateParams {
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
 pub struct InstanceStartParams {
     #[arg(long, short)]
-    name: String,
+    pub name: String,
     #[arg(long, short)]
-    console: bool,
+    pub console: bool,
     #[arg(long, short)]
-    stateless: bool
+    pub stateless: bool
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
 pub struct InstanceStopParams {
     #[arg(long, short)]
-    name: String 
+    pub name: String 
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
 pub struct InstanceAddPubkeyParams {
     #[arg(long, short)]
-    name: String,
+    pub name: String,
     #[arg(long, short)]
-    pubkey: String,
+    pub pubkey: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
 pub struct InstanceDeleteParams {
     #[arg(long, short)]
-    name: String,
+    pub name: String,
     #[arg(long, short)]
-    force: bool,
+    pub force: bool,
     #[arg(long, short)]
-    interactive: bool,
+    pub interactive: bool,
 }
 
 

@@ -1,5 +1,5 @@
 use tarpc::context;
-use crate::vmm::{InstanceCreateParams, VmResponse};
+use crate::vmm::{InstanceCreateParams, VmResponse, InstanceStartParams, InstanceStopParams, InstanceAddPubkeyParams, InstanceDeleteParams};
 use std::process::Command;
 use serde::{Serialize, Deserialize};
 
@@ -65,17 +65,14 @@ Examples:
 #[tarpc::service]
 pub trait Vmm {
     async fn create_vm(params: InstanceCreateParams) -> VmResponse;
-    async fn shutdown_vm(name: String) -> VmResponse;
+    async fn shutdown_vm(params: InstanceStopParams) -> VmResponse;
     async fn start_vm(
-        name: String, 
-        console: bool, 
-        stateless: bool, 
+        params: InstanceStartParams
     ) -> VmResponse;
     async fn set_ssh_pubkey(
-        name: String,
-        ssh_key: String,
+        params: InstanceAddPubkeyParams
     ) -> VmResponse;
-    async fn delete_vm(name: String, force: bool, interactive: bool) -> VmResponse;
+    async fn delete_vm(params: InstanceDeleteParams) -> VmResponse;
     //TODO: Implement all LXC Commands
 }
 
@@ -195,11 +192,11 @@ impl Vmm for VmmServer {
         }
     }
 
-    async fn shutdown_vm(self, _: context::Context, name: String) -> VmResponse {
-        dbg!("received request to shutdown vm: {}", &name);
+    async fn shutdown_vm(self, _: context::Context, params: InstanceStopParams) -> VmResponse {
+        dbg!("received request to shutdown vm: {}", &params.name);
         let output = match Command::new("lxc")
             .arg("stop")
-            .arg(&name)
+            .arg(&params.name)
             .output() {
                 Ok(o) => {
                     dbg!(
@@ -228,7 +225,7 @@ impl Vmm for VmmServer {
                         status: "Success".to_string(),
                         details: format!(
                             "Successfully shutdown vm: {} - {}",
-                            &name,
+                            &params.name,
                             deets
                         ),
                         ssh_details: None
@@ -240,7 +237,7 @@ impl Vmm for VmmServer {
                         status: "Success".to_string(),
                         details: format!(
                             "Successfully shutdown vm: {} - Unable to provide details: {}",
-                            &name,
+                            &params.name,
                             e
                         ),
                         ssh_details: None
@@ -255,7 +252,7 @@ impl Vmm for VmmServer {
                         status: "Failure".to_string(),
                         details: format!(
                             "Failed to shutdown vm: {} - {}",
-                            &name,
+                            &params.name,
                             deets
                         ),
                         ssh_details:  None
@@ -267,7 +264,7 @@ impl Vmm for VmmServer {
                         status: "Failure".to_string(),
                         details: format!(
                             "Failed to shutdown vm: {} - Unable to provide details: {}",
-                            &name, 
+                            &params.name, 
                             e
                         ),
                         ssh_details: None
@@ -280,18 +277,16 @@ impl Vmm for VmmServer {
     async fn start_vm(
         self, 
         _: context::Context,
-        name: String,
-        console: bool, 
-        stateless: bool
+        params: InstanceStartParams
     ) -> VmResponse {
         let mut command = Command::new("lxc");
-        command.arg("start").arg(&name);
+        command.arg("start").arg(&params.name);
 
-        if console {
+        if params.console {
             command.arg("--console");
         }
 
-        if stateless {
+        if params.stateless {
             command.arg("--stateless");
         }
 
@@ -300,7 +295,7 @@ impl Vmm for VmmServer {
             Err(e) => {
                 return return_failure(
                     format!(
-                        "Failed to start vm: {} - {}", &name, e
+                        "Failed to start vm: {} - {}", &params.name, e
                     )
                 )
             }
@@ -311,7 +306,7 @@ impl Vmm for VmmServer {
                 Ok(deets) => {
                     return_success(
                         format!(
-                            "Successfully started vm: {} - {}", &name, &deets
+                            "Successfully started vm: {} - {}", &params.name, &deets
                         ), None
                     )
                 }
@@ -319,7 +314,7 @@ impl Vmm for VmmServer {
                     return_success(
                         format!(
                             "Successfully started vm: {} - Unable to acquire details: {}",
-                            &name, 
+                            &params.name, 
                             &e
                         ), None
                     )
@@ -331,7 +326,7 @@ impl Vmm for VmmServer {
                     return_failure(
                         format!(
                             "Unable to start vm: {} - {}",
-                            &name,
+                            &params.name,
                             &deets
                         )
                     )
@@ -340,7 +335,7 @@ impl Vmm for VmmServer {
                     return_failure(
                         format!(
                             "Unable to start vm: {} - Unable to provide details: {}", 
-                            &name,
+                            &params.name,
                             &e
                         )
                     )
@@ -352,16 +347,15 @@ impl Vmm for VmmServer {
     async fn set_ssh_pubkey(
         self, 
         _: context::Context, 
-        name: String, 
-        ssh_key: String
+        params: InstanceAddPubkeyParams
     ) -> VmResponse {
         let echo = format!(
             r#""echo '{}' >> ~/.ssh/authorized_keys""#,
-            ssh_key
+            params.pubkey
         );
         let output = match Command::new("lxc")
             .arg("exec")
-            .arg(&name)
+            .arg(&params.name)
             .arg("--")
             .arg("bash")
             .arg("-c")
@@ -372,7 +366,7 @@ impl Vmm for VmmServer {
                     return return_failure(
                         format!(
                             "Unable to execute command in vm: {} - {}",
-                            &name,
+                            &params.name,
                             &e
                         )
                     );
@@ -384,7 +378,7 @@ impl Vmm for VmmServer {
                 Ok(deets) => return return_success(
                     format!(
                         "Successfully added ssh key to vm: {} - {}",
-                        &name,
+                        &params.name,
                         &deets
                     ),
                     None
@@ -392,7 +386,7 @@ impl Vmm for VmmServer {
                 Err(e) => return return_success(
                     format!(
                         "Successfully added ssh key to vm: {} - Unable to provide details: {}",
-                        &name,
+                        &params.name,
                         &e
                     ), 
                     None
@@ -403,14 +397,14 @@ impl Vmm for VmmServer {
                 Ok(deets) => return return_failure(
                     format!(
                         "Unable to add ssh key to vm: {} - {}",
-                        &name, 
+                        &params.name, 
                         &deets
                     )
                 ),
                 Err(e) => return return_failure(
                     format!(
                         "Unable to add ssh key to vm: {} - Unable to provide details: {}",
-                        &name,
+                        &params.name,
                         &e
                     )
                 )
@@ -421,18 +415,16 @@ impl Vmm for VmmServer {
     async fn delete_vm(
         self,
         _: context::Context,
-        name: String,
-        force: bool,
-        interactive: bool
+        params: InstanceDeleteParams
     ) -> VmResponse {
         let mut command = Command::new("lxc");
-        command.arg("delete");
+        command.arg("delete").arg(&params.name);
 
-        if interactive {
+        if params.interactive {
             command.arg("--interactive");
         }
 
-        if force {
+        if params.force {
             command.arg("--force");
         }
 
@@ -442,7 +434,7 @@ impl Vmm for VmmServer {
                 return return_failure(
                     format!(
                         "Unable to delete vm: {} - {}",
-                        &name,
+                        &params.name,
                         &e
                     )
                 )
@@ -454,7 +446,7 @@ impl Vmm for VmmServer {
                 Ok(deets) => return return_success(
                     format!(
                         "Successfully shutdown vm: {} - {}",
-                        &name,
+                        &params.name,
                         &deets
                     ), 
                     None
@@ -462,7 +454,7 @@ impl Vmm for VmmServer {
                 Err(e) => return return_success(
                     format!(
                         "Successfully shutdown vm: {} - Unable to provide details: {}",
-                        &name,
+                        &params.name,
                         &e
                     ), 
                     None
@@ -473,14 +465,14 @@ impl Vmm for VmmServer {
                 Ok(deets) => return return_failure(
                     format!(
                         "Unable to shutdown vm: {} - {}",
-                        &name, 
+                        &params.name, 
                         &deets
                     )
                 ),
                 Err(e) => return return_failure(
                     format!(
                         "Unable to shutdown vm: {} - Unable to provide details: {}",
-                        &name,
+                        &params.name,
                         &e
                     )
                 )
