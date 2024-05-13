@@ -17,6 +17,10 @@ path = "src/server.rs"
 name = "cli"
 path = "src/cli.rs"
 
+[[bin]]
+name = "client"
+path = "src/client.rs"
+
 [dependencies]
 tarpc = { version = "0.34.0", features = ["full"] }
 serde = { version = "1.0.199", features = ["derive"] }

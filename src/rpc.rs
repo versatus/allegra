@@ -1,5 +1,5 @@
 use tarpc::context;
-use crate::vmm::{InstanceCreateParams, VmResponse, InstanceStartParams, InstanceStopParams, InstanceAddPubkeyParams, InstanceDeleteParams};
+use crate::vmm::{InstanceCreateParams, VmResponse, InstanceStartParams, InstanceStopParams, InstanceAddPubkeyParams, InstanceDeleteParams, VmList};
 use std::process::Command;
 use serde::{Serialize, Deserialize};
 
@@ -80,10 +80,6 @@ pub trait Vmm {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VmmServer {
     pub network: String,
-    pub ipv40: u8,
-    pub ipv41: u8,
-    pub ipv42: u8,
-    pub ipv43: u8,
     pub port: u16,
 }
 
@@ -127,8 +123,104 @@ impl Vmm for VmmServer {
 
         if output.status.success() {
             //TODO: handle error cases gracefully
+            let ip_output = Command::new("lxc")
+                .args(["list", "--format", "json"])
+                .output();
+
+            let instance_ip = match ip_output {
+                Ok(o) => {
+                    if o.status.success() {
+                        let vmlist_string = std::str::from_utf8(&output.stdout);
+                        match vmlist_string {
+                            Ok(vmlist) => {
+                                let vmlist = serde_json::from_str::<VmList>(vmlist);
+                                match vmlist {
+                                    Ok(vml) => {
+                                        let mut vmfilter = vml.vms();
+                                        vmfilter.retain(|vminfo| {
+                                            vminfo.name() == params.name
+                                        });
+
+                                        if vmfilter.len() == 0 {
+                                            return VmResponse {
+                                                status: "Failure".to_string(),
+                                                details: "VM instance does not exist, was never created".to_string(),
+                                                ssh_details: None
+                                            }
+                                        }
+
+                                        let list_instance = vmfilter.pop();
+                                        match list_instance {
+                                            Some(inst) => {
+                                                let state = inst.state();
+                                                let network = state.network();
+                                                let addr = match network {
+                                                    Some(net) => {
+                                                        let mut addresses = net.enp5s0().addresses();
+                                                        addresses.retain(|addr| {
+                                                            addr.family() == "inet".to_string()
+                                                        });
+                                                        let addr = match addresses.pop() {
+                                                            Some(addr) => addr.clone(),
+                                                            None => return VmResponse {
+                                                                status: "Failure".to_string(),
+                                                                details: "VM Network does not have inet address family, and cannot be reached. Deleting instance try creating again".to_string(),
+                                                                ssh_details: None
+                                                            }
+                                                        };
+
+                                                        addr.address()
+                                                    }
+                                                    None => {
+                                                        return VmResponse {
+                                                            status: "Failure".to_string(),
+                                                            details: "VM Network is faulty and could not be determined. Deleting instance try creating again".to_string(),
+                                                            ssh_details: None
+                                                        }
+                                                    }
+                                                };
+
+                                                addr
+                                            }
+                                            None => {
+                                                return VmResponse {
+                                                    status: "Failure".to_string(),
+                                                    details: "VM instance does not exist, was never created".to_string(),
+                                                    ssh_details: None
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        return VmResponse {
+                                            status: "Success".to_string(),
+                                            details: "Unable to acquire ip address for VM Instance".to_string(),
+                                            ssh_details: None
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                return VmResponse {
+                                    status: "Success".to_string(),
+                                    details: "Unable to acquire ip address for VM Instance".to_string(),
+                                    ssh_details: None
+                                }
+                            }
+                        }
+                    } else {
+                        return VmResponse {
+                            status: "Success".to_string(),
+                            details: "Unable to acquire ip address for VM instance".to_string(),
+                            ssh_details: None
+                        }
+                    }
+                }
+                Err(e) => return e.into()
+            }; 
             let instance_port = self.expose_instance(
-                22
+                22,
+                instance_ip,
             ).expect(
                 "unable to acquire port"
             );
@@ -381,8 +473,7 @@ impl Vmm for VmmServer {
                         &params.name,
                         &deets
                     ),
-                    None
-                ),
+                    None),
                 Err(e) => return return_success(
                     format!(
                         "Successfully added ssh key to vm: {} - Unable to provide details: {}",
@@ -482,6 +573,14 @@ impl Vmm for VmmServer {
     }
 }
 
+pub fn get_container_config(name: String) -> std::io::Result<std::fs::File> {
+    let path = format!("/var/lib/lxc/{}/config", &name);
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+}
+
 pub fn return_success(
     details: String,
     ssh_details: Option<String>
@@ -506,9 +605,9 @@ pub fn return_failure(
 impl VmmServer {
     pub fn expose_instance(
         mut self,
-        internal_port: u16
+        internal_port: u16,
+        instance_ip: String,
     ) -> std::io::Result<u16> {
-        let instance_ip = self.assign_internal_ip()?;
         let instance_port = self.assign_unique_port()?;
         Self::update_iptables(&instance_ip, instance_port, internal_port)?;
         Self::update_ufw(instance_port)?;
@@ -520,7 +619,8 @@ impl VmmServer {
         instance_port: u16, 
         internal_port: u16
     ) -> std::io::Result<String> {
-        let output = Command::new("iptables")
+        let output = Command::new("sudo")
+            .arg("iptables")
             .arg("-t")
             .arg("nat")
             .arg("-A")
@@ -576,7 +676,8 @@ impl VmmServer {
     }
 
     fn update_ufw(instance_port: u16) -> std::io::Result<String> {
-        let output = Command::new("ufw")
+        let output = Command::new("sudo")
+            .arg("ufw")
             .arg("allow")
             .arg("in")
             .arg(
@@ -621,43 +722,6 @@ impl VmmServer {
         }
     }
 
-    fn assign_internal_ip(&mut self) -> std::io::Result<String> {
-        //TODO(asmith): Replace with constants
-        if self.ipv41 == 255 &&
-            self.ipv42 == 255 &&
-                self.ipv43 == 255 {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "local ip address range filled, local cannot provision more ip addresses"
-                        )
-                    )
-        }
-        if self.ipv43 < 255 {
-            self.ipv43 += 1;
-        } else {
-            if self.ipv42 < 255 {
-                self.ipv43 = 0;
-                self.ipv42 += 1;
-            } else {
-                if self.ipv43 < 255 {
-                    self.ipv42 = 0;
-                    self.ipv43 += 1;
-                }
-            }
-        }
-
-        return Ok(
-            format!(
-                "{}.{}.{}.{}",
-                &self.ipv40,
-                &self.ipv41,
-                &self.ipv42,
-                &self.ipv43
-            )
-        )
-    }
-
     fn assign_unique_port(&mut self) -> std::io::Result<u16> {
         if self.port < MAX_PORT {
             self.port += 1;
@@ -671,5 +735,15 @@ impl VmmServer {
         }
 
         Ok(self.port)
+    }
+}
+
+impl From<std::io::Error> for VmResponse {
+    fn from(value: std::io::Error) -> Self {
+        VmResponse { 
+            status: "Failure".to_string(),
+            details: value.to_string(), 
+            ssh_details: None 
+        }
     }
 }

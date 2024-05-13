@@ -1,6 +1,6 @@
 use allegra::rpc::{VmmServer, VmmClient};
 use allegra::vm_types::VmType;
-use allegra::vmm::InstanceCreateParams;
+use allegra::vmm::{InstanceCreateParams, InstanceStopParams};
 use tarpc::{context, client};
 use tarpc::server::{Channel};
 
@@ -20,10 +20,6 @@ async fn main() -> std::io::Result<()> {
         server.execute(
             VmmServer {
                 network: "lxdbr0".to_string(),
-                ipv40: 10,
-                ipv41: 0,
-                ipv42: 0,
-                ipv43: 0,
                 port: 2222,
             }.serve()
         )
@@ -54,7 +50,8 @@ async fn main() -> std::io::Result<()> {
 
     let mut context = context::current();
     context.deadline = std::time::SystemTime::now() + Duration::from_secs(30);
-    let vmm_response = client.shutdown_vm(context, name).await;
+    let stop_vm = InstanceStopParams { name };
+    let vmm_response = client.shutdown_vm(context, stop_vm).await;
 
     println!("{:?}", vmm_response);
 
