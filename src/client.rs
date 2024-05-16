@@ -19,7 +19,7 @@ async fn main() -> std::io::Result<()> {
     let client = VmmClient::new(client::Config::default(), transport.await?).spawn();
 
     let mut context = context::current();
-    context.deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(30);
+    context.deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
 
     let res = client.create_vm(
         context::current(),

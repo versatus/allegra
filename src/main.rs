@@ -16,11 +16,13 @@ async fn main() -> std::io::Result<()> {
     let (client_transport, server_transport) = tarpc::transport::channel::unbounded();
 
     let server = tarpc::server::BaseChannel::with_defaults(server_transport);
+    let (tx, _rx) = tokio::sync::mpsc::channel(1024);
     tokio::spawn(
         server.execute(
             VmmServer {
                 network: "lxdbr0".to_string(),
                 port: 2222,
+                vmm_sender: tx.clone(),
             }.serve()
         )
         .for_each(|response| async move {

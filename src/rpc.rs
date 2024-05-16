@@ -1,7 +1,7 @@
 use tarpc::context;
-use crate::vmm::{InstanceCreateParams, VmResponse, InstanceStartParams, InstanceStopParams, InstanceAddPubkeyParams, InstanceDeleteParams, VmList};
+use crate::vmm::{InstanceCreateParams, VmResponse, InstanceStartParams, InstanceStopParams, InstanceAddPubkeyParams, InstanceDeleteParams, VmManagerMessage, FAILURE, PENDING};
 use std::process::Command;
-use serde::{Serialize, Deserialize};
+use tokio::sync::mpsc::Sender;
 
 pub const MAX_PORT: u16 = 65535;
 /*
@@ -77,208 +77,46 @@ pub trait Vmm {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct VmmServer {
     pub network: String,
     pub port: u16,
+    pub vmm_sender: Sender<VmManagerMessage>
 }
 
 impl Vmm for VmmServer {
     async fn create_vm(self, _: context::Context, params: InstanceCreateParams) -> VmResponse {
-        let output = Command::new("lxc")
-            .arg("launch")
-            .arg(
-                &format!(
-                    "{}:{}",
-                    params.distro,
-                    params.version
-                )
-            )
-            .arg(
-                &format!(
-                    "{}",
-                    params.name
-                )
-            )
-            .arg("--vm")
-            .arg("-t")
-            .arg(&params.vmtype.to_string())
-            .arg("--network")
-            .arg(&self.network.clone())
-            .output();
-
-        let output = match output {
-            Ok(o) => o,
-            Err(e) => {
-                return VmResponse {
-                    status: "Failure".to_string(),
-                    details: format!(
-                        "Failed to create VM: {}",
-                        e
-                    ),
-                    ssh_details: None
-                }
-            }
-        };
-
-        if output.status.success() {
-            //TODO: handle error cases gracefully
-            let ip_output = Command::new("lxc")
-                .args(["list", "--format", "json"])
-                .output();
-
-            let instance_ip = match ip_output {
-                Ok(o) => {
-                    if o.status.success() {
-                        let vmlist_string = std::str::from_utf8(&output.stdout);
-                        match vmlist_string {
-                            Ok(vmlist) => {
-                                let vmlist = serde_json::from_str::<VmList>(vmlist);
-                                match vmlist {
-                                    Ok(vml) => {
-                                        let mut vmfilter = vml.vms();
-                                        vmfilter.retain(|vminfo| {
-                                            vminfo.name() == params.name
-                                        });
-
-                                        if vmfilter.len() == 0 {
-                                            return VmResponse {
-                                                status: "Failure".to_string(),
-                                                details: "VM instance does not exist, was never created".to_string(),
-                                                ssh_details: None
-                                            }
-                                        }
-
-                                        let list_instance = vmfilter.pop();
-                                        match list_instance {
-                                            Some(inst) => {
-                                                let state = inst.state();
-                                                let network = state.network();
-                                                let addr = match network {
-                                                    Some(net) => {
-                                                        let mut addresses = net.enp5s0().addresses();
-                                                        addresses.retain(|addr| {
-                                                            addr.family() == "inet".to_string()
-                                                        });
-                                                        let addr = match addresses.pop() {
-                                                            Some(addr) => addr.clone(),
-                                                            None => return VmResponse {
-                                                                status: "Failure".to_string(),
-                                                                details: "VM Network does not have inet address family, and cannot be reached. Deleting instance try creating again".to_string(),
-                                                                ssh_details: None
-                                                            }
-                                                        };
-
-                                                        addr.address()
-                                                    }
-                                                    None => {
-                                                        return VmResponse {
-                                                            status: "Failure".to_string(),
-                                                            details: "VM Network is faulty and could not be determined. Deleting instance try creating again".to_string(),
-                                                            ssh_details: None
-                                                        }
-                                                    }
-                                                };
-
-                                                addr
-                                            }
-                                            None => {
-                                                return VmResponse {
-                                                    status: "Failure".to_string(),
-                                                    details: "VM instance does not exist, was never created".to_string(),
-                                                    ssh_details: None
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        return VmResponse {
-                                            status: "Success".to_string(),
-                                            details: "Unable to acquire ip address for VM Instance".to_string(),
-                                            ssh_details: None
-                                        }
-                                    }
-                                }
+        let (tx, rx) = tokio::sync::oneshot::channel(); 
+        let message = VmManagerMessage::NewInstance { params, owner: "testOwner".to_string(), tx };
+        match self.vmm_sender.send(message).await {
+            Ok(_) => {
+                tokio::select! {
+                    response = rx => {
+                        match response {
+                            Ok(resp) => return resp,
+                            Err(e) => return VmResponse {
+                                status: PENDING.to_string(),
+                                details: e.to_string(),
+                                ssh_details: None
                             }
-                            Err(e) => {
-                                return VmResponse {
-                                    status: "Success".to_string(),
-                                    details: "Unable to acquire ip address for VM Instance".to_string(),
-                                    ssh_details: None
-                                }
-                            }
+
                         }
-                    } else {
+                    }
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
                         return VmResponse {
-                            status: "Success".to_string(),
-                            details: "Unable to acquire ip address for VM instance".to_string(),
+                            status: PENDING.to_string(),
+                            details: "Check back in 1-2 minutes for status".to_string(),
                             ssh_details: None
                         }
                     }
                 }
-                Err(e) => return e.into()
-            }; 
-            let instance_port = self.expose_instance(
-                22,
-                instance_ip,
-            ).expect(
-                "unable to acquire port"
-            );
-
-            match std::str::from_utf8(&output.stdout) {
-                //TODO: Modularize the match arm logic
-                Ok(deets) => {
-                    return VmResponse {
-                        status: "Success".to_string(),
-                        details: format!(
-                            "VM created successfully: {}",
-                            deets
-                        ),
-                        ssh_details: Some(
-                            format!(
-                                "ssh -p {} root@hostname",
-                                instance_port
-                            )
-                        ) 
-                    }
-                }
-                Err(e) => {
-                    return VmResponse {
-                        status: "Success".to_string(),
-                        details: format!(
-                            "VM created successfully, but stdout could not be read: {}", 
-                            e
-                        ),
-                        ssh_details: Some(
-                            format!(
-                                "ssh -p {} root@hostname",
-                                instance_port
-                            )
-                        )
-                    }
-                }
             }
-        } else {
-            match std::str::from_utf8(&output.stderr) {
-                Ok(deets) => {
-                    return VmResponse {
-                        status: "Failure".to_string(),
-                        details: format!(
-                            "VM unable to be created: {}",
-                            deets
-                        ),
-                        ssh_details: None
-                    }
-                }
-                Err(e) => {
-                    return VmResponse {
-                        status: "Failure".to_string(),
-                        details: format!(
-                            "VM unable to be created and stderr could not be read: {}",
-                            e
-                        ),
-                        ssh_details: None
-                    }
+            Err(e) => {
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None
                 }
             }
         }
@@ -609,117 +447,9 @@ impl VmmServer {
         instance_ip: String,
     ) -> std::io::Result<u16> {
         let instance_port = self.assign_unique_port()?;
-        Self::update_iptables(&instance_ip, instance_port, internal_port)?;
-        Self::update_ufw(instance_port)?;
+        update_iptables(&instance_ip, instance_port, internal_port)?;
+        update_ufw(instance_port)?;
         Ok(instance_port)
-    }
-
-    fn update_iptables(
-        instance_ip: &str, 
-        instance_port: u16, 
-        internal_port: u16
-    ) -> std::io::Result<String> {
-        let output = Command::new("sudo")
-            .arg("iptables")
-            .arg("-t")
-            .arg("nat")
-            .arg("-A")
-            .arg("PREROUTING")
-            .arg("-p")
-            .arg("tcp")
-            .arg("--dport")
-            .arg(&instance_port.to_string())
-            .arg("-j")
-            .arg("DNAT")
-            .arg("--to-destination")
-            .arg(
-                &format!(
-                    "{}:{}",
-                    instance_ip,
-                    internal_port
-                )
-            )
-            .output()?;
-
-        match output.status.success() {
-            true => {
-                match std::str::from_utf8(&output.stdout) {
-                    Ok(deets) => {
-                        return Ok(deets.to_string())
-                    }
-                    Err(e) => {
-                        return Ok(e.to_string())
-                    }
-                }
-            }
-            false => {
-                match std::str::from_utf8(&output.stderr) {
-                    Ok(deets) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                deets.to_string()
-                            )
-                        )
-                    }
-                    Err(e) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string()
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fn update_ufw(instance_port: u16) -> std::io::Result<String> {
-        let output = Command::new("sudo")
-            .arg("ufw")
-            .arg("allow")
-            .arg("in")
-            .arg(
-                format!(
-                    "{}/tcp",
-                    instance_port
-                )
-            )
-            .output()?;
-
-        match output.status.success() {
-            true => {
-                match std::str::from_utf8(&output.stdout) {
-                    Ok(deets) => {
-                        return Ok(deets.to_string())
-                    }
-                    Err(e) => {
-                        return Ok(e.to_string())
-                    }
-                }
-            }
-            false => {
-                match std::str::from_utf8(&output.stderr) {
-                    Ok(deets) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                deets.to_string()
-                            )
-                        )
-                    }
-                    Err(e) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string()
-                            )
-                        )
-                    }
-                }
-            }
-        }
     }
 
     fn assign_unique_port(&mut self) -> std::io::Result<u16> {
@@ -735,6 +465,114 @@ impl VmmServer {
         }
 
         Ok(self.port)
+    }
+}
+
+fn update_ufw(instance_port: u16) -> std::io::Result<String> {
+    let output = Command::new("sudo")
+        .arg("ufw")
+        .arg("allow")
+        .arg("in")
+        .arg(
+            format!(
+                "{}/tcp",
+                instance_port
+            )
+        )
+        .output()?;
+
+    match output.status.success() {
+        true => {
+            match std::str::from_utf8(&output.stdout) {
+                Ok(deets) => {
+                    return Ok(deets.to_string())
+                }
+                Err(e) => {
+                    return Ok(e.to_string())
+                }
+            }
+        }
+        false => {
+            match std::str::from_utf8(&output.stderr) {
+                Ok(deets) => {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            deets.to_string()
+                        )
+                    )
+                }
+                Err(e) => {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string()
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+fn update_iptables(
+    instance_ip: &str, 
+    instance_port: u16, 
+    internal_port: u16
+) -> std::io::Result<String> {
+    let output = Command::new("sudo")
+        .arg("iptables")
+        .arg("-t")
+        .arg("nat")
+        .arg("-A")
+        .arg("PREROUTING")
+        .arg("-p")
+        .arg("tcp")
+        .arg("--dport")
+        .arg(&instance_port.to_string())
+        .arg("-j")
+        .arg("DNAT")
+        .arg("--to-destination")
+        .arg(
+            &format!(
+                "{}:{}",
+                instance_ip,
+                internal_port
+            )
+        )
+        .output()?;
+
+    match output.status.success() {
+        true => {
+            match std::str::from_utf8(&output.stdout) {
+                Ok(deets) => {
+                    return Ok(deets.to_string())
+                }
+                Err(e) => {
+                    return Ok(e.to_string())
+                }
+            }
+        }
+        false => {
+            match std::str::from_utf8(&output.stderr) {
+                Ok(deets) => {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            deets.to_string()
+                        )
+                    )
+                }
+                Err(e) => {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e.to_string()
+                        )
+                    )
+                }
+            }
+        }
     }
 }
 

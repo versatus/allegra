@@ -7,6 +7,7 @@ use futures::{
 };
 use futures::stream::StreamExt;
 use allegra::rpc::Vmm;
+use allegra::vmm::VmManager;
 
 async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
     tokio::spawn(fut);
@@ -24,6 +25,15 @@ async fn main() -> std::io::Result<()> {
     let mut listener = tarpc::serde_transport::tcp::listen(&addr, Json::default).await?;
     dbg!(listener.local_addr());
 
+    let (tx, rx) = tokio::sync::mpsc::channel(1024);
+    let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1024);
+    let pd_endpoints = vec!["127.0.0.1:2379"];
+    let vmm = VmManager::new(
+        pd_endpoints, None
+    ).await?;
+    tokio::task::spawn(
+        vmm.run(rx, stop_rx)
+    );
     listener.config_mut().max_frame_length(usize::MAX);
     listener
         .filter_map(|r| future::ready(r.ok()))
@@ -33,6 +43,7 @@ async fn main() -> std::io::Result<()> {
             let server = VmmServer {
                 network: "lxdbr0".to_string(),
                 port: 2222,
+                vmm_sender: tx.clone(),
             };
             channel.execute(server.serve()).for_each(spawn)
         })
