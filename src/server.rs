@@ -34,6 +34,15 @@ async fn main() -> std::io::Result<()> {
     tokio::task::spawn(
         vmm.run(rx, stop_rx)
     );
+    let pd_endpoints = vec!["127.0.0.1:2379"];
+    let tikv_client = tikv_client::RawClient::new(
+        pd_endpoints
+    ).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
     listener.config_mut().max_frame_length(usize::MAX);
     listener
         .filter_map(|r| future::ready(r.ok()))
@@ -44,6 +53,7 @@ async fn main() -> std::io::Result<()> {
                 network: "lxdbr0".to_string(),
                 port: 2222,
                 vmm_sender: tx.clone(),
+                tikv_client: tikv_client.clone()
             };
             channel.execute(server.serve()).for_each(spawn)
         })

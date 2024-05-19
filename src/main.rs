@@ -14,7 +14,15 @@ use futures::{
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let (client_transport, server_transport) = tarpc::transport::channel::unbounded();
-
+    let pd_endpoints = vec!["127.0.0.1:2379"];
+    let tikv_client = tikv_client::RawClient::new(
+        pd_endpoints
+    ).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
     let server = tarpc::server::BaseChannel::with_defaults(server_transport);
     let (tx, _rx) = tokio::sync::mpsc::channel(1024);
     tokio::spawn(
@@ -23,6 +31,7 @@ async fn main() -> std::io::Result<()> {
                 network: "lxdbr0".to_string(),
                 port: 2222,
                 vmm_sender: tx.clone(),
+                tikv_client
             }.serve()
         )
         .for_each(|response| async move {
@@ -43,6 +52,7 @@ async fn main() -> std::io::Result<()> {
             distro,
             version,
             vmtype,
+            sig: "testSignature".to_string()
         }
     ).await;
 
@@ -52,7 +62,7 @@ async fn main() -> std::io::Result<()> {
 
     let mut context = context::current();
     context.deadline = std::time::SystemTime::now() + Duration::from_secs(30);
-    let stop_vm = InstanceStopParams { name };
+    let stop_vm = InstanceStopParams { name, sig: "testSignature".to_string() };
     let vmm_response = client.shutdown_vm(context, stop_vm).await;
 
     println!("{:?}", vmm_response);

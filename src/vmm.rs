@@ -1,8 +1,13 @@
-use crate::vm_types::VmType;
+use std::num::NonZeroUsize;
+use ethers_core::types::{Signature, RecoveryMessage};
+use crate::{vm_types::VmType, account::{TaskId, Account, Namespace, TaskStatus}};
 use clap::Args;
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Serialize, Deserialize};
 use tokio::task::JoinHandle;
+use lru::LruCache;
+use sha3::{Digest, Sha3_256};
+use core::str::FromStr;
 
 pub const LOWEST_PORT: u16 = 2222;
 pub const HIGHEST_PORT: u16 = 65535;
@@ -21,6 +26,8 @@ pub struct InstanceCreateParams {
     pub version: String,
     #[arg(long, short='t')]
     pub vmtype: VmType,
+    #[arg(long, short='t')]
+    pub sig: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
@@ -30,13 +37,17 @@ pub struct InstanceStartParams {
     #[arg(long, short)]
     pub console: bool,
     #[arg(long, short)]
-    pub stateless: bool
+    pub stateless: bool,
+    #[arg(long, short)]
+    pub sig: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
 pub struct InstanceStopParams {
     #[arg(long, short)]
-    pub name: String 
+    pub name: String, 
+    #[arg(long, short)]
+    pub sig: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
@@ -45,6 +56,8 @@ pub struct InstanceAddPubkeyParams {
     pub name: String,
     #[arg(long, short)]
     pub pubkey: String,
+    #[arg(long, short)]
+    pub sig: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
@@ -55,6 +68,8 @@ pub struct InstanceDeleteParams {
     pub force: bool,
     #[arg(long, short)]
     pub interactive: bool,
+    #[arg(long, short)]
+    pub sig: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Args)]
@@ -62,7 +77,17 @@ pub struct InstanceExposePortParams {
     #[arg(long, short)]
     pub name: String,
     #[arg(long, short)]
-    pub port: String,
+    pub port: Vec<u16>,
+    #[arg(long, short)]
+    pub sig: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Args)]
+pub struct InstanceGetSshDetails {
+    #[arg(long, short)]
+    pub name: String,
+    #[arg(long, short)]
+    pub sig: String
 }
 
 
@@ -70,44 +95,43 @@ pub struct InstanceExposePortParams {
 pub enum VmManagerMessage {
     NewInstance {
         params: InstanceCreateParams,
-        owner: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId 
     },
     StopInstance {
-        name: String,
+        params: InstanceStopParams,
         sig: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId
     },
     DeleteInstance {
-        name: String,
+        params: InstanceDeleteParams,
         sig: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId 
     },
     InjectAuth {
-        name: String,
+        params: InstanceAddPubkeyParams,
         sig: String,
         auth: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId 
     },
     StartInstance {
-        name: String,
+        params: InstanceStartParams,
         sig: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId 
     },
     ExposePorts {
-        name: String,
+        params: InstanceExposePortParams,
         sig: String,
-        port: Vec<u16>,
-        tx: tokio::sync::oneshot::Sender<VmResponse>,
+        task_id: TaskId,
     }
 }
 
 pub struct VmManager {
     network: String,
     next_port: u16,
-    handles: FuturesUnordered<JoinHandle<std::io::Result<()>>>,
+    handles: FuturesUnordered<JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>>>,
     vmlist: VmList,
     state_client: tikv_client::RawClient,
+    task_cache: LruCache<TaskId, TaskStatus> 
 }
 
 impl VmManager {
@@ -150,6 +174,7 @@ impl VmManager {
                 Err(e) => return Err(e)
             };
 
+
         let state_client = if let Some(conf) = config {
             tikv_client::RawClient::new_with_config(pd_endpoints, conf).await.map_err(|e| {
                 std::io::Error::new(
@@ -166,12 +191,21 @@ impl VmManager {
             })?
         };
 
+        let task_cache = LruCache::new(NonZeroUsize::new(250).ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other, 
+                    "Unable to generate NonZeroUsize"
+                )
+            )?
+        );
+
         Ok(Self {
             network: network.to_string(),
             next_port,
             handles,
             vmlist,
-            state_client
+            state_client,
+            task_cache,
         })
     }
 
@@ -197,7 +231,20 @@ impl VmManager {
                         break
                     }
                 },
-                _ = self.handles.next() => {}
+                status = self.handles.next() => {
+                    if let Some(Ok(Ok((owner, task_id, task_status)))) = status {
+                        match update_task_status(
+                            self.state_client.clone(),
+                            owner,
+                            task_id,
+                            task_status,
+                            &mut self.task_cache
+                        ).await {
+                            Err(e) => log::error!("{e}"),
+                            _ => {} 
+                        }
+                    }
+                }
             }
         }
 
@@ -206,78 +253,499 @@ impl VmManager {
 
     async fn handle_vmm_message(&mut self, message: VmManagerMessage) -> std::io::Result<()> {
         match message {
-            VmManagerMessage::NewInstance { params, owner, tx } => {
-                return self.launch_instance(params, owner, tx).await
+            VmManagerMessage::NewInstance { params, task_id } => {
+                return self.launch_instance(params, task_id).await
             }
-            VmManagerMessage::StartInstance { name, sig, tx } => {
-                return self.start_instance(name, sig, tx).await
+            VmManagerMessage::StartInstance { params, sig, task_id } => {
+                return self.start_instance(params, sig, task_id).await
             }
-            VmManagerMessage::InjectAuth { name, sig, auth, tx } => {
-                return self.inject_authorization(name, sig, auth, tx).await
+            VmManagerMessage::InjectAuth { params, sig, auth, task_id } => {
+                return self.inject_authorization(params, sig, auth, task_id).await
             }
-            VmManagerMessage::StopInstance { name, sig, tx } => {
-                return self.stop_instance(name, sig, tx).await
+            VmManagerMessage::StopInstance { params, sig, task_id } => {
+                return self.stop_instance(params, sig, task_id).await
             }
-            VmManagerMessage::DeleteInstance { name, sig, tx } => {
-                return self.delete_instance(name, sig, tx).await
+            VmManagerMessage::DeleteInstance { params, sig, task_id } => {
+                return self.delete_instance(params, sig, task_id).await
             }
-            VmManagerMessage::ExposePorts { name, sig, port, tx } => {
-                return self.expose_ports(name, sig, port, tx).await
+            VmManagerMessage::ExposePorts { params, sig, task_id } => {
+                return self.expose_ports(params, sig, task_id).await
             }
+        }
+    }
+
+    async fn handle_start_output_success(
+        &mut self,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        update_task_status(
+            self.state_client.clone(),
+            owner,
+            task_id,
+            TaskStatus::Success,
+            &mut self.task_cache
+        ).await
+    }
+
+    async fn handle_start_output_failure(
+        &mut self,
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        let err_string = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+        update_task_status(
+            self.state_client.clone(),
+            owner,
+            task_id,
+            TaskStatus::Failure(err_string.to_string()),
+            &mut self.task_cache
+        ).await
+    }
+
+    async fn handle_start_output(
+        &mut self,
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        if output.status.success() {
+            self.handle_start_output_success(
+                owner,
+                task_id
+            ).await
+        } else {
+            self.handle_start_output_failure(
+                output,
+                owner, 
+                task_id
+            ).await
         }
     }
 
     async fn start_instance(
         &mut self,
-        name: String,
+        params: InstanceStartParams,
         sig: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId
     ) -> std::io::Result<()> {
-        todo!()
+        let payload = serde_json::json!({
+            "command": "start",
+            "name": &params.name,
+            "console": params.console,
+            "stateless": params.stateless
+        }).to_string();
+
+        let mut hasher = sha3::Sha3_256::new();
+        hasher.update(payload.as_bytes());
+        let hash = hasher.finalize().to_vec();
+        let owner = recover_owner_address(sig, hash)?;
+
+        let namespace = recover_namespace(owner, &params.name);
+
+        if let Ok(()) = verify_ownership(
+            self.state_client.clone(),
+            owner,
+            namespace
+        ).await {
+            let mut command = std::process::Command::new("lxc");
+            command.arg("start").arg(&params.name);
+
+            if params.console {
+                command.arg("--console");
+            }
+
+            if params.stateless {
+                command.arg("--stateless");
+            }
+
+            match command.output() {
+                Ok(o) => {
+                    self.handle_start_output(o, owner, task_id).await?
+                },
+                Err(e) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    ))
+                }
+            };
+
+            return Ok(())
+        } 
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to verify ownership of instance"
+            )
+        )
+
+    }
+
+    async fn handle_inject_authorization_output_success(
+        &mut self,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        update_task_status(
+            self.state_client.clone(),
+            owner,
+            task_id,
+            TaskStatus::Success,
+            &mut self.task_cache
+        ).await
+    }
+
+    async fn handle_inject_authorization_output_failure(
+        &mut self,
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        let err_str = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?.to_string();
+        update_task_status(
+            self.state_client.clone(),
+            owner,
+            task_id,
+            TaskStatus::Failure(err_str),
+            &mut self.task_cache
+        ).await
+    }
+
+    async fn handle_inject_authorization_output(
+        &mut self,
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        if output.status.success() {
+            self.handle_inject_authorization_output_success(
+                owner,
+                task_id
+            ).await
+        } else {
+            self.handle_inject_authorization_output_failure(
+                output,
+                owner,
+                task_id
+            ).await
+        }
     }
 
     async fn inject_authorization(
         &mut self,
-        name: String, 
+        params: InstanceAddPubkeyParams,
         sig: String, 
         auth: String, 
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId
     ) -> std::io::Result<()> {
-        todo!()
+        let payload = serde_json::json!({
+            "command": "injectAuth",
+            "name": &params.name,
+            "pubkey": &params.pubkey
+        }).to_string();
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(payload.as_bytes());
+        let hash = hasher.finalize().to_vec();
+
+        let owner = recover_owner_address(sig, hash)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        if let Ok(()) = verify_ownership(
+            self.state_client.clone(),
+            owner,
+            namespace
+        ).await {
+            let echo = format!(
+                r#""echo '{}' >> ~/.ssh/authorized_keys""#,
+                params.pubkey
+            );
+            let output = std::process::Command::new("lxc")
+                .arg("exec")
+                .arg(&params.name)
+                .arg("--")
+                .arg("bash")
+                .arg("-c")
+                .arg(&echo)
+                .output()?;
+            
+
+            return self.handle_inject_authorization_output(
+                output,
+                owner,
+                task_id
+            ).await
+        }
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to verify ownership"
+            )
+        )
+    }
+
+    fn handle_stop_success(
+        &mut self,
+        output: std::process::Output,
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        let details = std::str::from_utf8(&output.stdout).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?.to_string();
+
+        //TODO: write into account pending tasks
+
+        Ok(())
+    }
+
+    fn handle_stop_failure(
+        &mut self,  
+        output: std::process::Output,
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        let details = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("{e:#?}")
+            )
+        })?.to_string();
+
+        //TODO: write into account pending tasks
+
+        return Ok(())
+    }
+
+    fn handle_stop_output_and_response(
+        &mut self,
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        if output.status.success() {
+            println!("Successfully shutdown vm...");
+            self.handle_stop_success(output, task_id)?;
+            Ok(())
+        } else {
+            self.handle_stop_failure(output, task_id)?;
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Failed to stop instance..."
+                )
+            )
+        }
     }
 
     async fn stop_instance(
         &mut self,
-        name: String,
+        params: InstanceStopParams,
         sig: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId
     ) -> std::io::Result<()> {
-        todo!()
+        let payload = serde_json::json!({
+            "command": "stop",
+            "name": &params.name, 
+        }).to_string();
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(payload.as_bytes());
+        let hash = hasher.finalize().to_vec();
+
+        let owner = recover_owner_address(sig, hash)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        if let Ok(()) = verify_ownership(
+            self.state_client.clone(),
+            owner,
+            namespace
+        ).await {
+            println!("attempting to shutdown {}", &params.name);
+            let output = std::process::Command::new("lxc")
+                .args(["stop", &params.name])
+                .output()?;
+
+            println!("Retrieved output...");
+
+            self.handle_stop_output_and_response(
+                output,
+                owner,
+                task_id
+            )?;
+            return Ok(())
+        }
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to verify ownership",
+            )
+        )
+    }
+
+
+    async fn handle_delete_instance_output_success(
+        &mut self,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        update_task_status(
+            self.state_client.clone(),
+            owner,
+            task_id,
+            TaskStatus::Success,
+            &mut self.task_cache
+        ).await
+    }
+
+    async fn handle_delete_instance_output_failure(
+        &mut self,
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        let err_str = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?.to_string();
+
+        update_task_status(
+            self.state_client.clone(),
+            owner,
+            task_id,
+            TaskStatus::Failure(err_str),
+            &mut self.task_cache
+        ).await
+    }
+
+    async fn handle_delete_instance_output(
+        &mut self,
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId
+    ) -> std::io::Result<()> {
+        if output.status.success() {
+            self.handle_delete_instance_output_success(
+                owner,
+                task_id
+            ).await
+        } else {
+            self.handle_delete_instance_output_failure(
+                output,
+                owner,
+                task_id
+            ).await
+        }
     }
 
     async fn delete_instance(
         &mut self,
-        name: String,
+        params: InstanceDeleteParams,
         sig: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId
     ) -> std::io::Result<()> {
-        todo!()
+        let payload = serde_json::json!({
+            "command": "delete",
+            "name": params.name
+        }).to_string();
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(payload.as_bytes());
+        let hash = hasher.finalize().to_vec();
+
+        let owner = recover_owner_address(sig, hash)?;
+        let mut command = std::process::Command::new("lxc");
+        command.arg("delete").arg(&params.name);
+
+        if params.interactive {
+            command.arg("--interactive");
+        }
+
+        if params.force {
+            command.arg("--force");
+        }
+
+        let output = command.output()?;
+
+
+        self.handle_delete_instance_output(
+            output,
+            owner,
+            task_id
+        ).await
     }
 
     async fn expose_ports(
         &mut self,
-        name: String,
+        params: InstanceExposePortParams,
         sig: String,
-        port: Vec<u16>,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId
     ) -> std::io::Result<()> {
-        todo!()
+        let payload = serde_json::json!({
+            "command": "exposePort",
+            "name": &params.name,
+            "ports": &params.port,
+        }).to_string();
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(payload.as_bytes());
+        let hash = hasher.finalize().to_vec();
+
+        let owner = recover_owner_address(sig, hash)?;
+        let namespace = recover_namespace(owner, &params.name);
+        if let Ok(()) = verify_ownership(
+            self.state_client.clone(),
+            owner,
+            namespace.clone()
+        ).await {
+            for port in params.port {
+                let next_port = self.next_port;
+                let inner_namespace = namespace.clone();
+                let inner_task_id = task_id.clone();
+                let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
+                    async move {
+                        let (owner, task_id, task_status) = update_iptables(
+                            owner,
+                            inner_namespace.clone(),
+                            next_port, 
+                            inner_task_id.clone(),
+                            port 
+                        )?;
+                        Ok((owner, task_id, task_status))
+                    }
+                );
+                self.next_port += 1;
+                self.handles.push(handle);
+            }
+
+        }
+        Ok(())
     }
 
     fn handle_create_output_success_and_response(
         &mut self,
         output: &std::process::Output,
-        tx: tokio::sync::oneshot::Sender<VmResponse>,
+        task_id: TaskId,
+        owner: [u8; 20],
+        namespace: Namespace,
         params: InstanceCreateParams,
     ) -> std::io::Result<()> {
         let details = std::str::from_utf8(&output.stdout).map_err(|e| {
@@ -287,25 +755,21 @@ impl VmManager {
             )
         })?.to_string();
 
-        println!("Started instance with name: {}", params.name);
-        let resp = VmResponse { status: SUCCESS.to_string(), details, ssh_details: None };
-
-        tx.send(resp).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("{e:#?}")
-            )
-        })?;
-
         let next_port = self.next_port;
 
-        let handle: JoinHandle<std::io::Result<()>> = tokio::spawn(
+        let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
             async move {
                 println!("Sleeping for 2 minutes to allow instance to fully launch...");
                 tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
                 println!("Updating iptables...");
-                update_iptables(params.name, next_port, 22)?;
-                Ok(())
+                let (owner, task_id, task_status) = update_iptables(
+                    owner,
+                    namespace,
+                    next_port, 
+                    task_id.clone(),
+                    22
+                )?;
+                Ok((owner, task_id, task_status))
         });
 
         self.handles.push(handle);
@@ -313,51 +777,76 @@ impl VmManager {
         return Ok(())
     }
 
-    fn handle_create_output_failure_and_response(
+    async fn handle_create_output_failure_and_response(
         &mut self,
         output: &std::process::Output,
-        tx: tokio::sync::oneshot::Sender<VmResponse>,
+        owner: [u8; 20],
+        task_id: TaskId
     ) -> std::io::Result<()> {
-        let details = std::str::from_utf8(&output.stderr).map_err(|e| {
+        let err_str = std::str::from_utf8(&output.stderr).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("{e:#?}")
+                e.to_string()
             )
         })?.to_string();
-
-        println!("Failed to start instance");
-        let resp = VmResponse { status: FAILURE.to_string(), details, ssh_details: None };
-
-        tx.send(resp).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("{e:#?}")
-            )
-        })?;
+        update_task_status(
+            self.state_client.clone(),
+            owner,
+            task_id, 
+            TaskStatus::Failure(err_str),
+            &mut self.task_cache
+        ).await?;
 
         return Ok(())
     }
 
-    fn handle_create_output_and_response(
+    async fn handle_create_output_and_response(
         &mut self,
         output: std::process::Output,
-        tx: tokio::sync::oneshot::Sender<VmResponse>,
+        task_id: TaskId,
+        owner: [u8; 20],
+        namespace: Namespace,
         params: InstanceCreateParams
     ) -> std::io::Result<()> {
         if output.status.success() {
-            self.handle_create_output_success_and_response(&output, tx, params)
+            self.handle_create_output_success_and_response(
+                &output,
+                task_id,
+                owner,
+                namespace,
+                params
+            )
         } else {
-            self.handle_create_output_failure_and_response(&output, tx)
+            self.handle_create_output_failure_and_response(
+                &output,
+                owner,
+                task_id
+            ).await
         }
     }
 
     pub async fn launch_instance(
         &mut self,
         params: InstanceCreateParams,
-        owner: String,
-        tx: tokio::sync::oneshot::Sender<VmResponse>
+        task_id: TaskId
     ) -> std::io::Result<()> {
         println!("Attempting to start instance...");
+
+        let payload = serde_json::json!({
+            "command": "launch",
+            "name": &params.name,
+            "distro": &params.distro,
+            "version": &params.version,
+            "vmtype": &params.vmtype,
+        }).to_string();
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(payload.as_bytes());
+        let hash = hasher.finalize().to_vec();
+
+        let owner = recover_owner_address(params.sig.clone(), hash)?;
+        let namespace = recover_namespace(owner, &params.name);
+
         let output = std::process::Command::new("lxc")
             .arg("launch")
             .arg(
@@ -370,7 +859,7 @@ impl VmManager {
             .arg(
                 &format!(
                     "{}",
-                    params.name
+                    &namespace
                 )
             )
             .arg("--vm")
@@ -380,8 +869,16 @@ impl VmManager {
             .arg(&self.network.clone())
             .output()?;
 
-
-        self.handle_create_output_and_response(output, tx, params)
+        //TODO(asmith): Check if owners has account
+        //if not create owner account
+        //if so, add instance to owner account
+        self.handle_create_output_and_response(
+            output,
+            task_id,
+            owner, 
+            namespace, 
+            params
+        ).await
     }
 }
 
@@ -502,11 +999,13 @@ pub fn handle_update_iptables_output(output: &std::process::Output) -> std::io::
 }
 
 pub fn update_iptables(
-    name: String,
+    owner: [u8; 20],
+    namespace: Namespace,
     next_port: u16,
+    task_id: TaskId,
     internal_port: u16
-) -> std::io::Result<()> {
-    let instance_ip = get_instance_ip(&name)?;
+) -> std::io::Result<([u8; 20], TaskId, TaskStatus)> {
+    let instance_ip = get_instance_ip(&namespace.inner())?;
     println!("acquired instance IP: {instance_ip}");
     let output = std::process::Command::new("sudo")
         .args(
@@ -524,7 +1023,7 @@ pub fn update_iptables(
     update_ufw_out(next_port)?;
 
 
-    Ok(())
+    Ok((owner, task_id, TaskStatus::Success))
 }
 
 fn handle_update_ufw_output_failure(output: &std::process::Output) -> std::io::Result<()> {
@@ -581,6 +1080,122 @@ pub fn update_ufw_in(next_port: u16) -> std::io::Result<()> {
         .output()?;
 
     handle_update_ufw_output(&output)
+}
+
+pub fn recover_owner_address(
+    sig: String,
+    m: impl Into<RecoveryMessage>
+) -> std::io::Result<[u8; 20]> {
+    let signature = Signature::from_str(&sig).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?; 
+
+    let address = signature.recover(m).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
+    Ok(address.0)
+}
+
+pub fn recover_namespace(
+    owner: [u8; 20],
+    name: &str
+) -> Namespace {
+    let mut hasher = Sha3_256::new();
+    hasher.update(owner);
+    hasher.update(name.as_bytes());
+    let hash = hasher.finalize().to_vec();
+    let hex = hex::encode(hash);
+    Namespace::new(hex)
+}
+
+pub async fn verify_ownership(
+    state_client: tikv_client::RawClient,
+    owner: [u8; 20],
+    namespace: Namespace
+) -> std::io::Result<()> {
+
+    let account = serde_json::from_slice::<Account>(&state_client.get(owner.to_vec()).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?.ok_or(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Unable to find account for owner: {}", hex::encode(owner))
+        )
+    )?).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
+
+    if account.namespaces().contains(&namespace) {
+        return Ok(())
+    }
+    
+    return Err(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Unable to find namespace {} in account", namespace.inner())
+        )
+    )
+}
+
+pub async fn update_task_status(
+    state_client: tikv_client::RawClient,
+    owner: [u8; 20],
+    task_id: TaskId,
+    task_status: TaskStatus,
+    cache: &mut LruCache<TaskId, TaskStatus>
+) -> std::io::Result<()> {
+    let mut account = serde_json::from_slice::<Account>(&state_client.get(owner.to_vec()).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?.ok_or(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Unable to find account for owner: {}", hex::encode(owner))
+        )
+    )?).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
+
+    account.tasks_mut().insert(task_id.clone(), task_status.clone());
+    
+    if let Some(status) = cache.get_mut(&task_id) {
+        *status = task_status;
+    }
+
+    state_client.put(
+        owner.to_vec(),
+        serde_json::to_vec(
+            &account
+        ).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other, 
+                e.to_string()
+            )
+    })?;
+
+    Ok(())
 }
 
 /*
@@ -1130,26 +1745,5 @@ impl VmList {
             info.name() == name
         }).collect::<Vec<VmInfo>>();
         info_list.pop()
-    }
-}
-
-mod test {
-    
-    #[test]
-    fn test_deserialize_vm_info() {
-        let output = std::process::Command::new("lxc")
-            .arg("list")
-            .arg("--format")
-            .arg("json")
-            .output().unwrap();
-
-        if output.status.success() {
-            let map = std::str::from_utf8(&output.stdout).unwrap();
-            println!("{map:#?}");
-            let info: Vec<VmInfo> = serde_json::from_str(map).unwrap(); 
-
-            println!("{info:#?}");
-
-        }
     }
 }
