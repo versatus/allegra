@@ -3,8 +3,20 @@ use crate::vm_types::VmType;
 
 #[derive(Clone, Subcommand)]
 pub enum AllegraCommands {
+    #[command(name = "wallet")]
+    Wallet {
+        #[arg(long, short)]
+        new: bool,
+        #[arg(long, short)]
+        display: bool,
+        #[arg(long, short)]
+        save: bool,
+        #[arg(long, short, default_value = "")]
+        path: String,
+    },
     #[command(name = "create")]
     Create {
+        #[arg(long, short)]
         name: String,
         #[arg(long, short)]
         distro: String,
@@ -144,7 +156,8 @@ impl AllegraCommands {
             Self::AddPubkey { from_file, .. } => from_file.clone(),
             Self::ExposePorts { from_file, .. } => from_file.clone(),
             Self::GetSshDetails { from_file, .. } => from_file.clone(),
-            Self::PollTask { .. } => None
+            Self::PollTask { .. } => None,
+            Self::Wallet { .. } => None
         }
     }
 
@@ -157,7 +170,8 @@ impl AllegraCommands {
             Self::AddPubkey { sk, .. } => sk.clone(),
             Self::ExposePorts { sk, .. } => sk.clone(),
             Self::GetSshDetails { sk, .. } => sk.clone(),
-            Self::PollTask { .. } => None
+            Self::PollTask { .. } => None,
+            Self::Wallet { .. } => None
         }
 
     }
@@ -171,7 +185,8 @@ impl AllegraCommands {
             Self::AddPubkey { mnemonic, .. } => mnemonic.clone(),
             Self::ExposePorts { mnemonic, .. } => mnemonic.clone(),
             Self::GetSshDetails { mnemonic, .. } => mnemonic.clone(),
-            Self::PollTask { .. } => None
+            Self::PollTask { .. } => None,
+            Self::Wallet { .. } => None
         }
     }
 
@@ -184,7 +199,8 @@ impl AllegraCommands {
             Self::AddPubkey { path, .. } => path.clone(),
             Self::ExposePorts { path, .. } => path.clone(),
             Self::GetSshDetails { path, .. } => path.clone(),
-            Self::PollTask { .. } => None
+            Self::PollTask { .. } => None,
+            Self::Wallet { .. } => None
         }
     }
 
@@ -197,7 +213,8 @@ impl AllegraCommands {
             Self::AddPubkey { kp_index, .. } => kp_index.clone(),
             Self::ExposePorts { kp_index, .. } => kp_index.clone(),
             Self::GetSshDetails { kp_index, .. } => kp_index.clone(),
-            Self::PollTask { .. } => None
+            Self::PollTask { .. } => None,
+            Self::Wallet { .. } => None
         }
     }
 }

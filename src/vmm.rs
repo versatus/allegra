@@ -11,7 +11,7 @@ use crate::{
         InstanceStopParams,
         InstanceDeleteParams,
         InstanceAddPubkeyParams,
-        InstanceExposePortParams
+        InstanceExposePortParams, Payload
     },
     helpers::{
         update_task_status,
@@ -19,7 +19,7 @@ use crate::{
         recover_namespace,
         verify_ownership,
         update_iptables,
-        create_new_account
+        update_account
     }
 };
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -895,11 +895,16 @@ impl VmManager {
             self.state_client.clone(),
             owner,
             task_id, 
-            TaskStatus::Failure(err_str),
+            TaskStatus::Failure(err_str.clone()),
             &mut self.task_cache
         ).await?;
 
-        return Ok(())
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                err_str
+            )
+        )
     }
 
     async fn handle_create_output_and_response(
@@ -910,6 +915,7 @@ impl VmManager {
         namespace: Namespace,
     ) -> std::io::Result<()> {
         if output.status.success() {
+            println!("successfully created instance, handling output...");
             self.handle_create_output_success(
                 task_id,
                 owner,
@@ -931,13 +937,7 @@ impl VmManager {
     ) -> std::io::Result<()> {
         println!("Attempting to start instance...");
 
-        let payload = serde_json::json!({
-            "command": "launch",
-            "name": &params.name,
-            "distro": &params.distro,
-            "version": &params.version,
-            "vmtype": &params.vmtype,
-        }).to_string();
+        let payload = params.into_payload(); 
 
         let mut hasher = Sha3_256::new();
 
@@ -953,10 +953,13 @@ impl VmManager {
             params.recovery_id
         )?;
 
+        println!("Recovered owner");
         let namespace = recover_namespace(
             owner,
             &params.name
         );
+
+        println!("Recovered namespace");
 
         let output = std::process::Command::new("lxc")
             .arg("launch")
@@ -980,20 +983,26 @@ impl VmManager {
             .arg(&self.network.clone())
             .output()?;
 
-        create_new_account(
+        self.handle_create_output_and_response(
+            output,
+            task_id.clone(),
+            owner, 
+            namespace.clone(), 
+        ).await?;
+
+        println!("Attempting to update account");
+        update_account(
             self.state_client.clone(),
             self.vmlist.clone(),
             owner,
             namespace.clone(),
             task_id.clone(),
-            TaskStatus::Pending
+            TaskStatus::Pending,
+            vec![]
         ).await?;
 
-        self.handle_create_output_and_response(
-            output,
-            task_id,
-            owner, 
-            namespace, 
-        ).await
+        println!("Successfully updated account");
+
+        Ok(())
     }
 }

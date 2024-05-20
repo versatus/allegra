@@ -15,6 +15,14 @@ async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    simple_logger::init_with_level(log::Level::Error)
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+
     let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,

@@ -3,11 +3,73 @@ use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceS
 use crate::rpc::VmmClient;
 use std::io::Read;
 use std::net::SocketAddr;
-use ethers_core::k256::ecdsa::{Signature, RecoveryId, SigningKey};
-use ethers_core::k256::SecretKey;
+use std::collections::HashMap;
+use ethers_core::k256::elliptic_curve::SecretKey;
 use sha3::{Digest, Sha3_256};
 use tarpc::client;
 use tarpc::tokio_serde::formats::Json;
+use ethers_core::{
+    k256::ecdsa::{
+        Signature, RecoveryId, SigningKey
+    }, rand::{rngs::OsRng, RngCore}
+};
+use bip39::{Mnemonic, Language};
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WalletInfo {
+    mnemonic: String,
+    signing_key: String,
+    verifying_keys: HashMap<u8, String>,
+    addresses: HashMap<String, String> 
+}
+
+pub fn generate_new_wallet() -> std::io::Result<WalletInfo> {
+    let mut entropy = [0u8; 16];
+    OsRng.fill_bytes(&mut entropy);
+    let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Error trying to create Mnemonic from entropy {e}")
+        )
+    })?;
+
+    println!("Mnemonic: {:?}", &mnemonic);
+
+    let seed = mnemonic.to_seed("");
+
+    println!("Seed: {:?}", &seed);
+    let master_key: SigningKey = SecretKey::from_slice(&seed[..32]).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Error trying to create secret key from slice: {e}")
+        )
+    })?.into();
+
+    println!("SigningKey: {:?}", &master_key);
+    let public_key = master_key.verifying_key(); 
+    println!("VerifyingKey: {:?}", &public_key);
+
+    let address = ethers_core::utils::public_key_to_address(public_key); 
+
+    let mnemonic_string = mnemonic.to_string();
+    let mut verifying_keys = HashMap::new();
+    let public_key_str = hex::encode(&public_key.to_encoded_point(false).to_bytes());
+    verifying_keys.insert(0, public_key_str.clone());
+    let mut addresses = HashMap::new();
+    addresses.insert(public_key_str.clone(), format!("0x{}",hex::encode(address.0)));
+
+
+    let wallet_info = WalletInfo {
+        mnemonic: mnemonic_string,
+        signing_key: hex::encode(&master_key.to_bytes()),
+        verifying_keys,
+        addresses
+    };
+
+    Ok(wallet_info)
+}
+
 
 pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Result<(Signature, RecoveryId)> {
     let params: Box<dyn Payload> = match command {
@@ -83,7 +145,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                 }
             )
         }
-        AllegraCommands::PollTask { .. } => {
+        _ => {
             return Err(
                 std::io::Error::new(
                     std::io::ErrorKind::Other,

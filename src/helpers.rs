@@ -15,13 +15,10 @@ use std::str::FromStr;
 use sha3::{Digest, Sha3_256};
 use ethers_core::{
     utils::public_key_to_address,
-    k256::{
-        PublicKey,
-        ecdsa::{
-            VerifyingKey,
-            Signature,
-            RecoveryId
-        }
+    k256::ecdsa::{
+        VerifyingKey,
+        Signature,
+        RecoveryId
     }
 };
 use lru::LruCache;
@@ -281,7 +278,7 @@ pub fn recover_namespace(
     hasher.update(owner);
     hasher.update(name.as_bytes());
     let hash = hasher.finalize().to_vec();
-    let hex = hex::encode(hash);
+    let hex = hex::encode(&hash[0..20]);
     Namespace::new(hex)
 }
 
@@ -378,6 +375,7 @@ pub async fn create_new_account(
     task_status: TaskStatus,
 ) -> std::io::Result<()> {
     let vm_info = vmlist.get(&namespace.inner());
+    println!("discovered vm info: {:?}", vm_info);
     let account = Account::new(
         owner,
         vec![(namespace.clone(), vm_info)],
@@ -385,6 +383,9 @@ pub async fn create_new_account(
         vec![(task_id, task_status)],
     );
 
+    println!("built account: {:?}", &account);
+
+    println!("Attempting to write to state");
     state_client.put(
         owner.to_vec(),
         serde_json::to_vec(
@@ -401,6 +402,7 @@ pub async fn create_new_account(
             )
         }
     )?;
+    println!("Successfully wrote account to state");
 
     Ok(())
 }
@@ -422,7 +424,7 @@ pub async fn update_account(
         vec![(task_id, task_status)]
     );
 
-    if let Ok(Some(account_bytes)) = state_client.get(owner.to_vec()).await {
+    let account: Account = if let Ok(Some(account_bytes)) = state_client.get(owner.to_vec()).await {
         let mut account = match serde_json::from_slice::<Account>(&account_bytes) {
             Ok(account) => account,
             Err(e) => return Err(
@@ -436,8 +438,10 @@ pub async fn update_account(
         account.update_namespace(&namespace, vm_info);
         account.update_exposed_ports(&namespace, exposed_ports.clone());
 
-        return Ok(())
-    }
+        account
+    } else {
+        account
+    };
 
     state_client.put(
         owner.to_vec(),
