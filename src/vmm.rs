@@ -389,8 +389,9 @@ impl VmManager {
         );
         let hash = hasher.finalize().to_vec();
         let owner = recover_owner_address(
+            hash,
             sig,
-            hash
+            params.recovery_id
         )?;
 
         let namespace = recover_namespace(
@@ -519,7 +520,7 @@ impl VmManager {
         hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
 
-        let owner = recover_owner_address(sig, hash)?;
+        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
         let namespace = recover_namespace(owner, &params.name);
 
         if let Ok(()) = verify_ownership(
@@ -644,8 +645,9 @@ impl VmManager {
         let hash = hasher.finalize().to_vec();
 
         let owner = recover_owner_address(
+            hash,
             sig,
-            hash
+            params.recovery_id
         )?;
 
         let namespace = recover_namespace(
@@ -757,7 +759,7 @@ impl VmManager {
         hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
 
-        let owner = recover_owner_address(sig, hash)?;
+        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
         let mut command = std::process::Command::new("lxc");
         command.arg("delete").arg(&params.name);
 
@@ -798,8 +800,9 @@ impl VmManager {
         let hash = hasher.finalize().to_vec();
 
         let owner = recover_owner_address(
+            hash,
             sig,
-            hash
+            params.recovery_id
         )?;
 
         let namespace = recover_namespace(
@@ -945,8 +948,9 @@ impl VmManager {
         let hash = hasher.finalize().to_vec();
 
         let owner = recover_owner_address(
+            hash,
             params.sig.clone(),
-            hash
+            params.recovery_id
         )?;
 
         let namespace = recover_namespace(
