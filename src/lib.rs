@@ -9,3 +9,7 @@ pub mod actors;
 pub mod vm_info;
 pub mod params;
 pub mod helpers;
+pub mod cli;
+
+pub use cli::commands::*;
+pub use cli::helpers::*;

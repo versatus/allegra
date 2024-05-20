@@ -93,7 +93,7 @@ pub trait Vmm {
     ) -> VmResponse;
     async fn delete_vm(params: InstanceDeleteParams) -> VmResponse;
     async fn expose_vm_ports(params: InstanceExposePortParams) -> VmResponse;
-    async fn get_task_status(owner: String, id: TaskId) -> VmResponse;
+    async fn get_task_status(owner: String, id: String) -> VmResponse;
     async fn get_ssh_details(params: InstanceGetSshDetails) -> VmResponse;
     //TODO: Implement all LXC Commands
 }
@@ -372,7 +372,7 @@ impl Vmm for VmmServer {
         self, 
         _: context::Context,
         owner: String,
-        id: TaskId
+        id: String 
     ) -> VmResponse {
         let address_bytes = if owner.starts_with("0x") { 
             let owner_string = &owner[2..];
@@ -409,7 +409,8 @@ impl Vmm for VmmServer {
             Ok(Some(account_bytes)) => {
                 match serde_json::from_slice::<Account>(&account_bytes) {
                     Ok(account) => {
-                        if let Some(ts) = account.get_task_status(&id) {
+                        let task_id = TaskId::new(id.clone());
+                        if let Some(ts) = account.get_task_status(&task_id) {
                             return VmResponse {
                                 status: SUCCESS.to_string(),
                                 details: format!("Task {} status: {:?}", &id, ts),

@@ -13,7 +13,17 @@ use crate::{
 };
 use std::str::FromStr;
 use sha3::{Digest, Sha3_256};
-use ethers_core::types::{RecoveryMessage, Signature};
+use ethers_core::{
+    utils::public_key_to_address,
+    k256::{
+        PublicKey,
+        ecdsa::{
+            VerifyingKey,
+            Signature,
+            RecoveryId
+        }
+    }
+};
 use lru::LruCache;
 
 pub fn handle_get_instance_ip_output_success(
@@ -230,8 +240,9 @@ pub fn update_ufw_in(next_port: u16) -> std::io::Result<()> {
 }
 
 pub fn recover_owner_address(
+    m: impl AsRef<[u8]>,
     sig: String,
-    m: impl Into<RecoveryMessage>
+    recovery_id: u8
 ) -> std::io::Result<[u8; 20]> {
     let signature = Signature::from_str(&sig).map_err(|e| {
         std::io::Error::new(
@@ -240,12 +251,25 @@ pub fn recover_owner_address(
         )
     })?; 
 
-    let address = signature.recover(m).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?;
+    let verifying_key = VerifyingKey::recover_from_msg(
+        m.as_ref(),
+        &signature,
+        RecoveryId::try_from(
+            recovery_id
+        ).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?
+        ).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+
+    let address = public_key_to_address(&verifying_key);
     Ok(address.0)
 }
 
