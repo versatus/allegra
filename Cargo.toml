@@ -15,7 +15,7 @@ path = "src/server.rs"
 
 [[bin]]
 name = "cli"
-path = "src/cli.rs"
+path = "src/cli/cli.rs"
 
 [[bin]]
 name = "client"
@@ -46,4 +46,5 @@ ractor_cluster = "0.9.3"
 lru = "0.12.3"
 secp256k1 = { version = "0.29.0", features = ["rand-std", "hashes-std", "serde", "global-context", "hashes", "lowmemory", "recovery"]}
 ethers-core = "2.0.13"
-
+bip39 = "2.0.0"
+simple_logger = "4.3.0"

@@ -1,15 +1,13 @@
 use allegra::rpc::{VmmServer, VmmClient};
 use allegra::vm_types::VmType;
-use allegra::vmm::{InstanceCreateParams, InstanceStopParams};
+use allegra::params::{InstanceCreateParams, InstanceStopParams};
 use tarpc::{context, client};
-use tarpc::server::{Channel};
+use tarpc::server::Channel;
 
 
 use std::time::Duration;
 use allegra::rpc::Vmm;
-use futures::{
-    prelude::*
-};
+use futures::prelude::*;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -52,7 +50,8 @@ async fn main() -> std::io::Result<()> {
             distro,
             version,
             vmtype,
-            sig: "testSignature".to_string()
+            sig: "testSignature".to_string(),
+            recovery_id: u8::default()
         }
     ).await;
 
@@ -62,7 +61,7 @@ async fn main() -> std::io::Result<()> {
 
     let mut context = context::current();
     context.deadline = std::time::SystemTime::now() + Duration::from_secs(30);
-    let stop_vm = InstanceStopParams { name, sig: "testSignature".to_string() };
+    let stop_vm = InstanceStopParams { name, sig: "testSignature".to_string(), recovery_id: u8::default() };
     let vmm_response = client.shutdown_vm(context, stop_vm).await;
 
     println!("{:?}", vmm_response);

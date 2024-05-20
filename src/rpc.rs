@@ -1,7 +1,23 @@
-use serde_json::json;
 use tarpc::context;
-use crate::{vmm::{InstanceCreateParams, VmResponse, InstanceStartParams, InstanceStopParams, InstanceAddPubkeyParams, InstanceDeleteParams, VmManagerMessage, SUCCESS, FAILURE, PENDING, InstanceExposePortParams}, account::TaskId};
-use std::process::Command;
+use crate::{
+    vmm::{
+        VmManagerMessage, 
+        SUCCESS, 
+        FAILURE, 
+        PENDING, 
+    }, account::{
+        TaskId, 
+        Account
+    }, vm_info::VmResponse,
+    params::{
+        InstanceCreateParams,
+        InstanceStartParams,
+        InstanceStopParams,
+        InstanceAddPubkeyParams,
+        InstanceDeleteParams, 
+        InstanceExposePortParams, InstanceGetSshDetails
+    }
+};
 use tokio::sync::mpsc::Sender;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
@@ -77,6 +93,8 @@ pub trait Vmm {
     ) -> VmResponse;
     async fn delete_vm(params: InstanceDeleteParams) -> VmResponse;
     async fn expose_vm_ports(params: InstanceExposePortParams) -> VmResponse;
+    async fn get_task_status(owner: String, id: String) -> VmResponse;
+    async fn get_ssh_details(params: InstanceGetSshDetails) -> VmResponse;
     //TODO: Implement all LXC Commands
 }
 
@@ -236,7 +254,6 @@ impl Vmm for VmmServer {
         let message = VmManagerMessage::InjectAuth { 
             params: params.clone(),
             sig: params.sig, 
-            auth: params.pubkey, 
             task_id: task_id.clone() 
         };
 
@@ -349,181 +366,91 @@ impl Vmm for VmmServer {
                 }
             }
         }
-
-    }
-}
-
-pub fn get_container_config(name: String) -> std::io::Result<std::fs::File> {
-    let path = format!("/var/lib/lxc/{}/config", &name);
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-}
-
-pub fn return_success(
-    details: String,
-    ssh_details: Option<String>
-) -> VmResponse {
-    return VmResponse {
-        status: "Success".to_string(),
-        details,
-        ssh_details
-    }
-}
-
-pub fn return_failure(
-    details: String
-) -> VmResponse {
-    return VmResponse {
-        status: "Failure".to_string(),
-        details,
-        ssh_details: None
-    }
-}
-
-impl VmmServer {
-    pub fn expose_instance(
-        mut self,
-        internal_port: u16,
-        instance_ip: String,
-    ) -> std::io::Result<u16> {
-        let instance_port = self.assign_unique_port()?;
-        update_iptables(&instance_ip, instance_port, internal_port)?;
-        update_ufw(instance_port)?;
-        Ok(instance_port)
     }
 
-    fn assign_unique_port(&mut self) -> std::io::Result<u16> {
-        if self.port < MAX_PORT {
-            self.port += 1;
+    async fn get_task_status(
+        self, 
+        _: context::Context,
+        owner: String,
+        id: String 
+    ) -> VmResponse {
+        let address_bytes = if owner.starts_with("0x") { 
+            let owner_string = &owner[2..];
+            let address_bytes = match hex::decode(owner_string) {
+                Ok(bytes) => {
+                    bytes
+                },
+                Err(e) => {
+                    return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: e.to_string(),
+                        ssh_details: None
+                    }
+                }
+            };
+            address_bytes
         } else {
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Max port reached, unable to assing next port"
-                )
-            )
-        }
-
-        Ok(self.port)
-    }
-}
-
-fn update_ufw(instance_port: u16) -> std::io::Result<String> {
-    let output = Command::new("sudo")
-        .arg("ufw")
-        .arg("allow")
-        .arg("in")
-        .arg(
-            format!(
-                "{}/tcp",
-                instance_port
-            )
-        )
-        .output()?;
-
-    match output.status.success() {
-        true => {
-            match std::str::from_utf8(&output.stdout) {
-                Ok(deets) => {
-                    return Ok(deets.to_string())
+            let address_bytes = match hex::decode(&owner) {
+                Ok(bytes) => {
+                    bytes
                 }
                 Err(e) => {
-                    return Ok(e.to_string())
+                    return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: e.to_string(),
+                        ssh_details: None
+                    }
+                }
+            };
+            address_bytes
+        };
+
+        match self.tikv_client.get(address_bytes.to_vec()).await {
+            Ok(Some(account_bytes)) => {
+                match serde_json::from_slice::<Account>(&account_bytes) {
+                    Ok(account) => {
+                        let task_id = TaskId::new(id.clone());
+                        if let Some(ts) = account.get_task_status(&task_id) {
+                            return VmResponse {
+                                status: SUCCESS.to_string(),
+                                details: format!("Task {} status: {:?}", &id, ts),
+                                ssh_details: None
+                            }
+                        } else {
+                            return VmResponse {
+                                status: FAILURE.to_string(),
+                                details: format!("Unable to find Task {}", &id),
+                                ssh_details: None
+                            }
+                        }
+                    }
+                    Err(e) => return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: format!("unable to deserialize bytes for Account for owner {owner}: {e}"),
+                        ssh_details: None
+                    }
                 }
             }
-        }
-        false => {
-            match std::str::from_utf8(&output.stderr) {
-                Ok(deets) => {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            deets.to_string()
-                        )
-                    )
-                }
-                Err(e) => {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    )
+            Ok(None) => {
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: format!("unable to find account for owner {owner}"), 
+                    ssh_details: None
                 }
             }
-        }
-    }
-}
-
-fn update_iptables(
-    instance_ip: &str, 
-    instance_port: u16, 
-    internal_port: u16
-) -> std::io::Result<String> {
-    let output = Command::new("sudo")
-        .arg("iptables")
-        .arg("-t")
-        .arg("nat")
-        .arg("-A")
-        .arg("PREROUTING")
-        .arg("-p")
-        .arg("tcp")
-        .arg("--dport")
-        .arg(&instance_port.to_string())
-        .arg("-j")
-        .arg("DNAT")
-        .arg("--to-destination")
-        .arg(
-            &format!(
-                "{}:{}",
-                instance_ip,
-                internal_port
-            )
-        )
-        .output()?;
-
-    match output.status.success() {
-        true => {
-            match std::str::from_utf8(&output.stdout) {
-                Ok(deets) => {
-                    return Ok(deets.to_string())
-                }
-                Err(e) => {
-                    return Ok(e.to_string())
-                }
-            }
-        }
-        false => {
-            match std::str::from_utf8(&output.stderr) {
-                Ok(deets) => {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            deets.to_string()
-                        )
-                    )
-                }
-                Err(e) => {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    )
-                }
+            Err(e) => return VmResponse {
+                status: FAILURE.to_string(),
+                details: format!("error acquiring account for owner {owner} from state: {e}"),
+                ssh_details: None
             }
         }
     }
-}
 
-impl From<std::io::Error> for VmResponse {
-    fn from(value: std::io::Error) -> Self {
-        VmResponse { 
-            status: "Failure".to_string(),
-            details: value.to_string(), 
-            ssh_details: None 
-        }
+    async fn get_ssh_details(
+        self,
+        _: context::Context,
+        params: InstanceGetSshDetails
+    ) -> VmResponse {
+        todo!()
     }
 }
