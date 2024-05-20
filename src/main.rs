@@ -1,30 +1,35 @@
 use allegra::rpc::{VmmServer, VmmClient};
 use allegra::vm_types::VmType;
-use allegra::vmm::InstanceCreateParams;
+use allegra::params::{InstanceCreateParams, InstanceStopParams};
 use tarpc::{context, client};
-use tarpc::server::{Channel};
+use tarpc::server::Channel;
 
 
 use std::time::Duration;
 use allegra::rpc::Vmm;
-use futures::{
-    prelude::*
-};
+use futures::prelude::*;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let (client_transport, server_transport) = tarpc::transport::channel::unbounded();
-
+    let pd_endpoints = vec!["127.0.0.1:2379"];
+    let tikv_client = tikv_client::RawClient::new(
+        pd_endpoints
+    ).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
     let server = tarpc::server::BaseChannel::with_defaults(server_transport);
+    let (tx, _rx) = tokio::sync::mpsc::channel(1024);
     tokio::spawn(
         server.execute(
             VmmServer {
                 network: "lxdbr0".to_string(),
-                ipv40: 10,
-                ipv41: 0,
-                ipv42: 0,
-                ipv43: 0,
                 port: 2222,
+                vmm_sender: tx.clone(),
+                tikv_client
             }.serve()
         )
         .for_each(|response| async move {
@@ -45,6 +50,8 @@ async fn main() -> std::io::Result<()> {
             distro,
             version,
             vmtype,
+            sig: "testSignature".to_string(),
+            recovery_id: u8::default()
         }
     ).await;
 
@@ -54,7 +61,8 @@ async fn main() -> std::io::Result<()> {
 
     let mut context = context::current();
     context.deadline = std::time::SystemTime::now() + Duration::from_secs(30);
-    let vmm_response = client.shutdown_vm(context, name).await;
+    let stop_vm = InstanceStopParams { name, sig: "testSignature".to_string(), recovery_id: u8::default() };
+    let vmm_response = client.shutdown_vm(context, stop_vm).await;
 
     println!("{:?}", vmm_response);
 

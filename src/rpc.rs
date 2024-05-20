@@ -1,7 +1,26 @@
 use tarpc::context;
-use crate::vmm::{InstanceCreateParams, VmResponse};
-use std::process::Command;
+use crate::{
+    vmm::{
+        VmManagerMessage, 
+        SUCCESS, 
+        FAILURE, 
+        PENDING, 
+    }, account::{
+        TaskId, 
+        Account
+    }, vm_info::VmResponse,
+    params::{
+        InstanceCreateParams,
+        InstanceStartParams,
+        InstanceStopParams,
+        InstanceAddPubkeyParams,
+        InstanceDeleteParams, 
+        InstanceExposePortParams, InstanceGetSshDetails
+    }
+};
+use tokio::sync::mpsc::Sender;
 use serde::{Serialize, Deserialize};
+use sha3::{Digest, Sha3_256};
 
 pub const MAX_PORT: u16 = 65535;
 /*
@@ -65,213 +84,106 @@ Examples:
 #[tarpc::service]
 pub trait Vmm {
     async fn create_vm(params: InstanceCreateParams) -> VmResponse;
-    async fn shutdown_vm(name: String) -> VmResponse;
+    async fn shutdown_vm(params: InstanceStopParams) -> VmResponse;
     async fn start_vm(
-        name: String, 
-        console: bool, 
-        stateless: bool, 
+        params: InstanceStartParams
     ) -> VmResponse;
     async fn set_ssh_pubkey(
-        name: String,
-        ssh_key: String,
+        params: InstanceAddPubkeyParams
     ) -> VmResponse;
-    async fn delete_vm(name: String, force: bool, interactive: bool) -> VmResponse;
+    async fn delete_vm(params: InstanceDeleteParams) -> VmResponse;
+    async fn expose_vm_ports(params: InstanceExposePortParams) -> VmResponse;
+    async fn get_task_status(owner: String, id: String) -> VmResponse;
+    async fn get_ssh_details(params: InstanceGetSshDetails) -> VmResponse;
     //TODO: Implement all LXC Commands
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum VmmCommand {
+    Create,
+    Shutdown,
+    Start,
+    InjectAuth,
+    Delete
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct VmmServer {
     pub network: String,
-    pub ipv40: u8,
-    pub ipv41: u8,
-    pub ipv42: u8,
-    pub ipv43: u8,
     pub port: u16,
+    pub vmm_sender: Sender<VmManagerMessage>,
+    pub tikv_client: tikv_client::RawClient,
 }
 
 impl Vmm for VmmServer {
     async fn create_vm(self, _: context::Context, params: InstanceCreateParams) -> VmResponse {
-        let output = Command::new("lxc")
-            .arg("launch")
-            .arg(
-                &format!(
-                    "{}:{}",
-                    params.distro,
-                    params.version
-                )
+        let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
+            let mut hasher = Sha3_256::new();
+            hasher.update(bytes);
+            let result = hasher.finalize();
+            TaskId::new(
+                hex::encode(&result[..])
             )
-            .arg(
-                &format!(
-                    "{}",
-                    params.name
-                )
-            )
-            .arg("--vm")
-            .arg("-t")
-            .arg(&params.vmtype.to_string())
-            .arg("--network")
-            .arg(&self.network.clone())
-            .output();
-
-        let output = match output {
-            Ok(o) => o,
-            Err(e) => {
+        } else {
+            return VmResponse {
+                status: FAILURE.to_string(),
+                details: "Unable to generate unique task id".to_string(),
+                ssh_details: None,
+            }
+        };
+        let message = VmManagerMessage::NewInstance { params, task_id: task_id.clone() };
+        match self.vmm_sender.send(message).await {
+            Ok(_) => {
                 return VmResponse {
-                    status: "Failure".to_string(),
-                    details: format!(
-                        "Failed to create VM: {}",
-                        e
-                    ),
+                    status: PENDING.to_string(),
+                    details: format!("TaskId: {}", task_id.task_id()),
                     ssh_details: None
                 }
             }
-        };
-
-        if output.status.success() {
-            //TODO: handle error cases gracefully
-            let instance_port = self.expose_instance(
-                22
-            ).expect(
-                "unable to acquire port"
-            );
-
-            match std::str::from_utf8(&output.stdout) {
-                //TODO: Modularize the match arm logic
-                Ok(deets) => {
-                    return VmResponse {
-                        status: "Success".to_string(),
-                        details: format!(
-                            "VM created successfully: {}",
-                            deets
-                        ),
-                        ssh_details: Some(
-                            format!(
-                                "ssh -p {} root@hostname",
-                                instance_port
-                            )
-                        ) 
-                    }
-                }
-                Err(e) => {
-                    return VmResponse {
-                        status: "Success".to_string(),
-                        details: format!(
-                            "VM created successfully, but stdout could not be read: {}", 
-                            e
-                        ),
-                        ssh_details: Some(
-                            format!(
-                                "ssh -p {} root@hostname",
-                                instance_port
-                            )
-                        )
-                    }
-                }
-            }
-        } else {
-            match std::str::from_utf8(&output.stderr) {
-                Ok(deets) => {
-                    return VmResponse {
-                        status: "Failure".to_string(),
-                        details: format!(
-                            "VM unable to be created: {}",
-                            deets
-                        ),
-                        ssh_details: None
-                    }
-                }
-                Err(e) => {
-                    return VmResponse {
-                        status: "Failure".to_string(),
-                        details: format!(
-                            "VM unable to be created and stderr could not be read: {}",
-                            e
-                        ),
-                        ssh_details: None
-                    }
+            Err(e) => {
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None
                 }
             }
         }
     }
 
-    async fn shutdown_vm(self, _: context::Context, name: String) -> VmResponse {
-        dbg!("received request to shutdown vm: {}", &name);
-        let output = match Command::new("lxc")
-            .arg("stop")
-            .arg(&name)
-            .output() {
-                Ok(o) => {
-                    dbg!(
-                        "received output: {:?}",
-                        &o
-                    );
-                    o
-                }
-                Err(e) => {
-                    return VmResponse {
-                        status: "Failure".to_string(),
-                        details: format!(
-                            "Unable to shutdown vm: {}",
-                            e
-                        ),
-                        ssh_details: None,
-                    }
-                }
+    async fn shutdown_vm(self, _: context::Context, params: InstanceStopParams) -> VmResponse {
+        let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
+            let mut hasher = Sha3_256::new();
+            hasher.update(bytes);
+            let result = hasher.finalize();
+            TaskId::new(
+                hex::encode(&result[..])
+            )
+        } else {
+            return VmResponse {
+                status: FAILURE.to_string(),
+                details: "Unable to generate unique task id".to_string(),
+                ssh_details: None,
+            }
         };
-
-        if output.status.success() {
-            match std::str::from_utf8(&output.stdout) {
-                Ok(deets) => {
-                    println!("output success - {}", &deets);
-                    VmResponse {
-                        status: "Success".to_string(),
-                        details: format!(
-                            "Successfully shutdown vm: {} - {}",
-                            &name,
-                            deets
-                        ),
-                        ssh_details: None
-                    }
-                }
-                Err(e) => {
-                    println!("output success - no deets");
-                    VmResponse {
-                        status: "Success".to_string(),
-                        details: format!(
-                            "Successfully shutdown vm: {} - Unable to provide details: {}",
-                            &name,
-                            e
-                        ),
-                        ssh_details: None
-                    }
+        println!("attempting to shutdown VM...");
+        let message = VmManagerMessage::StopInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
+        match self.vmm_sender.send(message).await {
+            Ok(_) => {
+                println!("Successfully sent shutdown message to vmm...");
+                return VmResponse {
+                    status: PENDING.to_string(),
+                    details: format!("TaskId: {}", task_id.task_id()),
+                    ssh_details: None
                 }
             }
-        } else {
-            match std::str::from_utf8(&output.stderr)  {
-                Ok(deets) => {
-                    println!("output failure - {}", &deets);
-                    VmResponse {
-                        status: "Failure".to_string(),
-                        details: format!(
-                            "Failed to shutdown vm: {} - {}",
-                            &name,
-                            deets
-                        ),
-                        ssh_details:  None
-                    }
-                }
-                Err(e) => {
-                    println!("output failure - {}", &e);
-                    VmResponse {
-                        status: "Failure".to_string(),
-                        details: format!(
-                            "Failed to shutdown vm: {} - Unable to provide details: {}",
-                            &name, 
-                            e
-                        ),
-                        ssh_details: None
-                    }
+            Err(e) => {
+                println!("Error sending shutdown message to vmm...");
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None
                 }
             }
         }
@@ -280,70 +192,40 @@ impl Vmm for VmmServer {
     async fn start_vm(
         self, 
         _: context::Context,
-        name: String,
-        console: bool, 
-        stateless: bool
+        params: InstanceStartParams
     ) -> VmResponse {
-        let mut command = Command::new("lxc");
-        command.arg("start").arg(&name);
-
-        if console {
-            command.arg("--console");
-        }
-
-        if stateless {
-            command.arg("--stateless");
-        }
-
-        let output = match command.output() {
-            Ok(o) => o,
-            Err(e) => {
-                return return_failure(
-                    format!(
-                        "Failed to start vm: {} - {}", &name, e
-                    )
-                )
+        let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
+            let mut hasher = Sha3_256::new();
+            hasher.update(bytes);
+            let result = hasher.finalize();
+            TaskId::new(
+                hex::encode(&result[..])
+            )
+        } else {
+            return VmResponse {
+                status: FAILURE.to_string(),
+                details: "Unable to generate unique task id".to_string(),
+                ssh_details: None,
             }
         };
-
-        if output.status.success() {
-            match std::str::from_utf8(&output.stdout) {
-                Ok(deets) => {
-                    return_success(
-                        format!(
-                            "Successfully started vm: {} - {}", &name, &deets
-                        ), None
-                    )
-                }
-                Err(e) => {
-                    return_success(
-                        format!(
-                            "Successfully started vm: {} - Unable to acquire details: {}",
-                            &name, 
-                            &e
-                        ), None
-                    )
+        println!("attempting to shutdown VM...");
+        let message = VmManagerMessage::StartInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
+        match self.vmm_sender.send(message).await {
+            Ok(_) => {
+                println!("Successfully sent shutdown message to vmm...");
+                return VmResponse {
+                    status: PENDING.to_string(),
+                    details: format!("TaskId: {}", task_id.task_id()),
+                    ssh_details: None
                 }
             }
-        } else {
-            match std::str::from_utf8(&output.stderr) {
-                Ok(deets) => {
-                    return_failure(
-                        format!(
-                            "Unable to start vm: {} - {}",
-                            &name,
-                            &deets
-                        )
-                    )
-                }
-                Err(e) => {
-                    return_failure(
-                        format!(
-                            "Unable to start vm: {} - Unable to provide details: {}", 
-                            &name,
-                            &e
-                        )
-                    )
+            Err(e) => {
+                println!("Error sending shutdown message to vmm...");
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None
                 }
             }
         }
@@ -352,68 +234,46 @@ impl Vmm for VmmServer {
     async fn set_ssh_pubkey(
         self, 
         _: context::Context, 
-        name: String, 
-        ssh_key: String
+        params: InstanceAddPubkeyParams
     ) -> VmResponse {
-        let echo = format!(
-            r#""echo '{}' >> ~/.ssh/authorized_keys""#,
-            ssh_key
-        );
-        let output = match Command::new("lxc")
-            .arg("exec")
-            .arg(&name)
-            .arg("--")
-            .arg("bash")
-            .arg("-c")
-            .arg(&echo)
-            .output() {
-                Ok(o) => o,
-                Err(e) => {
-                    return return_failure(
-                        format!(
-                            "Unable to execute command in vm: {} - {}",
-                            &name,
-                            &e
-                        )
-                    );
-                }
-            };
-
-        if output.status.success() {
-            match std::str::from_utf8(&output.stdout) {
-                Ok(deets) => return return_success(
-                    format!(
-                        "Successfully added ssh key to vm: {} - {}",
-                        &name,
-                        &deets
-                    ),
-                    None
-                ),
-                Err(e) => return return_success(
-                    format!(
-                        "Successfully added ssh key to vm: {} - Unable to provide details: {}",
-                        &name,
-                        &e
-                    ), 
-                    None
-                )
-            }
+        let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
+            let mut hasher = Sha3_256::new();
+            hasher.update(bytes);
+            let result = hasher.finalize();
+            TaskId::new(
+                hex::encode(&result[..])
+            )
         } else {
-            match std::str::from_utf8(&output.stderr) {
-                Ok(deets) => return return_failure(
-                    format!(
-                        "Unable to add ssh key to vm: {} - {}",
-                        &name, 
-                        &deets
-                    )
-                ),
-                Err(e) => return return_failure(
-                    format!(
-                        "Unable to add ssh key to vm: {} - Unable to provide details: {}",
-                        &name,
-                        &e
-                    )
-                )
+            return VmResponse {
+                status: FAILURE.to_string(),
+                details: "Unable to generate unique task id".to_string(),
+                ssh_details: None,
+            }
+        };
+
+        let message = VmManagerMessage::InjectAuth { 
+            params: params.clone(),
+            sig: params.sig, 
+            task_id: task_id.clone() 
+        };
+
+        match self.vmm_sender.send(message).await {
+            Ok(_) => {
+                println!("Successfully sent shutdown message to vmm...");
+                return VmResponse {
+                    status: PENDING.to_string(),
+                    details: format!("TaskId: {}", task_id.task_id()),
+                    ssh_details: None
+                }
+            }
+            Err(e) => {
+                println!("Error sending shutdown message to vmm...");
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None
+                }
             }
         }
     }
@@ -421,263 +281,176 @@ impl Vmm for VmmServer {
     async fn delete_vm(
         self,
         _: context::Context,
-        name: String,
-        force: bool,
-        interactive: bool
+        params: InstanceDeleteParams
     ) -> VmResponse {
-        let mut command = Command::new("lxc");
-        command.arg("delete");
-
-        if interactive {
-            command.arg("--interactive");
-        }
-
-        if force {
-            command.arg("--force");
-        }
-
-        let output = match command.output() {
-            Ok(o) => o,
-            Err(e) => {
-                return return_failure(
-                    format!(
-                        "Unable to delete vm: {} - {}",
-                        &name,
-                        &e
-                    )
-                )
+        let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
+            let mut hasher = Sha3_256::new();
+            hasher.update(bytes);
+            let result = hasher.finalize();
+            TaskId::new(
+                hex::encode(&result[..])
+            )
+        } else {
+            return VmResponse {
+                status: FAILURE.to_string(),
+                details: "Unable to generate unique task id".to_string(),
+                ssh_details: None,
             }
         };
 
-        if output.status.success() {
-            match std::str::from_utf8(&output.stdout) {
-                Ok(deets) => return return_success(
-                    format!(
-                        "Successfully shutdown vm: {} - {}",
-                        &name,
-                        &deets
-                    ), 
-                    None
-                ),
-                Err(e) => return return_success(
-                    format!(
-                        "Successfully shutdown vm: {} - Unable to provide details: {}",
-                        &name,
-                        &e
-                    ), 
-                    None
-                )
+        let message = VmManagerMessage::DeleteInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
+
+        match self.vmm_sender.send(message).await {
+            Ok(_) => {
+                println!("Successfully sent shutdown message to vmm...");
+                return VmResponse {
+                    status: PENDING.to_string(),
+                    details: format!("TaskId: {}", task_id.task_id()),
+                    ssh_details: None
+                }
             }
+            Err(e) => {
+                println!("Error sending shutdown message to vmm...");
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None
+                }
+            }
+        }
+    }
+
+    async fn expose_vm_ports(
+        self, 
+        _: context::Context,
+        params: InstanceExposePortParams
+    ) -> VmResponse {
+        let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
+            let mut hasher = Sha3_256::new();
+            hasher.update(bytes);
+            let result = hasher.finalize();
+            TaskId::new(
+                hex::encode(&result[..])
+            )
         } else {
-            match std::str::from_utf8(&output.stderr) {
-                Ok(deets) => return return_failure(
-                    format!(
-                        "Unable to shutdown vm: {} - {}",
-                        &name, 
-                        &deets
-                    )
-                ),
-                Err(e) => return return_failure(
-                    format!(
-                        "Unable to shutdown vm: {} - Unable to provide details: {}",
-                        &name,
-                        &e
-                    )
-                )
+            return VmResponse {
+                status: FAILURE.to_string(),
+                details: "Unable to generate unique task id".to_string(),
+                ssh_details: None,
             }
-        }
+        };
 
-    }
-}
+        let message = VmManagerMessage::ExposePorts { 
+            params: params.clone(),
+            sig: params.sig,
+            task_id: task_id.clone() 
+        };
 
-pub fn return_success(
-    details: String,
-    ssh_details: Option<String>
-) -> VmResponse {
-    return VmResponse {
-        status: "Success".to_string(),
-        details,
-        ssh_details
-    }
-}
-
-pub fn return_failure(
-    details: String
-) -> VmResponse {
-    return VmResponse {
-        status: "Failure".to_string(),
-        details,
-        ssh_details: None
-    }
-}
-
-impl VmmServer {
-    pub fn expose_instance(
-        mut self,
-        internal_port: u16
-    ) -> std::io::Result<u16> {
-        let instance_ip = self.assign_internal_ip()?;
-        let instance_port = self.assign_unique_port()?;
-        Self::update_iptables(&instance_ip, instance_port, internal_port)?;
-        Self::update_ufw(instance_port)?;
-        Ok(instance_port)
-    }
-
-    fn update_iptables(
-        instance_ip: &str, 
-        instance_port: u16, 
-        internal_port: u16
-    ) -> std::io::Result<String> {
-        let output = Command::new("iptables")
-            .arg("-t")
-            .arg("nat")
-            .arg("-A")
-            .arg("PREROUTING")
-            .arg("-p")
-            .arg("tcp")
-            .arg("--dport")
-            .arg(&instance_port.to_string())
-            .arg("-j")
-            .arg("DNAT")
-            .arg("--to-destination")
-            .arg(
-                &format!(
-                    "{}:{}",
-                    instance_ip,
-                    internal_port
-                )
-            )
-            .output()?;
-
-        match output.status.success() {
-            true => {
-                match std::str::from_utf8(&output.stdout) {
-                    Ok(deets) => {
-                        return Ok(deets.to_string())
-                    }
-                    Err(e) => {
-                        return Ok(e.to_string())
-                    }
+        match self.vmm_sender.send(message).await {
+            Ok(_) => {
+                println!("Successfully sent shutdown message to vmm...");
+                return VmResponse {
+                    status: PENDING.to_string(),
+                    details: format!("TaskId: {}", task_id.task_id()),
+                    ssh_details: None
                 }
             }
-            false => {
-                match std::str::from_utf8(&output.stderr) {
-                    Ok(deets) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                deets.to_string()
-                            )
-                        )
-                    }
-                    Err(e) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string()
-                            )
-                        )
-                    }
+            Err(e) => {
+                println!("Error sending shutdown message to vmm...");
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None
                 }
             }
         }
     }
 
-    fn update_ufw(instance_port: u16) -> std::io::Result<String> {
-        let output = Command::new("ufw")
-            .arg("allow")
-            .arg("in")
-            .arg(
-                format!(
-                    "{}/tcp",
-                    instance_port
-                )
-            )
-            .output()?;
-
-        match output.status.success() {
-            true => {
-                match std::str::from_utf8(&output.stdout) {
-                    Ok(deets) => {
-                        return Ok(deets.to_string())
-                    }
-                    Err(e) => {
-                        return Ok(e.to_string())
+    async fn get_task_status(
+        self, 
+        _: context::Context,
+        owner: String,
+        id: String 
+    ) -> VmResponse {
+        let address_bytes = if owner.starts_with("0x") { 
+            let owner_string = &owner[2..];
+            let address_bytes = match hex::decode(owner_string) {
+                Ok(bytes) => {
+                    bytes
+                },
+                Err(e) => {
+                    return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: e.to_string(),
+                        ssh_details: None
                     }
                 }
-            }
-            false => {
-                match std::str::from_utf8(&output.stderr) {
-                    Ok(deets) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                deets.to_string()
-                            )
-                        )
-                    }
-                    Err(e) => {
-                        return Err(
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e.to_string()
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fn assign_internal_ip(&mut self) -> std::io::Result<String> {
-        //TODO(asmith): Replace with constants
-        if self.ipv41 == 255 &&
-            self.ipv42 == 255 &&
-                self.ipv43 == 255 {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "local ip address range filled, local cannot provision more ip addresses"
-                        )
-                    )
-        }
-        if self.ipv43 < 255 {
-            self.ipv43 += 1;
+            };
+            address_bytes
         } else {
-            if self.ipv42 < 255 {
-                self.ipv43 = 0;
-                self.ipv42 += 1;
-            } else {
-                if self.ipv43 < 255 {
-                    self.ipv42 = 0;
-                    self.ipv43 += 1;
+            let address_bytes = match hex::decode(&owner) {
+                Ok(bytes) => {
+                    bytes
+                }
+                Err(e) => {
+                    return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: e.to_string(),
+                        ssh_details: None
+                    }
+                }
+            };
+            address_bytes
+        };
+
+        match self.tikv_client.get(address_bytes.to_vec()).await {
+            Ok(Some(account_bytes)) => {
+                match serde_json::from_slice::<Account>(&account_bytes) {
+                    Ok(account) => {
+                        let task_id = TaskId::new(id.clone());
+                        if let Some(ts) = account.get_task_status(&task_id) {
+                            return VmResponse {
+                                status: SUCCESS.to_string(),
+                                details: format!("Task {} status: {:?}", &id, ts),
+                                ssh_details: None
+                            }
+                        } else {
+                            return VmResponse {
+                                status: FAILURE.to_string(),
+                                details: format!("Unable to find Task {}", &id),
+                                ssh_details: None
+                            }
+                        }
+                    }
+                    Err(e) => return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: format!("unable to deserialize bytes for Account for owner {owner}: {e}"),
+                        ssh_details: None
+                    }
                 }
             }
+            Ok(None) => {
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: format!("unable to find account for owner {owner}"), 
+                    ssh_details: None
+                }
+            }
+            Err(e) => return VmResponse {
+                status: FAILURE.to_string(),
+                details: format!("error acquiring account for owner {owner} from state: {e}"),
+                ssh_details: None
+            }
         }
-
-        return Ok(
-            format!(
-                "{}.{}.{}.{}",
-                &self.ipv40,
-                &self.ipv41,
-                &self.ipv42,
-                &self.ipv43
-            )
-        )
     }
 
-    fn assign_unique_port(&mut self) -> std::io::Result<u16> {
-        if self.port < MAX_PORT {
-            self.port += 1;
-        } else {
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Max port reached, unable to assing next port"
-                )
-            )
-        }
-
-        Ok(self.port)
+    async fn get_ssh_details(
+        self,
+        _: context::Context,
+        params: InstanceGetSshDetails
+    ) -> VmResponse {
+        todo!()
     }
 }
