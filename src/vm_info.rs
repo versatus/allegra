@@ -17,12 +17,17 @@ Examples:
       Create and start a virtual machine with 4 vCPUs and 4GiB of RAM
 */
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SshDetails {
+    pub ip: String,
+    pub port: u16,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VmResponse {
     pub status: String,
     pub details: String,
-    pub ssh_details: Option<String>
+    pub ssh_details: Option<SshDetails>
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

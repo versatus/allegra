@@ -39,6 +39,8 @@ async fn main() -> std::io::Result<()> {
     let vmm = VmManager::new(
         pd_endpoints, None
     ).await?;
+
+    let task_cache = vmm.task_cache();
     tokio::task::spawn(
         vmm.run(rx, stop_rx)
     );
@@ -61,7 +63,8 @@ async fn main() -> std::io::Result<()> {
                 network: "lxdbr0".to_string(),
                 port: 2222,
                 vmm_sender: tx.clone(),
-                tikv_client: tikv_client.clone()
+                tikv_client: tikv_client.clone(),
+                task_cache: task_cache.clone()
             };
             channel.execute(server.serve()).for_each(spawn)
         })

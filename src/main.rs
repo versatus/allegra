@@ -3,8 +3,8 @@ use allegra::vm_types::VmType;
 use allegra::params::{InstanceCreateParams, InstanceStopParams};
 use tarpc::{context, client};
 use tarpc::server::Channel;
-
-
+use std::sync::{Arc, RwLock};
+use lru::LruCache;
 use std::time::Duration;
 use allegra::rpc::Vmm;
 use futures::prelude::*;
@@ -23,13 +23,15 @@ async fn main() -> std::io::Result<()> {
     })?;
     let server = tarpc::server::BaseChannel::with_defaults(server_transport);
     let (tx, _rx) = tokio::sync::mpsc::channel(1024);
+    let task_cache = Arc::new(RwLock::new(LruCache::new(1024))); 
     tokio::spawn(
         server.execute(
             VmmServer {
                 network: "lxdbr0".to_string(),
                 port: 2222,
                 vmm_sender: tx.clone(),
-                tikv_client
+                tikv_client,
+                task_cache
             }.serve()
         )
         .for_each(|response| async move {

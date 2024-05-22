@@ -119,6 +119,14 @@ impl Account {
         &mut self.tasks
     }
 
+    pub fn update_task_status(&mut self, task_id: &TaskId, task_status: TaskStatus) {
+        if let Some(mut entry) = self.tasks.get_mut(task_id) {
+            *entry = task_status;
+        } else {
+            self.tasks.insert(task_id.clone(), task_status);
+        }
+    }
+
     pub fn get_task_status(&self, task_id: &TaskId) -> Option<&TaskStatus> {
         self.tasks.get(task_id)
     }

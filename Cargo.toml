@@ -48,3 +48,5 @@ secp256k1 = { version = "0.29.0", features = ["rand-std", "hashes-std", "serde",
 ethers-core = "2.0.13"
 bip39 = "2.0.0"
 simple_logger = "4.3.0"
+ssh2 = "0.9.4"
+

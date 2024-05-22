@@ -22,6 +22,7 @@ use ethers_core::{
     }
 };
 use lru::LruCache;
+use std::sync::{Arc, RwLock};
 
 pub fn handle_get_instance_ip_output_success(
     output: &std::process::Output,
@@ -322,7 +323,7 @@ pub async fn update_task_status(
     owner: [u8; 20],
     task_id: TaskId,
     task_status: TaskStatus,
-    cache: &mut LruCache<TaskId, TaskStatus>
+    cache: &mut Arc<RwLock<LruCache<TaskId, TaskStatus>>>
 ) -> std::io::Result<()> {
     let mut account = serde_json::from_slice::<Account>(&state_client.get(owner.to_vec()).await.map_err(|e| {
         std::io::Error::new(
@@ -341,12 +342,21 @@ pub async fn update_task_status(
         )
     })?;
 
-    account.tasks_mut().insert(task_id.clone(), task_status.clone());
-    
-    if let Some(status) = cache.get_mut(&task_id) {
-        *status = task_status;
+    match cache.write() {
+        Ok(mut guard) => {
+            guard.put(task_id.clone(), task_status.clone());
+            account.update_task_status(&task_id.clone(), task_status.clone());
+        }
+        Err(e) => {
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string()
+                )
+            )
+        }
     }
-
+    
     state_client.put(
         owner.to_vec(),
         serde_json::to_vec(
@@ -366,47 +376,6 @@ pub async fn update_task_status(
     Ok(())
 }
 
-pub async fn create_new_account(
-    state_client: tikv_client::RawClient,
-    vmlist: VmList,
-    owner: [u8; 20],
-    namespace: Namespace,
-    task_id: TaskId,
-    task_status: TaskStatus,
-) -> std::io::Result<()> {
-    let vm_info = vmlist.get(&namespace.inner());
-    println!("discovered vm info: {:?}", vm_info);
-    let account = Account::new(
-        owner,
-        vec![(namespace.clone(), vm_info)],
-        vec![(namespace.clone(), vec![])],
-        vec![(task_id, task_status)],
-    );
-
-    println!("built account: {:?}", &account);
-
-    println!("Attempting to write to state");
-    state_client.put(
-        owner.to_vec(),
-        serde_json::to_vec(
-            &account
-        ).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?).await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other, 
-                e.to_string()
-            )
-        }
-    )?;
-    println!("Successfully wrote account to state");
-
-    Ok(())
-}
-
 pub async fn update_account(
     state_client: tikv_client::RawClient,
     vmlist: VmList,
@@ -421,7 +390,7 @@ pub async fn update_account(
         owner,
         vec![(namespace.clone(), vm_info.clone())],
         vec![(namespace.clone(), exposed_ports.clone())],
-        vec![(task_id, task_status)]
+        vec![(task_id.clone(), task_status.clone())]
     );
 
     let account: Account = if let Ok(Some(account_bytes)) = state_client.get(owner.to_vec()).await {
@@ -437,6 +406,7 @@ pub async fn update_account(
 
         account.update_namespace(&namespace, vm_info);
         account.update_exposed_ports(&namespace, exposed_ports.clone());
+        account.update_task_status(&task_id, task_status);
 
         account
     } else {

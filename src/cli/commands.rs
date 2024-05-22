@@ -90,7 +90,7 @@ pub enum AllegraCommands {
     Delete {
         #[arg(long, short)]
         name: String,
-        #[arg(long, short)]
+        #[arg(long)]
         force: bool,
         #[arg(long, short)]
         interactive: bool,

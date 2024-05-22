@@ -1,3 +1,4 @@
+use lru::LruCache;
 use tarpc::context;
 use crate::{
     vmm::{
@@ -7,7 +8,7 @@ use crate::{
         PENDING, 
     }, account::{
         TaskId, 
-        Account
+        Account, TaskStatus
     }, vm_info::VmResponse,
     params::{
         InstanceCreateParams,
@@ -21,6 +22,7 @@ use crate::{
 use tokio::sync::mpsc::Sender;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
+use std::sync::{Arc, RwLock};
 
 pub const MAX_PORT: u16 = 65535;
 /*
@@ -113,6 +115,7 @@ pub struct VmmServer {
     pub port: u16,
     pub vmm_sender: Sender<VmManagerMessage>,
     pub tikv_client: tikv_client::RawClient,
+    pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>> 
 }
 
 impl Vmm for VmmServer {
@@ -403,6 +406,20 @@ impl Vmm for VmmServer {
                 }
             };
             address_bytes
+        };
+
+        match self.task_cache.write() {
+            Ok(mut guard) => {
+                let tso = guard.get(&TaskId::new(id.clone()));
+                if let Some(task_status) = tso {
+                    return VmResponse {
+                        status: SUCCESS.to_string(),
+                        details: task_status.to_string(),
+                        ssh_details: None
+                    }
+                }
+            },
+            Err(_) => {}
         };
 
         match self.tikv_client.get(address_bytes.to_vec()).await {

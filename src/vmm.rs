@@ -26,6 +26,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::task::JoinHandle;
 use lru::LruCache;
 use sha3::{Digest, Sha3_256};
+use std::sync::{Arc, RwLock};
 
 pub const LOWEST_PORT: u16 = 2222;
 pub const HIGHEST_PORT: u16 = 65535;
@@ -73,7 +74,13 @@ pub struct VmManager {
     handles: FuturesUnordered<JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>>>,
     vmlist: VmList,
     state_client: tikv_client::RawClient,
-    task_cache: LruCache<TaskId, TaskStatus> 
+    task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>> 
+}
+
+impl VmManager {
+    pub fn task_cache(&self) -> Arc<RwLock<LruCache<TaskId, TaskStatus>>> {
+        self.task_cache.clone()
+    } 
 }
 
 impl VmManager {
@@ -147,13 +154,17 @@ impl VmManager {
             })?
         };
 
-        let task_cache = LruCache::new(
-            NonZeroUsize::new(250).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other, 
-                    "Unable to generate NonZeroUsize"
+        let task_cache = Arc::new(
+            RwLock::new(
+                LruCache::new(
+                    NonZeroUsize::new(250).ok_or(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other, 
+                            "Unable to generate NonZeroUsize"
+                        )
+                    )?
                 )
-            )?
+            )
         );
 
         Ok(Self {
@@ -592,11 +603,16 @@ impl VmManager {
             owner,
             task_id, 
             TaskStatus::Failure(
-                err_str
+                err_str.clone()
             ),
             &mut self.task_cache
         ).await?;
-        return Ok(())
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                err_str
+            )
+        )
     }
 
     async fn handle_stop_output_and_response(
@@ -658,11 +674,11 @@ impl VmManager {
         if let Ok(()) = verify_ownership(
             self.state_client.clone(),
             owner,
-            namespace
+            namespace.clone()
         ).await {
             println!("attempting to shutdown {}", &params.name);
             let output = std::process::Command::new("lxc")
-                .args(["stop", &params.name])
+                .args(["stop", &namespace.inner()])
                 .output()?;
 
             println!("Retrieved output...");
@@ -672,6 +688,7 @@ impl VmManager {
                 owner,
                 task_id
             ).await?;
+
             return Ok(())
         }
 
@@ -760,8 +777,9 @@ impl VmManager {
         let hash = hasher.finalize().to_vec();
 
         let owner = recover_owner_address(hash, sig, params.recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name.clone());
         let mut command = std::process::Command::new("lxc");
-        command.arg("delete").arg(&params.name);
+        command.arg("delete").arg(&namespace.inner());
 
         if params.interactive {
             command.arg("--interactive");

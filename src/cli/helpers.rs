@@ -1,9 +1,11 @@
 use crate::cli::commands::AllegraCommands;
+use crate::helpers::{recover_owner_address, recover_namespace};
 use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposePortParams};
 use crate::rpc::VmmClient;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::collections::HashMap;
+use std::io::Write;
 use ethers_core::k256::elliptic_curve::SecretKey;
 use sha3::{Digest, Sha3_256};
 use tarpc::client;
@@ -15,6 +17,9 @@ use ethers_core::{
 };
 use bip39::{Mnemonic, Language};
 use serde::{Serialize, Deserialize};
+use tokio::net::TcpStream;
+use ssh2::Session;
+use std::fs::File;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletInfo {
@@ -295,4 +300,99 @@ pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
     ).spawn();
 
     Ok(vmclient)
+}
+
+pub async fn enter_ssh_session(
+    keypath: &str,
+    rpc_client: &VmmClient,
+    params: InstanceGetSshDetails,
+    context: tarpc::context::Context
+) -> std::io::Result<()> {
+    let resp = rpc_client.get_ssh_details(context, params.clone()).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
+
+    if let Some(ssh_details) = resp.ssh_details {
+        let tcp = TcpStream::connect(format!("{}:{}", ssh_details.ip, ssh_details.port)).await?;
+        let mut session = Session::new()?; 
+
+        session.set_tcp_stream(tcp);
+        session.handshake()?;
+
+        let mut key_file = File::open(&keypath)?;
+        let mut pk = String::new();
+        key_file.read_to_string(&mut pk)?;
+
+        //TODO: allow entering username
+        let username = "root";
+        session.userauth_pubkey_memory(&username, None, &pk, None)?;
+
+        if !session.authenticated() {
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Authentication Failed"
+                )
+            )
+        }
+
+        let mut channel = session.channel_session()?;
+        channel.request_pty("xterm", None, None)?;
+        channel.shell()?;
+
+
+        let mut stdout = std::io::stdout();
+        let mut stdin = std::io::stdin();
+
+        let mut channel_stdout = channel.stream(0);
+        let mut channel_stdin = channel.stream(1);
+        
+        let handle: tokio::task::JoinHandle<std::io::Result<()>> = tokio::spawn(
+            async move {
+                let mut buffer = [0; 1024];
+
+                loop {
+                    match channel_stdout.read(&mut buffer) {
+                        Ok(n) if n == 0 => break,
+                        Ok(n) => {
+                            stdout.write_all(&buffer[..n])?;
+                            stdout.flush()?;
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                Ok(())
+            }
+        );
+
+        let mut buffer = [0; 1024];
+        loop {
+            match stdin.read(&mut buffer) {
+                Ok(n) if n == 0 => break,
+                Ok(n) => {
+                    channel_stdin.write_all(&buffer[..n])?;
+                    channel_stdin.flush()?;
+                }
+                Err(_) => break
+            }
+        }
+
+        handle.await??;
+        channel.send_eof()?;
+        channel.wait_close()?;
+
+        return Ok(())
+
+    }
+
+    return Err(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unable to find ssh details for {}", params.name),
+        )
+    )
 }
