@@ -8,6 +8,7 @@ use lru::LruCache;
 use std::time::Duration;
 use allegra::rpc::Vmm;
 use futures::prelude::*;
+use std::num::NonZeroUsize;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -23,7 +24,20 @@ async fn main() -> std::io::Result<()> {
     })?;
     let server = tarpc::server::BaseChannel::with_defaults(server_transport);
     let (tx, _rx) = tokio::sync::mpsc::channel(1024);
-    let task_cache = Arc::new(RwLock::new(LruCache::new(1024))); 
+    let task_cache = Arc::new(
+        RwLock::new(
+            LruCache::new(
+                NonZeroUsize::new(
+                    1024
+                ).ok_or(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Unable to create non-zero usize"
+                    )
+                )?
+            )
+        )
+    ); 
     tokio::spawn(
         server.execute(
             VmmServer {

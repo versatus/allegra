@@ -1,7 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::time::{SystemTime, Duration};
-use allegra::{generate_new_wallet, WalletInfo};
+use allegra::{generate_new_wallet, WalletInfo, enter_ssh_session};
 use allegra::params::{
     InstanceCreateParams, 
     InstanceStartParams, 
@@ -11,6 +11,7 @@ use allegra::params::{
     InstanceExposePortParams,
     InstanceGetSshDetails,
 };
+use allegra::rpc::VmmClient;
 use allegra::cli::commands::AllegraCommands;
 use allegra::cli::helpers::{
     create_allegra_rpc_client,
@@ -191,18 +192,15 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::GetSshDetails{
-            name, .. 
+            name, owner, keypath
         } => {
             println!("Getting ssh details for an Allegra instance: {:?}", &name);
             let vmclient = create_allegra_rpc_client().await?;
-
-            let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let params = InstanceGetSshDetails {
+                owner: owner.clone(),
                 name: name.clone(),
-                sig: hex::encode(&sig.to_bytes()),
-                recovery_id: recover_id.into()
+                keypath: keypath.clone()
             };
-
             let mut ctx = context::current();
             ctx.deadline = SystemTime::now() + Duration::from_secs(30); 
             let response = vmclient.get_ssh_details(ctx, params.clone()).await; 
@@ -214,6 +212,13 @@ async fn main() -> std::io::Result<()> {
             ctx.deadline = SystemTime::now() + Duration::from_secs(30);
             let response = vmclient.get_task_status(ctx, owner.clone(), task_id.clone()).await;
             println!("Response: {:?}", response);
+        }
+        AllegraCommands::Ssh { name, owner, keypath } => {
+            let vmclient = create_allegra_rpc_client().await?;
+            let mut ctx = context::current();
+            ctx.deadline = SystemTime::now() + Duration::from_secs(30);
+            let params = InstanceGetSshDetails { name: name.clone(), owner: owner.clone(), keypath: keypath.clone() };
+            enter_ssh_session(&vmclient, params, ctx).await?;
         }
     }
 

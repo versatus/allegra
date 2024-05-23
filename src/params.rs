@@ -56,9 +56,13 @@ pub struct InstanceExposePortParams {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstanceGetSshDetails {
+    pub owner: String,
     pub name: String,
-    pub sig: String,
-    pub recovery_id: u8,
+    pub keypath: String,
+}
+
+pub struct InstanceSshSession {
+    pub name: String,
 }
 
 pub trait Payload: Any {

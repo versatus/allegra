@@ -9,7 +9,7 @@ use crate::{
         TaskStatus,
         ExposedPort,
         Account,
-    },
+    }, vmm::Instance,
 };
 use std::str::FromStr;
 use sha3::{Digest, Sha3_256};
@@ -170,15 +170,84 @@ pub async fn update_iptables(
     ];
     update_account(
         state_client.clone(),
-        vmlist,
+        vmlist.clone(),
         owner,
-        namespace,
+        namespace.clone(),
         task_id.clone(),
         TaskStatus::Success,
         exposed_ports
     ).await?;
 
+    let port_map = vec![(internal_port, next_port)];
+    let vminfo = vmlist.get(&namespace.inner()).ok_or(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unable to find namespace {} in vmlist", &namespace)
+        )
+    )?;
+
+    update_instance(
+        namespace, 
+        vminfo, 
+        port_map, 
+        state_client
+    );
+
     Ok((owner, task_id, TaskStatus::Success))
+}
+
+pub async fn update_instance(
+    namespace: Namespace,
+    vm_info: VmInfo,
+    port_map: impl IntoIterator<Item = (u16, u16)>,
+    state_client: tikv_client::RawClient,
+) -> std::io::Result<()> {
+    let instance = if let Ok(Some(instance_bytes)) = state_client.get(
+        hex::decode(&namespace.inner()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?
+    ).await {
+        let mut instance: Instance = serde_json::from_slice(&instance_bytes).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+
+        instance.update_vminfo(vm_info);
+        instance.extend_port_mapping(port_map.into_iter());
+        instance
+    } else {
+        let instance = Instance::new(
+            namespace.clone(),
+            vm_info,
+            port_map,
+            None
+        );
+        instance
+    };
+
+    state_client.put(
+        hex::encode(&namespace.inner()),
+        serde_json::to_vec(
+            &instance
+        ).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other, 
+                e.to_string()
+            )
+        }
+    )?;
+
+    Ok(())
 }
 
 pub fn handle_update_ufw_output_failure(output: &std::process::Output) -> std::io::Result<()> {
@@ -431,4 +500,28 @@ pub async fn update_account(
     )?;
 
     Ok(())
+}
+
+pub async fn get_public_ip() -> std::io::Result<String> {
+    let resp = reqwest::get("https://api.ipify.org").await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
+    let ip = resp.text().await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
+
+    return Ok(ip)
+}
+
+pub async fn get_instance(
+    namespace: Namespace,
+    state_client: tikv_client::RawClient
+) -> std::io::Result<Instance> {
+    todo!()
 }

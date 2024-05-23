@@ -1,10 +1,10 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, collections::HashMap};
 use crate::{
     account::{
         TaskId,
         Namespace, 
         TaskStatus
-    }, vm_info::VmList,
+    }, vm_info::{VmList, VmInfo},
     params::{
         InstanceCreateParams,
         InstanceStartParams,
@@ -19,7 +19,7 @@ use crate::{
         recover_namespace,
         verify_ownership,
         update_iptables,
-        update_account
+        update_account, update_instance
     }
 };
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -27,6 +27,7 @@ use tokio::task::JoinHandle;
 use lru::LruCache;
 use sha3::{Digest, Sha3_256};
 use std::sync::{Arc, RwLock};
+use serde::{Serialize, Deserialize};
 
 pub const LOWEST_PORT: u16 = 2222;
 pub const HIGHEST_PORT: u16 = 65535;
@@ -34,6 +35,59 @@ pub static DEFAULT_NETWORK: &'static str = "lxdbr0";
 pub static SUCCESS: &'static str = "SUCCESS";
 pub static FAILURE: &'static str = "FAILURE";
 pub static PENDING: &'static str = "PENDING";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Instance {
+    namespace: Namespace,
+    vminfo: VmInfo,
+    port_map: HashMap<u16, u16>,
+    last_snapshot: Option<u64>,
+}
+
+impl Instance {
+
+    pub fn new(
+        namespace: Namespace,
+        vminfo: VmInfo,
+        port_map: impl IntoIterator<Item = (u16, u16)>,
+        last_snapshot: Option<u64>
+    ) -> Self {
+        Self {
+            namespace,
+            vminfo,
+            port_map: port_map.into_iter().collect(),
+            last_snapshot
+        }
+    }
+
+    pub fn namespace(&self) -> &Namespace {
+        &self.namespace
+    }
+
+    pub fn vminfo(&self) -> &VmInfo {
+        &self.vminfo
+    }
+
+    pub fn port_map(&self) -> &HashMap<u16, u16> {
+        &self.port_map
+    }
+
+    pub fn extend_port_mapping(&mut self, extend: impl Iterator<Item = (u16, u16)>) {
+        self.port_map.extend(extend);
+    }
+
+    pub fn update_vminfo(&mut self, vminfo: VmInfo) {
+        self.vminfo = vminfo
+    }
+
+    pub fn insert_port_mapping(&mut self, ext: u16, dest: u16) {
+        self.port_map.insert(ext, dest);
+    }
+
+    pub fn port_mapping_mut(&mut self) -> &mut HashMap<u16, u16> {
+        &mut self.port_map
+    }
+}
 
 #[derive(Debug)]
 pub enum VmManagerMessage {
@@ -1008,6 +1062,8 @@ impl VmManager {
             namespace.clone(), 
         ).await?;
 
+        self.refresh_vmlist();
+
         println!("Attempting to update account");
         update_account(
             self.state_client.clone(),
@@ -1020,6 +1076,20 @@ impl VmManager {
         ).await?;
 
         println!("Successfully updated account");
+
+        let vminfo = self.vmlist.get(&namespace.inner()).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find instance namespace in VM list"
+            )
+        )?;
+
+        update_instance(
+            namespace.clone(),
+            vminfo,
+            vec![],
+            self.state_client.clone()
+        ).await?;
 
         Ok(())
     }

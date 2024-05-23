@@ -49,4 +49,4 @@ ethers-core = "2.0.13"
 bip39 = "2.0.0"
 simple_logger = "4.3.0"
 ssh2 = "0.9.4"
-
+reqwest = "0.12.4"

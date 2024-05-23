@@ -5,19 +5,25 @@ use crate::{
         VmManagerMessage, 
         SUCCESS, 
         FAILURE, 
-        PENDING, 
+        PENDING, Instance, 
     }, account::{
         TaskId, 
         Account, TaskStatus
-    }, vm_info::VmResponse,
+    }, vm_info::{VmResponse, SshDetails},
     params::{
         InstanceCreateParams,
         InstanceStartParams,
         InstanceStopParams,
         InstanceAddPubkeyParams,
         InstanceDeleteParams, 
-        InstanceExposePortParams, InstanceGetSshDetails
-    }
+        Payload, 
+        InstanceExposePortParams,
+        InstanceGetSshDetails
+    },
+    helpers::{
+        recover_owner_address,
+        recover_namespace, get_instance
+    }, enter_ssh_session
 };
 use tokio::sync::mpsc::Sender;
 use serde::{Serialize, Deserialize};
@@ -468,6 +474,90 @@ impl Vmm for VmmServer {
         _: context::Context,
         params: InstanceGetSshDetails
     ) -> VmResponse {
-        todo!()
+        let public_ipaddr = match reqwest::get("https://api.ipify.org").await {
+            Ok(resp) => {
+                match resp.text().await {
+                    Ok(ip) => ip,
+                    Err(e) => {
+                        return VmResponse {
+                            status: FAILURE.to_string(),
+                            details: format!("Unable to acquire a host's public ip: {}", e),
+                            ssh_details: None
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: format!("Unable to acquire a host's public ip: {}", e),
+                    ssh_details: None
+                }
+            }
+        };
+
+        let owner = if params.owner.starts_with("0x") {
+            let owner = &params.owner[2..];
+            match hex::decode(&owner) {
+                Ok(owner) => {
+                    let mut owner_addr = [0u8; 20];
+                    owner_addr.copy_from_slice(&owner);
+                    owner_addr
+                },
+                Err(e) => return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: format!("Unable to recover owner address: {e}"),
+                    ssh_details: None,
+                }
+            }
+        } else {
+            match hex::decode(&params.owner) {
+                Ok(owner) => {
+                    let mut owner_addr = [0u8; 20];
+                    owner_addr.copy_from_slice(&owner);
+                    owner_addr
+                }
+                Err(e) => return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: format!("Unable to recover owner address: {e}"),
+                    ssh_details: None,
+                }
+            }
+        };
+        let namespace = recover_namespace(owner, &params.name);
+
+        let instance: Instance = match get_instance(namespace.clone(), self.tikv_client.clone()).await {
+            Ok(instance) => instance,
+            Err(e) => return VmResponse {
+                status: FAILURE.to_string(),
+                details: format!("Unable to acquire the instance {}: {}", &namespace.inner(), e),
+                ssh_details: None
+            }
+        };
+
+        let port = match instance.port_map().get(&22).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to acquire port mapping for instance port 22"
+            )
+        ) {
+            Ok(port) => port,
+            Err(e) => return VmResponse {
+                status: FAILURE.to_string(),
+                details: e.to_string(),
+                ssh_details: None,
+            }
+        };
+
+        let ssh_details = SshDetails {
+            ip: public_ipaddr,
+            port: *port 
+        };
+
+        return VmResponse {
+            status: SUCCESS.to_string(),
+            details: format!("SSH Details Acquired"),
+            ssh_details: Some(ssh_details)
+        }
     }
 }

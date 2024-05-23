@@ -1,5 +1,4 @@
 use crate::cli::commands::AllegraCommands;
-use crate::helpers::{recover_owner_address, recover_namespace};
 use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposePortParams};
 use crate::rpc::VmmClient;
 use std::io::Read;
@@ -141,12 +140,12 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                 }
             )
         }
-        AllegraCommands::GetSshDetails { ref name, .. } => {
+        AllegraCommands::GetSshDetails { ref name, ref keypath, ref owner } => {
             Box::new(
                 InstanceGetSshDetails {
-                    name: name.clone(),
-                    sig: String::default(),
-                    recovery_id: u8::default()
+                    owner: owner.to_string(),
+                    name: name.to_string(),
+                    keypath: keypath.clone(), 
                 }
             )
         }
@@ -280,7 +279,6 @@ fn generate_signature(
 }
 
 pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
-    //TODO(asmith): Replace SocketAddr with environment variable or default
     let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -303,7 +301,6 @@ pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
 }
 
 pub async fn enter_ssh_session(
-    keypath: &str,
     rpc_client: &VmmClient,
     params: InstanceGetSshDetails,
     context: tarpc::context::Context
@@ -322,7 +319,7 @@ pub async fn enter_ssh_session(
         session.set_tcp_stream(tcp);
         session.handshake()?;
 
-        let mut key_file = File::open(&keypath)?;
+        let mut key_file = File::open(&params.keypath)?;
         let mut pk = String::new();
         key_file.read_to_string(&mut pk)?;
 
