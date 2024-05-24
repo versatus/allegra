@@ -115,28 +115,42 @@ pub fn get_instance_ip(name: &str) -> std::io::Result<String> {
     Ok(addr.address())
 }
 
-pub fn handle_update_iptables_output_failure(output: &std::process::Output) -> std::io::Result<()> {
-    let err = std::str::from_utf8(&output.stderr).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?;
-
+pub fn handle_update_iptables_output_failure(
+    prerouting: &std::process::Output,
+    forwarding: &std::process::Output,
+    state: &std::process::Output
+) -> std::io::Result<()> {
+    dbg!(prerouting.status.success());
+    dbg!(forwarding.status.success());
+    dbg!(state.status.success());
     return Err(
         std::io::Error::new(
             std::io::ErrorKind::Other,
-            err.to_string()
+            format!(
+                r#"
+                failed to updated iptables:
+                    prerouting: {},
+                    forwarding: {},
+                    state: {},
+                "#,
+                prerouting.status.success(),
+                forwarding.status.success(),
+                state.status.success()
+            )
         )
     )
 }
 
-pub fn handle_update_iptables_output(output: &std::process::Output) -> std::io::Result<()> {
-    if output.status.success() {
+pub fn handle_update_iptables_output(
+    prerouting: &std::process::Output,
+    forwarding: &std::process::Output,
+    state: &std::process::Output,
+) -> std::io::Result<()> {
+    if prerouting.status.success() && forwarding.status.success() && state.status.success() {
         println!("Successfully updated iptables...");
         return Ok(())
     } else {
-        return handle_update_iptables_output_failure(output) 
+        return handle_update_iptables_output_failure(prerouting, forwarding, state) 
     }
 }
 
@@ -152,7 +166,7 @@ pub async fn update_iptables(
 ) -> std::io::Result<([u8; 20], TaskId, TaskStatus)> {
     let instance_ip = get_instance_ip(&namespace.inner())?;
     println!("acquired instance IP: {instance_ip}");
-    let output = std::process::Command::new("sudo")
+    let prerouting = std::process::Command::new("sudo")
         .args(
             ["iptables", "-t", "nat", 
             "-A", "PREROUTING", "-p", 
@@ -162,10 +176,27 @@ pub async fn update_iptables(
             ]
         )
         .output()?;
+    
+    let forwarding = std::process::Command::new("sudo")
+        .args(
+            ["iptables", "-A", "FORWARD", "-p", "tcp", "-d",
+            &instance_ip, "--dport", &internal_port.to_string(),
+            "-j", "ACCEPT"
+            ]
+        )
+        .output()?;
 
-    handle_update_iptables_output(&output)?;
-    update_ufw_in(next_port)?;
-    update_ufw_out(next_port)?;
+    let state = std::process::Command::new("sudo")
+        .args(
+            ["iptables", "-A", "FORWARD", 
+            "-m", "state", "--state", 
+            "RELATED,ESTABLISHED", "-j", "ACCEPT"
+            ]
+        )
+        .output()?;
+
+    handle_update_iptables_output(&prerouting, &forwarding, &state)?;
+    update_ufw_out(&instance_ip)?;
     let exposed_ports = vec![
         ExposedPort::new(next_port, None)
     ];
@@ -284,33 +315,39 @@ pub fn handle_update_ufw_output(output: &std::process::Output) -> std::io::Resul
     }
 }
 
-pub fn update_ufw_out(next_port: u16) -> std::io::Result<()> {
+pub fn update_ufw_out(instance_ip: &str) -> std::io::Result<()> {
     let output = std::process::Command::new("sudo")
         .arg("ufw")
         .arg("allow")
         .arg("out")
-        .arg(
-            format!(
-                "{}/tcp",
-                next_port
-            )
-        )
+        .arg("from")
+        .arg(instance_ip)
+        .arg("to")
+        .arg("any")
+        .arg("port")
+        .arg("443")
+        .arg("proto")
+        .arg("tcp")
         .output()?;
 
     handle_update_ufw_output(&output)
 }
 
-pub fn update_ufw_in(next_port: u16) -> std::io::Result<()> {
+pub fn update_ufw_in(_next_port: u16) -> std::io::Result<()> {
     let output = std::process::Command::new("sudo")
         .arg("ufw")
         .arg("allow")
         .arg("in")
-        .arg(
-            format!(
-                "{}/tcp",
-                next_port
-            )
-        )
+        .arg("on")
+        .arg("lxdbr0") //TODO(give this from vmm)
+        .arg("from")
+        .arg("any")
+        .arg("to")
+        .arg("any")
+        .arg("port")
+        .arg("22") //TODO allow this to be a variable
+        .arg("proto")
+        .arg("tcp")
         .output()?;
 
     handle_update_ufw_output(&output)

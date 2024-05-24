@@ -19,6 +19,7 @@ use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use ssh2::Session;
 use std::fs::File;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletInfo {
@@ -325,6 +326,7 @@ pub async fn enter_ssh_session(
         log::info!("tcp stream set...");
         session.handshake()?;
         log::info!("handshake completed...");
+        log::info!("attempting to read keypath file");
         let pk = if let Some(keypath) = params.keypath {
             let mut key_file = File::open(&keypath)?;
             let mut pk = String::new();
@@ -361,8 +363,8 @@ pub async fn enter_ssh_session(
         log::info!("shell acquired, establishing stdin and stdout");
 
 
-        let mut stdout = std::io::stdout();
-        let mut stdin = std::io::stdin();
+        let mut stdout = tokio::io::stdout();
+        let mut stdin = tokio::io::stdin();
 
         let mut channel_stdout = channel.stream(0);
         let mut channel_stdin = channel.stream(1);
@@ -375,8 +377,8 @@ pub async fn enter_ssh_session(
                     match channel_stdout.read(&mut buffer) {
                         Ok(n) if n == 0 => break,
                         Ok(n) => {
-                            stdout.write_all(&buffer[..n])?;
-                            stdout.flush()?;
+                            stdout.write_all(&buffer[..n]).await?;
+                            stdout.flush().await?;
                         }
                         Err(_) => break,
                     }
@@ -389,7 +391,7 @@ pub async fn enter_ssh_session(
         log::info!("stdin and stdout established...");
         let mut buffer = [0; 1024];
         loop {
-            match stdin.read(&mut buffer) {
+            match stdin.read(&mut buffer).await {
                 Ok(n) if n == 0 => break,
                 Ok(n) => {
                     channel_stdin.write_all(&buffer[..n])?;
@@ -404,7 +406,6 @@ pub async fn enter_ssh_session(
         channel.wait_close()?;
 
         return Ok(())
-
     }
 
     return Err(

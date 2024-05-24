@@ -116,7 +116,7 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         kp_index: Option<usize>
     },
-    #[command(name = "expose-ports")]
+    #[command(name = "expose-service")]
     ExposeService {
         #[arg(long, short)]
         name: String,
@@ -130,7 +130,7 @@ pub enum AllegraCommands {
         mnemonic: Option<String>,
         #[arg(long, short)]
         from_file: Option<bool>,
-        #[arg(long, short)]
+        #[arg(long)]
         path: Option<String>,
         #[arg(long, short)]
         kp_index: Option<usize>
