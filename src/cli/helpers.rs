@@ -281,7 +281,7 @@ fn generate_signature(
 }
 
 pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
-    let addr: SocketAddr = "170.250.22.3:29292".parse().map_err(|e| {
+    let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e

@@ -32,6 +32,13 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    simple_logger::init_with_level(log::Level::Info)
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
 
     let cli = Cli::parse();
 
