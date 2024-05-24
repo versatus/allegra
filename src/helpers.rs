@@ -9,7 +9,7 @@ use crate::{
         TaskStatus,
         ExposedPort,
         Account,
-    }, vmm::Instance,
+    }, vmm::Instance, params::ServiceType, expose::{update_nginx_config, reload_nginx},
 };
 use std::str::FromStr;
 use sha3::{Digest, Sha3_256};
@@ -146,6 +146,7 @@ pub async fn update_iptables(
     owner: [u8; 20],
     namespace: Namespace,
     next_port: u16,
+    service_type: ServiceType,
     task_id: TaskId,
     internal_port: u16
 ) -> std::io::Result<([u8; 20], TaskId, TaskStatus)> {
@@ -178,7 +179,7 @@ pub async fn update_iptables(
         exposed_ports
     ).await?;
 
-    let port_map = vec![(internal_port, next_port)];
+    let port_map = vec![(internal_port, (next_port, service_type))];
     let vminfo = vmlist.get(&namespace.inner()).ok_or(
         std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -186,12 +187,20 @@ pub async fn update_iptables(
         )
     )?;
 
+    update_nginx_config(
+        &instance_ip,
+        internal_port,
+        next_port
+    ).await?;
+
+    reload_nginx().await?;
+
     update_instance(
         namespace, 
         vminfo, 
         port_map, 
         state_client
-    );
+    ).await?;
 
     Ok((owner, task_id, TaskStatus::Success))
 }
@@ -199,7 +208,7 @@ pub async fn update_iptables(
 pub async fn update_instance(
     namespace: Namespace,
     vm_info: VmInfo,
-    port_map: impl IntoIterator<Item = (u16, u16)>,
+    port_map: impl IntoIterator<Item = (u16, (u16, ServiceType))>,
     state_client: tikv_client::RawClient,
 ) -> std::io::Result<()> {
     let instance = if let Ok(Some(instance_bytes)) = state_client.get(

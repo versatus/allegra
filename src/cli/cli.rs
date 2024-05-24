@@ -8,7 +8,7 @@ use allegra::params::{
     InstanceStopParams, 
     InstanceAddPubkeyParams, 
     InstanceDeleteParams, 
-    InstanceExposePortParams,
+    InstanceExposeServiceParams,
     InstanceGetSshDetails,
 };
 use allegra::rpc::VmmClient;
@@ -171,16 +171,17 @@ async fn main() -> std::io::Result<()> {
             let response = vmclient.delete_vm(ctx, params.clone()).await; 
             println!("Response: {:?}", response);
         },
-        AllegraCommands::ExposePorts {
-            name, port, .. 
+        AllegraCommands::ExposeService {
+            name, port, service_type, .. 
         } => {
             println!("Exposing ports on an Allegra instance: {:?}", &name);
             let vmclient = create_allegra_rpc_client().await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
-            let params = InstanceExposePortParams {
+            let params = InstanceExposeServiceParams {
                 name: name.clone(),
                 port: port.clone(),
+                service_type: service_type.clone(),
                 sig: hex::encode(&sig.to_bytes()),
                 recovery_id: recover_id.into()
             };
@@ -192,14 +193,15 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::GetSshDetails{
-            name, owner, keypath
+            name, owner, keypath, username
         } => {
             println!("Getting ssh details for an Allegra instance: {:?}", &name);
             let vmclient = create_allegra_rpc_client().await?;
             let params = InstanceGetSshDetails {
                 owner: owner.clone(),
                 name: name.clone(),
-                keypath: keypath.clone()
+                keypath: None,
+                username: None
             };
             let mut ctx = context::current();
             ctx.deadline = SystemTime::now() + Duration::from_secs(30); 
@@ -213,11 +215,16 @@ async fn main() -> std::io::Result<()> {
             let response = vmclient.get_task_status(ctx, owner.clone(), task_id.clone()).await;
             println!("Response: {:?}", response);
         }
-        AllegraCommands::Ssh { name, owner, keypath } => {
+        AllegraCommands::Ssh { name, owner, keypath, username } => {
             let vmclient = create_allegra_rpc_client().await?;
             let mut ctx = context::current();
             ctx.deadline = SystemTime::now() + Duration::from_secs(30);
-            let params = InstanceGetSshDetails { name: name.clone(), owner: owner.clone(), keypath: keypath.clone() };
+            let params = InstanceGetSshDetails { 
+                name: name.clone(), 
+                owner: owner.clone(), 
+                keypath: Some(keypath.clone()),
+                username: Some(username.clone())
+            };
             enter_ssh_session(&vmclient, params, ctx).await?;
         }
     }

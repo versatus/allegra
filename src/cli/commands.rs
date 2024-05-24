@@ -1,5 +1,5 @@
 use clap::Subcommand;
-use crate::vm_types::VmType;
+use crate::{vm_types::VmType, params::ServiceType};
 
 #[derive(Clone, Subcommand)]
 pub enum AllegraCommands {
@@ -10,7 +10,9 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         name: String,
         #[arg(long, short, default_value="~/.ssh/id_rsa")]
-        keypath: String
+        keypath: String,
+        #[arg(long, short, default_value="root")]
+        username: String 
     },
     #[command(name = "wallet")]
     Wallet {
@@ -82,17 +84,17 @@ pub enum AllegraCommands {
     AddPubkey {
         #[arg(long, short)]
         name: String,
-        #[arg(long, short)]
+        #[arg(long, short='k')]
         pubkey: String,
         #[arg(long, short)]
         sk: Option<String>,
         #[arg(long, short)]
         mnemonic: Option<String>,
-        #[arg(long, short)]
+        #[arg(long, short='f')]
         from_file: Option<bool>,
-        #[arg(long, short)]
+        #[arg(long, short='p')]
         path: Option<String>,
-        #[arg(long, short)]
+        #[arg(long, short='i')]
         kp_index: Option<usize>
     },
     #[command(name = "delete")]
@@ -115,11 +117,13 @@ pub enum AllegraCommands {
         kp_index: Option<usize>
     },
     #[command(name = "expose-ports")]
-    ExposePorts {
+    ExposeService {
         #[arg(long, short)]
         name: String,
         #[arg(long, short)]
         port: Vec<u16>,
+        #[arg(long, short='t')]
+        service_type: Vec<ServiceType>,
         #[arg(long, short)]
         sk: Option<String>,
         #[arg(long, short)]
@@ -137,8 +141,10 @@ pub enum AllegraCommands {
         name: String,
         #[arg(long, short)]
         owner: String,
-        #[arg(long, short, default_value="~/.ssh/id_rsa")]
-        keypath: String,
+        #[arg(long, short)]
+        keypath: Option<String>,
+        #[arg(long, short)]
+        username: Option<String>
     },
     #[command(name = "poll-task")]
     PollTask {
@@ -157,7 +163,7 @@ impl AllegraCommands {
             Self::Start { from_file, .. } => from_file.clone(),
             Self::Delete { from_file, .. } => from_file.clone(),
             Self::AddPubkey { from_file, .. } => from_file.clone(),
-            Self::ExposePorts { from_file, .. } => from_file.clone(),
+            Self::ExposeService { from_file, .. } => from_file.clone(),
             Self::GetSshDetails { .. } => None,
             Self::PollTask { .. } => None,
             Self::Wallet { .. } => None,
@@ -172,7 +178,7 @@ impl AllegraCommands {
             Self::Start { sk, .. } => sk.clone(),
             Self::Delete { sk, .. } => sk.clone(),
             Self::AddPubkey { sk, .. } => sk.clone(),
-            Self::ExposePorts { sk, .. } => sk.clone(),
+            Self::ExposeService { sk, .. } => sk.clone(),
             Self::GetSshDetails { .. } => None,
             Self::PollTask { .. } => None,
             Self::Wallet { .. } => None,
@@ -188,7 +194,7 @@ impl AllegraCommands {
             Self::Start { mnemonic, .. } => mnemonic.clone(),
             Self::Delete { mnemonic, .. } => mnemonic.clone(),
             Self::AddPubkey { mnemonic, .. } => mnemonic.clone(),
-            Self::ExposePorts { mnemonic, .. } => mnemonic.clone(),
+            Self::ExposeService { mnemonic, .. } => mnemonic.clone(),
             Self::GetSshDetails { .. } => None,
             Self::PollTask { .. } => None,
             Self::Wallet { .. } => None,
@@ -203,7 +209,7 @@ impl AllegraCommands {
             Self::Start { path, .. } => path.clone(),
             Self::Delete { path, .. } => path.clone(),
             Self::AddPubkey { path, .. } => path.clone(),
-            Self::ExposePorts { path, .. } => path.clone(),
+            Self::ExposeService { path, .. } => path.clone(),
             Self::GetSshDetails { .. } => None,
             Self::PollTask { .. } => None,
             Self::Wallet { .. } => None,
@@ -218,7 +224,7 @@ impl AllegraCommands {
             Self::Start { kp_index, .. } => kp_index.clone(),
             Self::Delete { kp_index, .. } => kp_index.clone(),
             Self::AddPubkey { kp_index, .. } => kp_index.clone(),
-            Self::ExposePorts { kp_index, .. } => kp_index.clone(),
+            Self::ExposeService { kp_index, .. } => kp_index.clone(),
             Self::GetSshDetails { .. } => None,
             Self::PollTask { .. } => None,
             Self::Wallet { .. } => None,

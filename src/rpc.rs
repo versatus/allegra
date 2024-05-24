@@ -15,15 +15,13 @@ use crate::{
         InstanceStartParams,
         InstanceStopParams,
         InstanceAddPubkeyParams,
-        InstanceDeleteParams, 
-        Payload, 
-        InstanceExposePortParams,
+        InstanceDeleteParams,
+        InstanceExposeServiceParams,
         InstanceGetSshDetails
     },
     helpers::{
-        recover_owner_address,
         recover_namespace, get_instance
-    }, enter_ssh_session
+    }
 };
 use tokio::sync::mpsc::Sender;
 use serde::{Serialize, Deserialize};
@@ -100,7 +98,7 @@ pub trait Vmm {
         params: InstanceAddPubkeyParams
     ) -> VmResponse;
     async fn delete_vm(params: InstanceDeleteParams) -> VmResponse;
-    async fn expose_vm_ports(params: InstanceExposePortParams) -> VmResponse;
+    async fn expose_vm_ports(params: InstanceExposeServiceParams) -> VmResponse;
     async fn get_task_status(owner: String, id: String) -> VmResponse;
     async fn get_ssh_details(params: InstanceGetSshDetails) -> VmResponse;
     //TODO: Implement all LXC Commands
@@ -175,11 +173,11 @@ impl Vmm for VmmServer {
                 ssh_details: None,
             }
         };
-        println!("attempting to shutdown VM...");
+        println!("attempting to Shutdown VM...");
         let message = VmManagerMessage::StopInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
         match self.vmm_sender.send(message).await {
             Ok(_) => {
-                println!("Successfully sent shutdown message to vmm...");
+                println!("Successfully sent StopInstance message to vmm...");
                 return VmResponse {
                     status: PENDING.to_string(),
                     details: format!("TaskId: {}", task_id.task_id()),
@@ -187,7 +185,7 @@ impl Vmm for VmmServer {
                 }
             }
             Err(e) => {
-                println!("Error sending shutdown message to vmm...");
+                println!("Error sending StopInstance message to vmm...");
                 log::error!("{e}");
                 return VmResponse {
                     status: FAILURE.to_string(),
@@ -217,11 +215,11 @@ impl Vmm for VmmServer {
                 ssh_details: None,
             }
         };
-        println!("attempting to shutdown VM...");
+        println!("attempting to start VM...");
         let message = VmManagerMessage::StartInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
         match self.vmm_sender.send(message).await {
             Ok(_) => {
-                println!("Successfully sent shutdown message to vmm...");
+                println!("Successfully sent StartInstance message to vmm...");
                 return VmResponse {
                     status: PENDING.to_string(),
                     details: format!("TaskId: {}", task_id.task_id()),
@@ -229,7 +227,7 @@ impl Vmm for VmmServer {
                 }
             }
             Err(e) => {
-                println!("Error sending shutdown message to vmm...");
+                println!("Error sending StartInstance message to vmm...");
                 log::error!("{e}");
                 return VmResponse {
                     status: FAILURE.to_string(),
@@ -268,7 +266,7 @@ impl Vmm for VmmServer {
 
         match self.vmm_sender.send(message).await {
             Ok(_) => {
-                println!("Successfully sent shutdown message to vmm...");
+                println!("Successfully sent InjectAuth message to vmm...");
                 return VmResponse {
                     status: PENDING.to_string(),
                     details: format!("TaskId: {}", task_id.task_id()),
@@ -276,7 +274,7 @@ impl Vmm for VmmServer {
                 }
             }
             Err(e) => {
-                println!("Error sending shutdown message to vmm...");
+                println!("Error sending InjectAuth message to vmm...");
                 log::error!("{e}");
                 return VmResponse {
                     status: FAILURE.to_string(),
@@ -311,7 +309,7 @@ impl Vmm for VmmServer {
 
         match self.vmm_sender.send(message).await {
             Ok(_) => {
-                println!("Successfully sent shutdown message to vmm...");
+                println!("Successfully sent delete message to vmm...");
                 return VmResponse {
                     status: PENDING.to_string(),
                     details: format!("TaskId: {}", task_id.task_id()),
@@ -333,7 +331,7 @@ impl Vmm for VmmServer {
     async fn expose_vm_ports(
         self, 
         _: context::Context,
-        params: InstanceExposePortParams
+        params: InstanceExposeServiceParams
     ) -> VmResponse {
         let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
             let mut hasher = Sha3_256::new();
@@ -350,7 +348,7 @@ impl Vmm for VmmServer {
             }
         };
 
-        let message = VmManagerMessage::ExposePorts { 
+        let message = VmManagerMessage::ExposeService { 
             params: params.clone(),
             sig: params.sig,
             task_id: task_id.clone() 
@@ -358,7 +356,7 @@ impl Vmm for VmmServer {
 
         match self.vmm_sender.send(message).await {
             Ok(_) => {
-                println!("Successfully sent shutdown message to vmm...");
+                println!("Successfully sent ExposePort message to vmm...");
                 return VmResponse {
                     status: PENDING.to_string(),
                     details: format!("TaskId: {}", task_id.task_id()),
@@ -366,7 +364,7 @@ impl Vmm for VmmServer {
                 }
             }
             Err(e) => {
-                println!("Error sending shutdown message to vmm...");
+                println!("Error sending ExposePort message to vmm...");
                 log::error!("{e}");
                 return VmResponse {
                     status: FAILURE.to_string(),
@@ -535,7 +533,7 @@ impl Vmm for VmmServer {
             }
         };
 
-        let port = match instance.port_map().get(&22).ok_or(
+        let (port, _) = match instance.port_map().get(&22).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "unable to acquire port mapping for instance port 22"

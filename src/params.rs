@@ -1,7 +1,37 @@
 use std::any::Any;
-
+use clap::ValueEnum;
 use serde::{Serialize, Deserialize};
 use crate::vm_types::VmType;
+
+#[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
+pub enum ServiceType {
+    Ssh,
+    NodeJs,
+    Postgres,
+    MySQL,
+    Redis,
+    MongoDB,
+    RabbitMQ,
+    Kafka,
+    Custom
+}
+
+impl ServiceType {
+    pub fn default_port(&self) -> Option<u16> {
+        match *self {
+            ServiceType::Ssh => Some(22),
+            ServiceType::NodeJs => Some(3000),
+            ServiceType::Postgres => Some(5432),
+            ServiceType::MySQL => Some(3306),
+            ServiceType::Redis => Some(6379),
+            ServiceType::MongoDB => Some(27017),
+            ServiceType::RabbitMQ => Some(5672),
+            ServiceType::Kafka => Some(9092),
+            ServiceType::Custom => None,
+        }
+    }
+}
+
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InstanceCreateParams {
@@ -47,9 +77,10 @@ pub struct InstanceDeleteParams {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceExposePortParams {
+pub struct InstanceExposeServiceParams {
     pub name: String,
     pub port: Vec<u16>,
+    pub service_type: Vec<ServiceType>,
     pub sig: String,
     pub recovery_id: u8,
 }
@@ -58,7 +89,8 @@ pub struct InstanceExposePortParams {
 pub struct InstanceGetSshDetails {
     pub owner: String,
     pub name: String,
-    pub keypath: String,
+    pub keypath: Option<String>,
+    pub username: Option<String>
 }
 
 pub struct InstanceSshSession {
@@ -142,12 +174,13 @@ impl Payload for InstanceAddPubkeyParams {
     }
 }
 
-impl Payload for InstanceExposePortParams {
+impl Payload for InstanceExposeServiceParams {
     fn into_payload(&self) -> String {
         serde_json::json!({
             "command": "exposePort",
             "name": &self.name,
             "ports": &self.port,
+            "services": &self.service_type
         }).to_string()
     }
 

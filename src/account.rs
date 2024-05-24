@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 use serde::{Serialize, Deserialize};
-use crate::vm_info::VmInfo;
+use crate::{vm_info::VmInfo, params::ServiceType};
 
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -61,11 +61,11 @@ impl Display for TaskStatus {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExposedPort {
     port: u16,
-    service_description: Option<String>,
+    service_description: Option<ServiceType>,
 }
 
 impl ExposedPort {
-    pub fn new(port: u16, service_description: Option<String>) -> Self {
+    pub fn new(port: u16, service_description: Option<ServiceType>) -> Self {
         Self { port, service_description }
     }
 }

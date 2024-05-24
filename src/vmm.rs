@@ -11,7 +11,7 @@ use crate::{
         InstanceStopParams,
         InstanceDeleteParams,
         InstanceAddPubkeyParams,
-        InstanceExposePortParams, Payload
+        InstanceExposeServiceParams, Payload, ServiceType
     },
     helpers::{
         update_task_status,
@@ -20,7 +20,7 @@ use crate::{
         verify_ownership,
         update_iptables,
         update_account, update_instance
-    }
+    }, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}
 };
 use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::task::JoinHandle;
@@ -40,7 +40,7 @@ pub static PENDING: &'static str = "PENDING";
 pub struct Instance {
     namespace: Namespace,
     vminfo: VmInfo,
-    port_map: HashMap<u16, u16>,
+    port_map: HashMap<u16, (u16, ServiceType)>,
     last_snapshot: Option<u64>,
 }
 
@@ -49,7 +49,7 @@ impl Instance {
     pub fn new(
         namespace: Namespace,
         vminfo: VmInfo,
-        port_map: impl IntoIterator<Item = (u16, u16)>,
+        port_map: impl IntoIterator<Item = (u16, (u16, ServiceType))>,
         last_snapshot: Option<u64>
     ) -> Self {
         Self {
@@ -68,11 +68,11 @@ impl Instance {
         &self.vminfo
     }
 
-    pub fn port_map(&self) -> &HashMap<u16, u16> {
+    pub fn port_map(&self) -> &HashMap<u16, (u16, ServiceType)> {
         &self.port_map
     }
 
-    pub fn extend_port_mapping(&mut self, extend: impl Iterator<Item = (u16, u16)>) {
+    pub fn extend_port_mapping(&mut self, extend: impl Iterator<Item = (u16, (u16, ServiceType))>) {
         self.port_map.extend(extend);
     }
 
@@ -80,11 +80,11 @@ impl Instance {
         self.vminfo = vminfo
     }
 
-    pub fn insert_port_mapping(&mut self, ext: u16, dest: u16) {
-        self.port_map.insert(ext, dest);
+    pub fn insert_port_mapping(&mut self, ext: u16, dest: u16, service_type: ServiceType) {
+        self.port_map.insert(ext, (dest, service_type));
     }
 
-    pub fn port_mapping_mut(&mut self) -> &mut HashMap<u16, u16> {
+    pub fn port_mapping_mut(&mut self) -> &mut HashMap<u16, (u16, ServiceType)> {
         &mut self.port_map
     }
 }
@@ -115,8 +115,8 @@ pub enum VmManagerMessage {
         sig: String,
         task_id: TaskId 
     },
-    ExposePorts {
-        params: InstanceExposePortParams,
+    ExposeService {
+        params: InstanceExposeServiceParams,
         sig: String,
         task_id: TaskId,
     }
@@ -350,6 +350,7 @@ impl VmManager {
                 sig, 
                 task_id 
             } => {
+                println!("VMM Received Inject Auth");
                 return self.inject_authorization(params, sig, task_id).await
             }
             VmManagerMessage::StopInstance { 
@@ -366,12 +367,12 @@ impl VmManager {
             } => {
                 return self.delete_instance(params, sig, task_id).await
             }
-            VmManagerMessage::ExposePorts { 
+            VmManagerMessage::ExposeService { 
                 params, 
                 sig, 
                 task_id 
             } => {
-                return self.expose_ports(params, sig, task_id).await
+                return self.expose_service(params, sig, task_id).await
             }
         }
     }
@@ -538,6 +539,7 @@ impl VmManager {
                 e.to_string()
             )
         })?.to_string();
+        log::error!("{err_str}");
         update_task_status(
             self.state_client.clone(),
             owner,
@@ -556,11 +558,13 @@ impl VmManager {
         task_id: TaskId
     ) -> std::io::Result<()> {
         if output.status.success() {
+            log::info!("Auth Injection was successful");
             self.handle_inject_authorization_output_success(
                 owner,
                 task_id
             ).await
         } else {
+            log::info!("Auth Injection was a Failure");
             self.handle_inject_authorization_output_failure(
                 output,
                 owner,
@@ -575,37 +579,34 @@ impl VmManager {
         sig: String, 
         task_id: TaskId
     ) -> std::io::Result<()> {
-        let payload = serde_json::json!({
-            "command": "injectAuth",
-            "name": &params.name,
-            "pubkey": &params.pubkey
-        }).to_string();
-
         let mut hasher = Sha3_256::new();
-        hasher.update(payload.as_bytes());
+        hasher.update(params.into_payload().as_bytes());
         let hash = hasher.finalize().to_vec();
 
         let owner = recover_owner_address(hash, sig, params.recovery_id)?;
+        log::info!("Recovered owner address");
         let namespace = recover_namespace(owner, &params.name);
+        log::info!("Recovered Instance Namespace");
 
         if let Ok(()) = verify_ownership(
             self.state_client.clone(),
             owner,
-            namespace
+            namespace.clone()
         ).await {
             let echo = format!(
-                r#""echo '{}' >> ~/.ssh/authorized_keys""#,
+                r#"echo '{}' >> /root/.ssh/authorized_keys"#,
                 params.pubkey
             );
             let output = std::process::Command::new("lxc")
                 .arg("exec")
-                .arg(&params.name)
+                .arg(&namespace.inner())
                 .arg("--")
                 .arg("bash")
                 .arg("-c")
                 .arg(&echo)
                 .output()?;
             
+            log::info!("Executed Auth Injection");
 
             return self.handle_inject_authorization_output(
                 output,
@@ -853,17 +854,14 @@ impl VmManager {
         ).await
     }
 
-    async fn expose_ports(
+    async fn expose_service(
         &mut self,
-        params: InstanceExposePortParams,
+        params: InstanceExposeServiceParams,
         sig: String,
         task_id: TaskId
     ) -> std::io::Result<()> {
-        let payload = serde_json::json!({
-            "command": "exposePort",
-            "name": &params.name,
-            "ports": &params.port,
-        }).to_string();
+
+        let payload = params.into_payload();
 
         let mut hasher = Sha3_256::new();
         hasher.update(
@@ -887,7 +885,7 @@ impl VmManager {
             owner,
             namespace.clone()
         ).await {
-            for port in params.port {
+            for (port, service) in params.port.into_iter().zip(params.service_type.into_iter()) {
                 let state_client = self.state_client.clone();
                 self.refresh_vmlist().await?;
                 let vmlist = self.vmlist.clone();
@@ -901,7 +899,8 @@ impl VmManager {
                             vmlist.clone(),
                             owner,
                             inner_namespace.clone(),
-                            next_port, 
+                            next_port,
+                            service.clone(),
                             inner_task_id.clone(),
                             port 
                         ).await?;
@@ -938,6 +937,7 @@ impl VmManager {
                     owner,
                     namespace,
                     next_port, 
+                    ServiceType::Ssh,
                     task_id.clone(),
                     22
                 ).await?;
@@ -1062,7 +1062,9 @@ impl VmManager {
             namespace.clone(), 
         ).await?;
 
-        self.refresh_vmlist();
+        self.refresh_vmlist().await?;
+
+        let _output = startup::run_script(namespace.clone(), PUBKEY_AUTH_STARTUP_SCRIPT)?;
 
         println!("Attempting to update account");
         update_account(

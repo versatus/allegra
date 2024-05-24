@@ -1,5 +1,5 @@
 use crate::cli::commands::AllegraCommands;
-use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposePortParams};
+use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposeServiceParams};
 use crate::rpc::VmmClient;
 use std::io::Read;
 use std::net::SocketAddr;
@@ -130,22 +130,24 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                 }
             )
         }
-        AllegraCommands::ExposePorts { ref name, ref port, .. } => {
+        AllegraCommands::ExposeService { ref name, ref port, ref service_type, .. } => {
             Box::new(
-                InstanceExposePortParams {
+                InstanceExposeServiceParams {
                     name: name.clone(),
                     port: port.clone(),
+                    service_type: service_type.clone(),
                     sig: String::default(),
                     recovery_id: u8::default()
                 }
             )
         }
-        AllegraCommands::GetSshDetails { ref name, ref keypath, ref owner } => {
+        AllegraCommands::GetSshDetails { ref name, ref keypath, ref owner, ref username } => {
             Box::new(
                 InstanceGetSshDetails {
                     owner: owner.to_string(),
                     name: name.to_string(),
                     keypath: keypath.clone(), 
+                    username: username.clone()
                 }
             )
         }
@@ -319,9 +321,19 @@ pub async fn enter_ssh_session(
         session.set_tcp_stream(tcp);
         session.handshake()?;
 
-        let mut key_file = File::open(&params.keypath)?;
-        let mut pk = String::new();
-        key_file.read_to_string(&mut pk)?;
+        let pk = if let Some(keypath) = params.keypath {
+            let mut key_file = File::open(&keypath)?;
+            let mut pk = String::new();
+            key_file.read_to_string(&mut pk)?;
+            pk
+        } else {
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "keypath is required if attempting to enter an SSH session"
+                )
+            )
+        };
 
         //TODO: allow entering username
         let username = "root";
