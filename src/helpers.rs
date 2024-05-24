@@ -224,8 +224,6 @@ pub async fn update_iptables(
         next_port
     ).await?;
 
-    reload_nginx().await?;
-
     update_instance(
         namespace, 
         vminfo, 
