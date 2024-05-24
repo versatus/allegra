@@ -281,7 +281,7 @@ fn generate_signature(
 }
 
 pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
-    let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
+    let addr: SocketAddr = "170.250.22.3:29292".parse().map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e
@@ -314,13 +314,17 @@ pub async fn enter_ssh_session(
         )
     })?;
 
+    log::info!("{:?}", resp);
     if let Some(ssh_details) = resp.ssh_details {
+        log::info!("{:?}", ssh_details);
         let tcp = TcpStream::connect(format!("{}:{}", ssh_details.ip, ssh_details.port)).await?;
         let mut session = Session::new()?; 
 
+        log::info!("starting session...");
         session.set_tcp_stream(tcp);
+        log::info!("tcp stream set...");
         session.handshake()?;
-
+        log::info!("handshake completed...");
         let pk = if let Some(keypath) = params.keypath {
             let mut key_file = File::open(&keypath)?;
             let mut pk = String::new();
@@ -337,6 +341,7 @@ pub async fn enter_ssh_session(
 
         //TODO: allow entering username
         let username = "root";
+        log::info!("authorizing user");
         session.userauth_pubkey_memory(&username, None, &pk, None)?;
 
         if !session.authenticated() {
@@ -348,9 +353,12 @@ pub async fn enter_ssh_session(
             )
         }
 
+        log::info!("session authenticated establishing channel");
         let mut channel = session.channel_session()?;
+        log::info!("channel established, requesting shell");
         channel.request_pty("xterm", None, None)?;
         channel.shell()?;
+        log::info!("shell acquired, establishing stdin and stdout");
 
 
         let mut stdout = std::io::stdout();
@@ -378,6 +386,7 @@ pub async fn enter_ssh_session(
             }
         );
 
+        log::info!("stdin and stdout established...");
         let mut buffer = [0; 1024];
         loop {
             match stdin.read(&mut buffer) {

@@ -212,12 +212,7 @@ pub async fn update_instance(
     state_client: tikv_client::RawClient,
 ) -> std::io::Result<()> {
     let instance = if let Ok(Some(instance_bytes)) = state_client.get(
-        hex::decode(&namespace.inner()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?
+        namespace.inner()
     ).await {
         let mut instance: Instance = serde_json::from_slice(&instance_bytes).map_err(|e| {
             std::io::Error::new(
@@ -226,10 +221,12 @@ pub async fn update_instance(
             )
         })?;
 
+        log::info!("successfully acquired existing instance: {} from local state", namespace.inner());
         instance.update_vminfo(vm_info);
         instance.extend_port_mapping(port_map.into_iter());
         instance
     } else {
+        log::info!("Instance {} doesn't exist, building...", namespace.inner());
         let instance = Instance::new(
             namespace.clone(),
             vm_info,
@@ -239,8 +236,10 @@ pub async fn update_instance(
         instance
     };
 
+    log::info!("Instance: {:?}", &instance);
+
     state_client.put(
-        hex::encode(&namespace.inner()),
+        namespace.inner(),
         serde_json::to_vec(
             &instance
         ).map_err(|e| {
@@ -255,6 +254,8 @@ pub async fn update_instance(
             )
         }
     )?;
+
+    log::info!("successfully added instance: {} to local state", &namespace.inner());
 
     Ok(())
 }
@@ -532,5 +533,24 @@ pub async fn get_instance(
     namespace: Namespace,
     state_client: tikv_client::RawClient
 ) -> std::io::Result<Instance> {
-    todo!()
+    log::info!("attempting to get instance: {}", namespace.inner());
+    serde_json::from_slice(
+        &state_client.get(
+            namespace.inner()
+        ).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?.ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Instance does not exist in state"
+            ) 
+        )?).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })
 }

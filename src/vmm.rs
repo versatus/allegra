@@ -73,6 +73,7 @@ impl Instance {
     }
 
     pub fn extend_port_mapping(&mut self, extend: impl Iterator<Item = (u16, (u16, ServiceType))>) {
+        log::info!("extending port mapping");
         self.port_map.extend(extend);
     }
 
@@ -1089,7 +1090,7 @@ impl VmManager {
         update_instance(
             namespace.clone(),
             vminfo,
-            vec![],
+            vec![(22, (self.next_port, ServiceType::Ssh))],
             self.state_client.clone()
         ).await?;
 

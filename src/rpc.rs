@@ -477,6 +477,7 @@ impl Vmm for VmmServer {
                 match resp.text().await {
                     Ok(ip) => ip,
                     Err(e) => {
+                        log::error!("{e}");
                         return VmResponse {
                             status: FAILURE.to_string(),
                             details: format!("Unable to acquire a host's public ip: {}", e),
@@ -486,6 +487,7 @@ impl Vmm for VmmServer {
                 }
             }
             Err(e) => {
+                log::error!("{e}");
                 return VmResponse {
                     status: FAILURE.to_string(),
                     details: format!("Unable to acquire a host's public ip: {}", e),
@@ -502,10 +504,13 @@ impl Vmm for VmmServer {
                     owner_addr.copy_from_slice(&owner);
                     owner_addr
                 },
-                Err(e) => return VmResponse {
-                    status: FAILURE.to_string(),
-                    details: format!("Unable to recover owner address: {e}"),
-                    ssh_details: None,
+                Err(e) => {
+                    log::error!("{e}");
+                    return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: format!("Unable to recover owner address: {e}"),
+                        ssh_details: None,
+                    }
                 }
             }
         } else {
@@ -515,23 +520,32 @@ impl Vmm for VmmServer {
                     owner_addr.copy_from_slice(&owner);
                     owner_addr
                 }
-                Err(e) => return VmResponse {
-                    status: FAILURE.to_string(),
-                    details: format!("Unable to recover owner address: {e}"),
-                    ssh_details: None,
+                Err(e) => {
+                    log::error!("{e}");
+                    return VmResponse {
+                        status: FAILURE.to_string(),
+                        details: format!("Unable to recover owner address: {e}"),
+                        ssh_details: None,
+                    }
                 }
             }
         };
+        log::info!("instance owner address: {}", hex::encode(&owner));
         let namespace = recover_namespace(owner, &params.name);
 
         let instance: Instance = match get_instance(namespace.clone(), self.tikv_client.clone()).await {
             Ok(instance) => instance,
-            Err(e) => return VmResponse {
-                status: FAILURE.to_string(),
-                details: format!("Unable to acquire the instance {}: {}", &namespace.inner(), e),
-                ssh_details: None
+            Err(e) => {
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: format!("Unable to acquire the instance {}: {}", &namespace.inner(), e),
+                    ssh_details: None
+                }
             }
         };
+
+        dbg!(&instance);
 
         let (port, _) = match instance.port_map().get(&22).ok_or(
             std::io::Error::new(
@@ -540,10 +554,13 @@ impl Vmm for VmmServer {
             )
         ) {
             Ok(port) => port,
-            Err(e) => return VmResponse {
-                status: FAILURE.to_string(),
-                details: e.to_string(),
-                ssh_details: None,
+            Err(e) => {
+                log::error!("{e}");
+                return VmResponse {
+                    status: FAILURE.to_string(),
+                    details: e.to_string(),
+                    ssh_details: None,
+                }
             }
         };
 
