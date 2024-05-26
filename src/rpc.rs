@@ -139,7 +139,8 @@ impl Vmm for VmmServer {
             }
         };
         let message = VmManagerMessage::NewInstance { params, task_id: task_id.clone() };
-        match self.vmm_sender.send(message).await {
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
             Ok(_) => {
                 return VmResponse {
                     status: PENDING.to_string(),
@@ -175,7 +176,8 @@ impl Vmm for VmmServer {
         };
         println!("attempting to Shutdown VM...");
         let message = VmManagerMessage::StopInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
-        match self.vmm_sender.send(message).await {
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
             Ok(_) => {
                 println!("Successfully sent StopInstance message to vmm...");
                 return VmResponse {
@@ -217,7 +219,8 @@ impl Vmm for VmmServer {
         };
         println!("attempting to start VM...");
         let message = VmManagerMessage::StartInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
-        match self.vmm_sender.send(message).await {
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
             Ok(_) => {
                 println!("Successfully sent StartInstance message to vmm...");
                 return VmResponse {
@@ -243,6 +246,7 @@ impl Vmm for VmmServer {
         _: context::Context, 
         params: InstanceAddPubkeyParams
     ) -> VmResponse {
+        log::info!("Creating task id");
         let task_id = if let Ok(bytes) = serde_json::to_vec(&params) {
             let mut hasher = Sha3_256::new();
             hasher.update(bytes);
@@ -258,13 +262,16 @@ impl Vmm for VmmServer {
             }
         };
 
+        log::info!("Constructing Message");
         let message = VmManagerMessage::InjectAuth { 
             params: params.clone(),
             sig: params.sig, 
             task_id: task_id.clone() 
         };
 
-        match self.vmm_sender.send(message).await {
+        log::info!("Cloning sender");
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
             Ok(_) => {
                 println!("Successfully sent InjectAuth message to vmm...");
                 return VmResponse {
@@ -307,7 +314,8 @@ impl Vmm for VmmServer {
 
         let message = VmManagerMessage::DeleteInstance { params: params.clone(), sig: params.sig, task_id: task_id.clone() };
 
-        match self.vmm_sender.send(message).await {
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
             Ok(_) => {
                 println!("Successfully sent delete message to vmm...");
                 return VmResponse {
@@ -354,7 +362,8 @@ impl Vmm for VmmServer {
             task_id: task_id.clone() 
         };
 
-        match self.vmm_sender.send(message).await {
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
             Ok(_) => {
                 println!("Successfully sent ExposePort message to vmm...");
                 return VmResponse {

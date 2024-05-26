@@ -29,18 +29,30 @@ pub async fn update_nginx_config(
     host_port: u16
 ) -> std::io::Result<()> {
 
+    log::info!("attempting to update NGINX config file");
     let new_server_block = SERVER_BLOCK_TEMPLATE
         .replace("{host_port}", &host_port.to_string())
         .replace("{instance_ip}", &instance_ip)
         .replace("{instance_port}", &instance_port.to_string());
 
-    let mut config_file = OpenOptions::new()
-        .append(true)
-        .open(NGINX_CONFIG_PATH)?;
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+                "echo '{}' | sudo tee -a /etc/nginx/sites-available/default",
+                new_server_block
+            )
+        ).output()?;
 
-    config_file.write_all(new_server_block.as_bytes())?;
-    config_file.sync_all()?;
+    if !output.status.success() {
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "error writing new server block to nginx config"
+            )
+        )
+    }
 
+    log::info!("wrote to nginx config file");
     let output = std::process::Command::new("sudo")
         .args(["nginx", "-t"])
         .output()?;

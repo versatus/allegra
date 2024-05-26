@@ -218,11 +218,13 @@ pub async fn update_iptables(
         )
     )?;
 
-    update_nginx_config(
+    let res = update_nginx_config(
         &instance_ip,
         internal_port,
         next_port
     ).await?;
+
+    dbg!(res);
 
     update_instance(
         namespace, 

@@ -141,10 +141,10 @@ impl VmManager {
 impl VmManager {
     pub async fn new<S: Into<String>>(
         pd_endpoints: Vec<S>,
-        config: Option<tikv_client::Config>
+        config: Option<tikv_client::Config>,
+        next_port: u16
     ) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
-        let next_port = LOWEST_PORT;
         let handles = FuturesUnordered::new();
         let vmlist = match std::process::Command::new("lxc")
             .args(["list", "--format", "json"])

@@ -30,14 +30,12 @@ async fn main() -> std::io::Result<()> {
         )
     })?;
 
-    let mut listener = tarpc::serde_transport::tcp::listen(&addr, Json::default).await?;
-    dbg!(listener.local_addr());
 
     let (tx, rx) = tokio::sync::mpsc::channel(1024);
     let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1024);
     let pd_endpoints = vec!["127.0.0.1:2379"];
     let vmm = VmManager::new(
-        pd_endpoints, None
+        pd_endpoints, None, 2223
     ).await?;
 
     let task_cache = vmm.task_cache();
@@ -53,31 +51,39 @@ async fn main() -> std::io::Result<()> {
             e.to_string()
         )
     })?;
-    listener.config_mut().max_frame_length(usize::MAX);
-    tokio::spawn(async move {
-        listener
-            .filter_map(|r| future::ready(r.ok()))
-            .map(server::BaseChannel::with_defaults)
-            .max_channels_per_key(1, |t| t.transport().peer_addr().unwrap().ip())
-            .for_each_concurrent(None, |channel| {
-                let server = VmmServer {
-                    network: "lxdbr0".to_string(),
-                    port: 2222,
-                    vmm_sender: tx.clone(),
-                    tikv_client: tikv_client.clone(),
-                    task_cache: task_cache.clone()
-                };
-                async move {
-                    channel.execute(server.serve()).for_each(|fut| {
-                        tokio::spawn(async {
-                            fut.await 
-                        });
-                        future::ready(())
-                    }).await;
-            }}).await;
-    });
 
-    future::pending::<()>().await;
+    let mut next_port = 2223;
+    loop {
+        let mut listener = tarpc::serde_transport::tcp::listen(&addr, Json::default).await?; 
+        listener.config_mut().max_frame_length(usize::MAX);
+        tokio::select! {
+            connection = listener.next() => {
+                match connection {
+                    Some(Ok(transport)) => {
+                        log::info!("Accepted connection");
+                        let vmmserver = VmmServer {
+                            network: "lxdbr0".to_string(),
+                            port: next_port,
+                            vmm_sender: tx.clone(),
+                            tikv_client: tikv_client.clone(),
+                            task_cache: task_cache.clone()
+                        };
+                        let channel = server::BaseChannel::with_defaults(transport);
+                        channel.execute(vmmserver.serve()).for_each_concurrent(None, |f| {
+                            tokio::spawn(async move {
+                                f.await
+                            });
+                            futures::future::ready(())
+                        }).await;
+                    }
+                    _ => {}
+                }
+
+            }
+        }
+        next_port += 1;
+    }
+
 
     Ok(())
 }
