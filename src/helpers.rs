@@ -120,9 +120,9 @@ pub fn handle_update_iptables_output_failure(
     forwarding: &std::process::Output,
     state: &std::process::Output
 ) -> std::io::Result<()> {
-    dbg!(prerouting.status.success());
-    dbg!(forwarding.status.success());
-    dbg!(state.status.success());
+    log::error!("{}", prerouting.status.success());
+    log::error!("{}", forwarding.status.success());
+    log::error!("{}", state.status.success());
     return Err(
         std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -147,7 +147,7 @@ pub fn handle_update_iptables_output(
     state: &std::process::Output,
 ) -> std::io::Result<()> {
     if prerouting.status.success() && forwarding.status.success() && state.status.success() {
-        println!("Successfully updated iptables...");
+        log::info!("Successfully updated iptables...");
         return Ok(())
     } else {
         return handle_update_iptables_output_failure(prerouting, forwarding, state) 
@@ -165,7 +165,7 @@ pub async fn update_iptables(
     internal_port: u16
 ) -> std::io::Result<([u8; 20], TaskId, TaskStatus)> {
     let instance_ip = get_instance_ip(&namespace.inner())?;
-    println!("acquired instance IP: {instance_ip}");
+    log::info!("acquired instance IP: {instance_ip}...");
     let prerouting = std::process::Command::new("sudo")
         .args(
             ["iptables", "-t", "nat", 
@@ -177,6 +177,7 @@ pub async fn update_iptables(
         )
         .output()?;
     
+    log::info!("updated prerouting...");
     let forwarding = std::process::Command::new("sudo")
         .args(
             ["iptables", "-A", "FORWARD", "-p", "tcp", "-d",
@@ -185,6 +186,7 @@ pub async fn update_iptables(
             ]
         )
         .output()?;
+    log::info!("updated forwarding...");
 
     let state = std::process::Command::new("sudo")
         .args(
@@ -194,14 +196,19 @@ pub async fn update_iptables(
             ]
         )
         .output()?;
+    log::info!("updated iptables state...");
 
     handle_update_iptables_output(&prerouting, &forwarding, &state)?;
+    log::info!("handled iptables output without error...");
     update_ufw_out(&instance_ip)?;
+    log::info!("updated_ufw...");
+
     let exposed_ports = vec![
         ExposedPort::new(
             next_port, None
         )
     ];
+
     update_account(
         state_client.clone(),
         vmlist.clone(),
@@ -211,6 +218,7 @@ pub async fn update_iptables(
         TaskStatus::Success,
         exposed_ports
     ).await?;
+    log::info!("updated owner account...");
 
     let port_map = vec![(internal_port, (next_port, service_type))];
     let vminfo = vmlist.get(&namespace.inner()).ok_or(
@@ -219,8 +227,9 @@ pub async fn update_iptables(
             format!("unable to find namespace {} in vmlist", &namespace)
         )
     )?;
+    log::info!("acquired vminfo...");
 
-    let res = update_nginx_config(
+    update_nginx_config(
         &instance_ip,
         internal_port.try_into().map_err(|e| {
             std::io::Error::new(
@@ -236,7 +245,7 @@ pub async fn update_iptables(
         })?
     ).await?;
 
-    dbg!(res);
+    log::info!("updated nginx config...");
 
     update_instance(
         namespace, 
@@ -244,6 +253,7 @@ pub async fn update_iptables(
         port_map, 
         state_client
     ).await?;
+    log::info!("updated instance entry in state...");
 
     Ok((owner, task_id, TaskStatus::Success))
 }
@@ -254,9 +264,11 @@ pub async fn update_instance(
     port_map: impl IntoIterator<Item = (u16, (u16, ServiceType))>,
     state_client: tikv_client::RawClient,
 ) -> std::io::Result<()> {
+    log::info!("checking if instance has entry in state...");
     let instance = if let Ok(Some(instance_bytes)) = state_client.get(
         namespace.inner()
     ).await {
+        log::info!("instance has entry in state, deserializing...");
         let mut instance: Instance = serde_json::from_slice(&instance_bytes).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -266,16 +278,19 @@ pub async fn update_instance(
 
         log::info!("successfully acquired existing instance: {} from local state", namespace.inner());
         instance.update_vminfo(vm_info);
+        log::info!("updated vminfo...");
         instance.extend_port_mapping(port_map.into_iter());
+        log::info!("extended portt mapping...");
         instance
     } else {
-        log::info!("Instance {} doesn't exist, building...", namespace.inner());
+        log::info!("instance {} doesn't exist, building...", namespace.inner());
         let instance = Instance::new(
             namespace.clone(),
             vm_info,
             port_map,
             None
         );
+        log::info!("successfully built instance {}...", namespace.inner());
         instance
     };
 
@@ -311,6 +326,8 @@ pub fn handle_update_ufw_output_failure(output: &std::process::Output) -> std::i
         )
     })?.to_string();
 
+    log::error!("{}", &err);
+
     Err(std::io::Error::new(
             std::io::ErrorKind::Other,
             err
@@ -320,7 +337,7 @@ pub fn handle_update_ufw_output_failure(output: &std::process::Output) -> std::i
 
 pub fn handle_update_ufw_output(output: &std::process::Output) -> std::io::Result<()> {
     if output.status.success() {
-        println!("Successfully updated ufw...");
+        log::info!("successfully updated ufw...");
         Ok(())
     } else {
         handle_update_ufw_output_failure(output)
@@ -342,6 +359,7 @@ pub fn update_ufw_out(instance_ip: &str) -> std::io::Result<()> {
         .arg("tcp")
         .output()?;
 
+    log::info!("ran update ufw command");
     handle_update_ufw_output(&output)
 }
 
@@ -417,22 +435,27 @@ pub async fn verify_ownership(
     namespace: Namespace
 ) -> std::io::Result<()> {
 
-    let account = serde_json::from_slice::<Account>(&state_client.get(owner.to_vec()).await.map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?.ok_or(
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Unable to find account for owner: {}", hex::encode(owner))
-        )
-    )?).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?;
+    let account = serde_json::from_slice::<Account>(
+        &state_client.get(
+            owner.to_vec()
+        ).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?.ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Unable to find account for owner: {}", hex::encode(owner))
+            )
+        )?).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
+
+    log::info!("Account: {:?}", &account);
 
     if account.namespaces().contains_key(&namespace) {
         return Ok(())
@@ -453,27 +476,36 @@ pub async fn update_task_status(
     task_status: TaskStatus,
     cache: &mut Arc<RwLock<LruCache<TaskId, TaskStatus>>>
 ) -> std::io::Result<()> {
-    let mut account = serde_json::from_slice::<Account>(&state_client.get(owner.to_vec()).await.map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?.ok_or(
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Unable to find account for owner: {}", hex::encode(owner))
-        )
-    )?).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?;
+    log::info!("attempting to update task status...");
+    let mut account = serde_json::from_slice::<Account>(
+        &state_client.get(
+            owner.to_vec()
+        ).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?.ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Unable to find account for owner: {}", hex::encode(owner))
+            )
+        )?).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        }
+    )?;
 
+    log::info!("attempting to update task status in cache...");
     match cache.write() {
         Ok(mut guard) => {
+            log::info!("acquired cache guard...");
             guard.put(task_id.clone(), task_status.clone());
+            log::info!("updated task status in LRU cache...");
             account.update_task_status(&task_id.clone(), task_status.clone());
+            log::info!("updated task status in Account...");
         }
         Err(e) => {
             return Err(
@@ -485,6 +517,7 @@ pub async fn update_task_status(
         }
     }
     
+    log::info!("writing updated account to state...");
     state_client.put(
         owner.to_vec(),
         serde_json::to_vec(
@@ -501,6 +534,7 @@ pub async fn update_task_status(
             )
     })?;
 
+    log::info!("succesfully updated task status in account state...");
     Ok(())
 }
 
@@ -521,6 +555,7 @@ pub async fn update_account(
         vec![(task_id.clone(), task_status.clone())]
     );
 
+    log::info!("updating owner account...");
     let account: Account = if let Ok(Some(account_bytes)) = state_client.get(owner.to_vec()).await {
         let mut account = match serde_json::from_slice::<Account>(&account_bytes) {
             Ok(account) => account,
@@ -532,12 +567,17 @@ pub async fn update_account(
             )
         };
 
+        log::info!("acquired owner account...");
         account.update_namespace(&namespace, vm_info);
+        log::info!("updated owner account namespaces...");
         account.update_exposed_ports(&namespace, exposed_ports.clone());
+        log::info!("updated owner account exposed port for namespace...");
         account.update_task_status(&task_id, task_status);
+        log::info!("updated owner account task status for task...");
 
         account
     } else {
+        log::info!("owner account doesn't exist, had to create new account...");
         account
     };
 
@@ -558,6 +598,7 @@ pub async fn update_account(
         }
     )?;
 
+    log::info!("successfully updated owner account in state...");
     Ok(())
 }
 

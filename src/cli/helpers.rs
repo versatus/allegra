@@ -27,8 +27,8 @@ use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use ssh2::Session;
 use std::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tonic::transport::Channel;
+use termion::{async_stdin, raw::IntoRawMode};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletInfo {
@@ -373,52 +373,32 @@ pub async fn enter_ssh_session(
         let mut channel = session.channel_session()?;
         log::info!("channel established, requesting shell");
         channel.request_pty("xterm", None, None)?;
+        channel.handle_extended_data(ssh2::ExtendedData::Merge)?;
         channel.shell()?;
         log::info!("shell acquired, establishing stdin and stdout");
 
+        let stdout = std::io::stdout();
+        let mut stdout = stdout.lock().into_raw_mode()?;
+        let mut stdin = async_stdin();
 
-        let mut stdout = tokio::io::stdout();
-        let mut stdin = tokio::io::stdin();
+        let mut buf_in = Vec::new();
 
-        let mut channel_stdout = channel.stream(0);
-        let mut channel_stdin = channel.stream(1);
-        
-        let handle: tokio::task::JoinHandle<std::io::Result<()>> = tokio::spawn(
-            async move {
-                let mut buffer = [0; 1024];
-
-                loop {
-                    match channel_stdout.read(&mut buffer) {
-                        Ok(n) if n == 0 => break,
-                        Ok(n) => {
-                            stdout.write_all(&buffer[..n]).await?;
-                            stdout.flush().await?;
-                        }
-                        Err(_) => break,
-                    }
-                }
-
-                Ok(())
+        while !channel.eof() {
+            let bytes_available = channel.read_window().available;
+            if bytes_available > 0 {
+                let mut buffer = vec![0; bytes_available as usize];
+                channel.read_exact(&mut buffer)?;
+                stdout.write(&buffer)?;
+                stdout.flush()?;
             }
-        );
 
-        log::info!("stdin and stdout established...");
-        let mut buffer = [0; 1024];
-        loop {
-            match stdin.read(&mut buffer).await {
-                Ok(n) if n == 0 => break,
-                Ok(n) => {
-                    channel_stdin.write_all(&buffer[..n])?;
-                    channel_stdin.flush()?;
-                }
-                Err(_) => break
-            }
+            stdin.read_to_end(&mut buf_in)?;
+            buf_in.clear();
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
 
-        handle.await??;
-        channel.send_eof()?;
         channel.wait_close()?;
-
         return Ok(())
     }
 

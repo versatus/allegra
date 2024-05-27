@@ -24,17 +24,17 @@ async fn main() -> std::io::Result<()> {
         })?;
 
 
-    let (tx, rx) = tokio::sync::mpsc::channel(1024);
-    let (_stop_tx, stop_rx) = tokio::sync::mpsc::channel(1024);
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+    let (_stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1024);
     let pd_endpoints = vec!["127.0.0.1:2379"];
-    let vmm = VmManager::new(
+    let mut vmm = VmManager::new(
         pd_endpoints, None, 2223
     ).await?;
 
     let task_cache = vmm.task_cache();
-    tokio::task::spawn(
-        vmm.run(rx, stop_rx)
-    );
+    let vmm_handle = tokio::task::spawn(async move {
+        let _ = vmm.run(&mut rx, &mut stop_rx).await;
+    });
     let pd_endpoints = vec!["127.0.0.1:2379"];
     let tikv_client = tikv_client::RawClient::new(
         pd_endpoints
@@ -73,5 +73,6 @@ async fn main() -> std::io::Result<()> {
         )
     })?;
 
+    vmm_handle.await?;
     Ok(())
 }

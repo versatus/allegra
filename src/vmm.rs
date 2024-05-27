@@ -259,17 +259,18 @@ impl VmManager {
     }
 
     pub async fn run(
-        mut self,
-        mut message_rx: tokio::sync::mpsc::Receiver<VmManagerMessage>,
-        mut stop_rx: tokio::sync::mpsc::Receiver<()>
+        &mut self,
+        message_rx: &mut tokio::sync::mpsc::Receiver<VmManagerMessage>,
+        stop_rx: &mut tokio::sync::mpsc::Receiver<()>
     ) -> std::io::Result<()> {
         loop {
             tokio::select! {
                 message = message_rx.recv() => {
                     if let Some(m) = message {
+                        log::info!("message received");
                         match self.handle_vmm_message(m).await {
                             Err(e) => {
-                                log::error!("{e}");
+                                log::error!("Error in message handler: {e}");
                             }
                             _ => {}
                         }
@@ -277,24 +278,36 @@ impl VmManager {
                 },
                 stop = stop_rx.recv() => {
                     if let Some(_) = stop {
+                        log::warn!("received stop token");
                         break
                     }
                 },
                 status = self.handles.next() => {
-                    if let Some(Ok(Ok((owner, task_id, task_status)))) = status {
-                        match update_task_status(
-                            self.state_client.clone(),
-                            owner,
-                            task_id,
-                            task_status,
-                            &mut self.task_cache
-                        ).await {
-                            Err(e) => log::error!("{e}"),
-                            _ => {} 
+                    match status {
+                        Some(Ok(Ok((owner, task_id, task_status)))) => {
+                            log::info!("future completed");
+                            match update_task_status(
+                                self.state_client.clone(),
+                                owner,
+                                task_id,
+                                task_status,
+                                &mut self.task_cache
+                            ).await {
+                                Err(e) => log::error!("Error in updating task status {e}"),
+                                _ => {} 
+                            }
                         }
+                        Some(Err(e)) => {
+                            log::error!("error handling future {e}");
+                        }
+                        Some(Ok(Err(e))) => {
+                            log::error!("{e}");
+                        }
+                        None => {}
                     }
                 },
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(180)) => {
+                    log::info!("refreshing vm list");
                     match self.refresh_vmlist().await {
                         Err(e) => log::error!("{e}"),
                         _ => {}
@@ -302,6 +315,8 @@ impl VmManager {
                 }
             }
         }
+
+        log::info!("loop broken, exiting vmm.run()...");
 
         return Ok(())
     }
@@ -348,6 +363,7 @@ impl VmManager {
             Err(e) => return Err(e)
         };
 
+        log::info!("vm list refreshed saving to self.vmlist");
         self.vmlist = vmlist;
 
         Ok(())
@@ -363,6 +379,7 @@ impl VmManager {
                 params, 
                 task_id 
             } => {
+                log::info!("received NewInstance message, attempting to launch instance.");
                 return self.launch_instance(params, task_id).await
             }
             VmManagerMessage::StartInstance { 
@@ -370,6 +387,7 @@ impl VmManager {
                 sig, 
                 task_id 
             } => {
+                log::info!("received StartInstance message, attempting to start instance.");
                 return self.start_instance(params, sig, task_id).await
             }
             VmManagerMessage::InjectAuth { 
@@ -377,7 +395,7 @@ impl VmManager {
                 sig, 
                 task_id 
             } => {
-                println!("VMM Received Inject Auth");
+                log::info!("received InjectAuth message, attempting to add auth to instance.");
                 return self.inject_authorization(params, sig, task_id).await
             }
             VmManagerMessage::StopInstance { 
@@ -385,6 +403,7 @@ impl VmManager {
                 sig, 
                 task_id 
             } => {
+                log::info!("received StopInstance message, attempting to stop instance.");
                 return self.stop_instance(params, sig, task_id).await
             }
             VmManagerMessage::DeleteInstance { 
@@ -392,6 +411,7 @@ impl VmManager {
                 sig, 
                 task_id 
             } => {
+                log::info!("received DeleteInstance message, attempting to delete instance.");
                 return self.delete_instance(params, sig, task_id).await
             }
             VmManagerMessage::ExposeService { 
@@ -399,6 +419,7 @@ impl VmManager {
                 sig, 
                 task_id 
             } => {
+                log::info!("received ExposeService message, attempting to delete instance.");
                 return self.expose_service(params, sig, task_id).await
             }
         }
@@ -627,39 +648,43 @@ impl VmManager {
         let namespace = recover_namespace(owner, &params.name);
         log::info!("Recovered Instance Namespace");
 
-        if let Ok(()) = verify_ownership(
+        match verify_ownership(
             self.state_client.clone(),
             owner,
             namespace.clone()
         ).await {
-            let echo = format!(
-                r#"echo '{}' >> /root/.ssh/authorized_keys"#,
-                params.pubkey
-            );
-            let output = std::process::Command::new("lxc")
-                .arg("exec")
-                .arg(&namespace.inner())
-                .arg("--")
-                .arg("bash")
-                .arg("-c")
-                .arg(&echo)
-                .output()?;
-            
-            log::info!("Executed Auth Injection");
+            Ok(()) => {
+                let echo = format!(
+                    r#"echo '{}' >> /root/.ssh/authorized_keys"#,
+                    params.pubkey
+                );
+                let output = std::process::Command::new("lxc")
+                    .arg("exec")
+                    .arg(&namespace.inner())
+                    .arg("--")
+                    .arg("bash")
+                    .arg("-c")
+                    .arg(&echo)
+                    .output()?;
+                
+                log::info!("Executed Auth Injection");
 
-            return self.handle_inject_authorization_output(
-                output,
-                owner,
-                task_id
-            ).await
+                return self.handle_inject_authorization_output(
+                    output,
+                    owner,
+                    task_id
+                ).await
+            }
+            Err(e) => {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Unable to verify ownership: {e}")
+                    )
+                )
+            }
         }
 
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Unable to verify ownership"
-            )
-        )
     }
 
     async fn handle_stop_success(
@@ -772,33 +797,37 @@ impl VmManager {
             &params.name
         );
 
-        if let Ok(()) = verify_ownership(
+        match verify_ownership(
             self.state_client.clone(),
             owner,
             namespace.clone()
         ).await {
-            println!("attempting to shutdown {}", &params.name);
-            let output = std::process::Command::new("lxc")
-                .args(["stop", &namespace.inner()])
-                .output()?;
+            Ok(()) => {
+                println!("attempting to shutdown {}", &params.name);
+                let output = std::process::Command::new("lxc")
+                    .args(["stop", &namespace.inner()])
+                    .output()?;
 
-            println!("Retrieved output...");
+                println!("Retrieved output...");
 
-            self.handle_stop_output_and_response(
-                output,
-                owner,
-                task_id
-            ).await?;
+                self.handle_stop_output_and_response(
+                    output,
+                    owner,
+                    task_id
+                ).await?;
 
-            return Ok(())
+                return Ok(())
+            }
+            Err(e) => {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Unable to verify ownership: {e}")
+                    )
+                )
+            }
         }
 
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Unable to verify ownership",
-            )
-        )
     }
 
 
@@ -998,9 +1027,9 @@ impl VmManager {
 
         let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
             async move {
-                println!("Sleeping for 2 minutes to allow instance to fully launch...");
+                log::warn!("sleeping for 2 minutes to allow instance to fully launch...");
                 tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
-                println!("Updating iptables...");
+                log::info!("updating iptables...");
                 let (owner, task_id, task_status) = update_iptables(
                     state_client,
                     vm_list,
@@ -1015,6 +1044,7 @@ impl VmManager {
         });
 
         self.handles.push(handle);
+        log::info!("added update_iptables handle to self.handles, returning...");
 
         return Ok(())
     }
@@ -1057,13 +1087,14 @@ impl VmManager {
         namespace: Namespace,
     ) -> std::io::Result<()> {
         if output.status.success() {
-            println!("successfully created instance, handling output...");
+            log::info!("successfully created instance, handling output...");
             self.handle_create_output_success(
                 task_id,
                 owner,
                 namespace,
             ).await
         } else {
+            log::error!("unable to create instance, handling output...");
             self.handle_create_output_failure_and_response(
                 &output,
                 owner,
@@ -1077,9 +1108,10 @@ impl VmManager {
         params: InstanceCreateParams,
         task_id: TaskId
     ) -> std::io::Result<()> {
-        println!("Attempting to start instance...");
+        log::info!("Attempting to start instance...");
 
         let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
 
         let mut hasher = Sha3_256::new();
 
@@ -1089,12 +1121,14 @@ impl VmManager {
 
         let hash = hasher.finalize().to_vec();
 
+        log::info!("hashed params payload...");
         let recovery_id = params.recovery_id.try_into().map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
+        log::info!("converted recovery_id into u32...");
 
         let owner = recover_owner_address(
             hash,
@@ -1102,13 +1136,13 @@ impl VmManager {
             recovery_id
         )?;
 
-        println!("Recovered owner");
+        log::info!("recovered owner from signature...");
         let namespace = recover_namespace(
             owner,
             &params.name
         );
 
-        println!("Recovered namespace");
+        log::info!("recovered namespace from name and owner...");
 
         let output = std::process::Command::new("lxc")
             .arg("launch")
@@ -1132,6 +1166,7 @@ impl VmManager {
             .arg(&self.network.clone())
             .output()?;
 
+        log::info!("executed launch command...");
         self.handle_create_output_and_response(
             output,
             task_id.clone(),
@@ -1140,10 +1175,11 @@ impl VmManager {
         ).await?;
 
         self.refresh_vmlist().await?;
+        log::info!("refreshed vm list...");
 
         let _output = startup::run_script(namespace.clone(), PUBKEY_AUTH_STARTUP_SCRIPT)?;
+        log::info!("ran pubkey auth startup script...");
 
-        println!("Attempting to update account");
         update_account(
             self.state_client.clone(),
             self.vmlist.clone(),
@@ -1154,7 +1190,7 @@ impl VmManager {
             vec![]
         ).await?;
 
-        println!("Successfully updated account");
+        log::info!("successfully updated account...");
 
         let vminfo = self.vmlist.get(&namespace.inner()).ok_or(
             std::io::Error::new(
@@ -1163,12 +1199,14 @@ impl VmManager {
             )
         )?;
 
+        log::info!("acquired vminfo...");
         update_instance(
             namespace.clone(),
             vminfo,
             vec![(22, (self.next_port, ServiceType::Ssh))],
             self.state_client.clone()
         ).await?;
+        log::info!("updated instance entry in state...");
 
         Ok(())
     }
