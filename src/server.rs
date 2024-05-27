@@ -1,15 +1,15 @@
-use std::net::SocketAddr;
-use allegra::rpc::VmmServer;
-use tarpc::server::{self, incoming::Incoming, Channel};
-use tarpc::tokio_serde::formats::Json;
+
+use allegra::grpc::VmmService;
+
 use futures::{
     prelude::*
 };
-use futures::stream::StreamExt;
-use allegra::rpc::Vmm;
-use allegra::vmm::VmManager;
 
-async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
+use allegra::allegra_rpc::{vmm_server::VmmServer};
+use allegra::vmm::VmManager;
+use tonic::{transport::Server};
+
+pub async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
     tokio::spawn(fut);
 }
 
@@ -22,13 +22,6 @@ async fn main() -> std::io::Result<()> {
                 e.to_string()
             )
         })?;
-
-    let addr: SocketAddr = "0.0.0.0:29292".parse().map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
 
 
     let (tx, rx) = tokio::sync::mpsc::channel(1024);
@@ -52,38 +45,33 @@ async fn main() -> std::io::Result<()> {
         )
     })?;
 
-    let mut next_port = 2223;
-    loop {
-        let mut listener = tarpc::serde_transport::tcp::listen(&addr, Json::default).await?; 
-        listener.config_mut().max_frame_length(usize::MAX);
-        tokio::select! {
-            connection = listener.next() => {
-                match connection {
-                    Some(Ok(transport)) => {
-                        log::info!("Accepted connection");
-                        let vmmserver = VmmServer {
-                            network: "lxdbr0".to_string(),
-                            port: next_port,
-                            vmm_sender: tx.clone(),
-                            tikv_client: tikv_client.clone(),
-                            task_cache: task_cache.clone()
-                        };
-                        let channel = server::BaseChannel::with_defaults(transport);
-                        channel.execute(vmmserver.serve()).for_each_concurrent(None, |f| {
-                            tokio::spawn(async move {
-                                f.await
-                            });
-                            futures::future::ready(())
-                        }).await;
-                    }
-                    _ => {}
-                }
+    let next_port = 2223;
 
-            }
-        }
-        next_port += 1;
-    }
+    let service = VmmService {
+        network: "lxdbr0".to_string(),
+        port: next_port,
+        vmm_sender: tx.clone(),
+        tikv_client,
+        task_cache,
+    };
 
+    let vmmserver = VmmServer::new(
+        service
+    );
+
+    let addr = "[::1]:50051".parse().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
+
+    Server::builder().add_service(vmmserver).serve(addr).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
 
     Ok(())
 }

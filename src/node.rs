@@ -5,7 +5,7 @@ use ractor_cluster::RactorMessage;
 pub struct NodeId(String);
 
 pub struct ActorSpawn<M: Sized> {
-    actor: (ActorRef<M>, JoinHandle<()>)
+    pub actor: (ActorRef<M>, JoinHandle<()>)
 }
 
 impl<M: Sized> ActorSpawn<M> {
@@ -40,18 +40,18 @@ pub enum NetworkMessage {
 }
 
 pub struct ActorManager {
-    dht_actor_spawn: ActorSpawn<DhtMessage>,
-    vmm_actor_spawn: ActorSpawn<VmmMessage>,
-    state_actor_spawn: ActorSpawn<StateMessage>,
-    ra_actor_spawn: ActorSpawn<RaMessage>,
-    network_actor: ActorSpawn<NetworkMessage>
+    pub dht_actor_spawn: ActorSpawn<DhtMessage>,
+    pub vmm_actor_spawn: ActorSpawn<VmmMessage>,
+    pub state_actor_spawn: ActorSpawn<StateMessage>,
+    pub ra_actor_spawn: ActorSpawn<RaMessage>,
+    pub network_actor: ActorSpawn<NetworkMessage>
 }
 
 pub struct Node {
-    id: NodeId,
-    manager: ActorManager,
-    stop_rx: tokio::sync::mpsc::Receiver<()>,
-    panic_rx: tokio::sync::mpsc::Receiver<ActorCell>
+    pub id: NodeId,
+    pub manager: ActorManager,
+    pub stop_rx: tokio::sync::mpsc::Receiver<()>,
+    pub panic_rx: tokio::sync::mpsc::Receiver<ActorCell>
 
 }
 

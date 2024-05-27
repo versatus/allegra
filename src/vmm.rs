@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::{num::NonZeroUsize, collections::HashMap};
 use crate::{
     account::{
@@ -5,14 +6,7 @@ use crate::{
         Namespace, 
         TaskStatus
     }, vm_info::{VmList, VmInfo},
-    params::{
-        InstanceCreateParams,
-        InstanceStartParams,
-        InstanceStopParams,
-        InstanceDeleteParams,
-        InstanceAddPubkeyParams,
-        InstanceExposeServiceParams, Payload, ServiceType
-    },
+    params::{Payload, ServiceType},
     helpers::{
         update_task_status,
         recover_owner_address,
@@ -21,6 +15,27 @@ use crate::{
         update_iptables,
         update_account, update_instance
     }, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}
+};
+
+#[cfg(feature="grpc")]
+use crate::allegra_rpc::{
+    InstanceCreateParams,
+    InstanceStopParams,
+    InstanceStartParams,
+    InstanceAddPubkeyParams,
+    InstanceExposeServiceParams,
+    InstanceDeleteParams,
+    InstanceGetSshDetails
+};
+
+#[cfg(feature="tarpc")]
+use crate::params::{
+    InstanceCreateParams,
+    InstanceStartParams,
+    InstanceStopParams,
+    InstanceDeleteParams,
+    InstanceAddPubkeyParams,
+    InstanceExposeServiceParams, Payload, ServiceType
 };
 use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::task::JoinHandle;
@@ -45,7 +60,6 @@ pub struct Instance {
 }
 
 impl Instance {
-
     pub fn new(
         namespace: Namespace,
         vminfo: VmInfo,
@@ -94,29 +108,41 @@ impl Instance {
 pub enum VmManagerMessage {
     NewInstance {
         params: InstanceCreateParams,
+        #[cfg(feature="tarpc")]
+        params: InstanceCreateParams,
         task_id: TaskId 
     },
     StopInstance {
+        params: InstanceStopParams,
+        #[cfg(feature="tarpc")]
         params: InstanceStopParams,
         sig: String,
         task_id: TaskId
     },
     DeleteInstance {
         params: InstanceDeleteParams,
+        #[cfg(feature="tarpc")]
+        params: InstanceDeleteParams,
         sig: String,
         task_id: TaskId 
     },
     InjectAuth {
+        params: InstanceAddPubkeyParams,
+        #[cfg(feature="tarpc")]
         params: InstanceAddPubkeyParams,
         sig: String,
         task_id: TaskId 
     },
     StartInstance {
         params: InstanceStartParams,
+        #[cfg(feature="tarpc")]
+        params: InstanceStartParams,
         sig: String,
         task_id: TaskId 
     },
     ExposeService {
+        params: InstanceExposeServiceParams,
+        #[cfg(feature="tarpc")]
         params: InstanceExposeServiceParams,
         sig: String,
         task_id: TaskId,
@@ -458,7 +484,12 @@ impl VmManager {
         let owner = recover_owner_address(
             hash,
             sig,
-            params.recovery_id
+            params.recovery_id.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
         )?;
 
         let namespace = recover_namespace(
@@ -584,7 +615,14 @@ impl VmManager {
         hasher.update(params.into_payload().as_bytes());
         let hash = hasher.finalize().to_vec();
 
-        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        let owner = recover_owner_address(hash, sig, recovery_id)?;
         log::info!("Recovered owner address");
         let namespace = recover_namespace(owner, &params.name);
         log::info!("Recovered Instance Namespace");
@@ -716,10 +754,17 @@ impl VmManager {
         );
         let hash = hasher.finalize().to_vec();
 
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
         let owner = recover_owner_address(
             hash,
             sig,
-            params.recovery_id
+            recovery_id
         )?;
 
         let namespace = recover_namespace(
@@ -832,7 +877,18 @@ impl VmManager {
         hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
 
-        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        let owner = recover_owner_address(
+            hash,
+            sig, 
+            recovery_id
+        )?;
         let namespace = recover_namespace(owner, &params.name.clone());
         let mut command = std::process::Command::new("lxc");
         command.arg("delete").arg(&namespace.inner());
@@ -870,10 +926,16 @@ impl VmManager {
         );
         let hash = hasher.finalize().to_vec();
 
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
         let owner = recover_owner_address(
             hash,
             sig,
-            params.recovery_id
+            recovery_id
         )?;
 
         let namespace = recover_namespace(
@@ -887,12 +949,19 @@ impl VmManager {
             namespace.clone()
         ).await {
             for (port, service) in params.port.into_iter().zip(params.service_type.into_iter()) {
+                let port = port.try_into().map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })?;
                 let state_client = self.state_client.clone();
                 self.refresh_vmlist().await?;
                 let vmlist = self.vmlist.clone();
                 let next_port = self.next_port;
                 let inner_namespace = namespace.clone();
                 let inner_task_id = task_id.clone();
+                let service: ServiceType = service.into();
                 let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
                     async move {
                         let (owner, task_id, task_status) = update_iptables(
@@ -1020,10 +1089,17 @@ impl VmManager {
 
         let hash = hasher.finalize().to_vec();
 
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
         let owner = recover_owner_address(
             hash,
             params.sig.clone(),
-            params.recovery_id
+            recovery_id
         )?;
 
         println!("Recovered owner");

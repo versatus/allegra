@@ -1,49 +1,36 @@
-use std::net::SocketAddr;
-use tarpc::{client, context, tokio_serde::formats::Json};
-use allegra::{rpc::VmmClient, params::{InstanceCreateParams, InstanceStopParams}, vm_types::VmType};
+use allegra::allegra_rpc::InstanceStopParams;
+use allegra::{vm_types::VmType, allegra_rpc::InstanceCreateParams};
+use allegra::allegra_rpc::vmm_client::VmmClient;
 
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-
-    let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
+    let mut client = VmmClient::connect("http://[::1]:50051").await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e
         )
     })?;
 
-    let mut transport = tarpc::serde_transport::tcp::connect(addr, Json::default);
-    transport.config_mut().max_frame_length(usize::MAX);
-
-    let client = VmmClient::new(client::Config::default(), transport.await?).spawn();
-
-    let mut context = context::current();
-    context.deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
-
     let res = client.create_vm(
-        context,
         InstanceCreateParams {
             name: "testRpcClientServerVm".to_string(),
             distro: "ubuntu".to_string(),
             version: "22.04".to_string(),
-            vmtype: VmType::T2Micro, 
+            vmtype: VmType::T2Micro.to_string(), 
             sig: "testSignature".to_string(),
-            recovery_id: u8::default(),
+            recovery_id: u32::default(),
         }
     ).await;
 
     println!("{res:#?}");
 
-    let mut context = context::current();
-    context.deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
     tokio::time::sleep(tokio::time::Duration::from_secs(240)).await;
     let res = client.shutdown_vm(
-        context,
         InstanceStopParams {
             name: "testRpcClientServerVm".to_string(),
             sig: "testSignature".to_string(),
-            recovery_id: u8::default(),
+            recovery_id: u32::default(),
         }
     ).await;
 

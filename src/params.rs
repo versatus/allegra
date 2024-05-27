@@ -1,7 +1,8 @@
-use std::any::Any;
+use std::{any::Any};
 use clap::ValueEnum;
 use serde::{Serialize, Deserialize};
 use crate::vm_types::VmType;
+use crate::allegra_rpc::ServiceType as ProtoServiceType;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 pub enum ServiceType {
@@ -15,6 +16,57 @@ pub enum ServiceType {
     Kafka,
     Custom
 }
+
+impl From<ServiceType> for i32 {
+    fn from(value: ServiceType) -> Self {
+        match value {
+            ServiceType::Ssh => 0,
+            ServiceType::NodeJs => 1,
+            ServiceType::Postgres => 2,
+            ServiceType::MySQL => 3,
+            ServiceType::Redis => 4,
+            ServiceType::MongoDB => 5,
+            ServiceType::RabbitMQ => 6,
+            ServiceType::Kafka => 7,
+            ServiceType::Custom => 8,
+        }
+    }
+}
+
+
+impl From<i32> for ServiceType {
+    fn from(val: i32) -> Self {
+        match ProtoServiceType::try_from(val) {
+            Ok(ProtoServiceType::Ssh) => ServiceType::Ssh,
+            Ok(ProtoServiceType::NodeJs) => ServiceType::NodeJs,
+            Ok(ProtoServiceType::Postgres) => ServiceType::Postgres,
+            Ok(ProtoServiceType::Mysql) => ServiceType::MySQL,
+            Ok(ProtoServiceType::Redis) => ServiceType::Redis,
+            Ok(ProtoServiceType::MongoDb) => ServiceType::MongoDB,
+            Ok(ProtoServiceType::RabbitMq) => ServiceType::RabbitMQ,
+            Ok(ProtoServiceType::Kafka) => ServiceType::Kafka,
+            Ok(ProtoServiceType::Custom) => ServiceType::Custom,
+            Err(_) => ServiceType::Custom
+        }
+    }
+}
+
+impl From<ProtoServiceType> for ServiceType {
+    fn from(val: ProtoServiceType) -> Self {
+        match val {
+            ProtoServiceType::Ssh => ServiceType::Ssh,
+            ProtoServiceType::NodeJs => ServiceType::NodeJs,
+            ProtoServiceType::Postgres => ServiceType::Postgres,
+            ProtoServiceType::Mysql => ServiceType::MySQL,
+            ProtoServiceType::Redis => ServiceType::Redis,
+            ProtoServiceType::MongoDb => ServiceType::MongoDB,
+            ProtoServiceType::RabbitMq => ServiceType::RabbitMQ,
+            ProtoServiceType::Kafka => ServiceType::Kafka,
+            ProtoServiceType::Custom => ServiceType::Custom,
+        }
+    }
+}
+
 
 impl ServiceType {
     pub fn default_port(&self) -> Option<u16> {

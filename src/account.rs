@@ -104,7 +104,7 @@ impl Account {
     }
 
     pub fn update_exposed_ports(&mut self, namespace: &Namespace, exposed_ports: Vec<ExposedPort>) {
-        if let Some(mut entry) = self.exposed_ports.get_mut(namespace) {
+        if let Some(entry) = self.exposed_ports.get_mut(namespace) {
             entry.extend(exposed_ports.into_iter())
         } else {
             self.exposed_ports.insert(namespace.clone(), exposed_ports);
@@ -120,7 +120,7 @@ impl Account {
     }
 
     pub fn update_task_status(&mut self, task_id: &TaskId, task_status: TaskStatus) {
-        if let Some(mut entry) = self.tasks.get_mut(task_id) {
+        if let Some(entry) = self.tasks.get_mut(task_id) {
             *entry = task_status;
         } else {
             self.tasks.insert(task_id.clone(), task_status);

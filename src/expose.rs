@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, io::Write};
+
 
 use lazy_static::lazy_static;
 //TODO(asmith) replace with environment variable

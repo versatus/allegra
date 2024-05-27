@@ -1,4 +1,10 @@
+pub mod allegra_rpc {
+    tonic::include_proto!("allegra_rpc");
+}
+
+pub mod payload_impls;
 pub mod vmm;
+#[cfg(feature = "tarpc")]
 pub mod rpc;
 pub mod vm_types;
 pub mod state;
@@ -13,6 +19,7 @@ pub mod network;
 pub mod startup;
 pub mod expose;
 pub mod adns;
+pub mod grpc;
 
 pub use cli::commands::*;
 pub use cli::helpers::*;

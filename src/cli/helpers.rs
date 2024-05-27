@@ -1,13 +1,21 @@
+use crate::allegra_rpc::{InstanceGetSshDetails, InstanceExposeServiceParams, InstanceAddPubkeyParams, InstanceDeleteParams, InstanceStopParams, InstanceStartParams, InstanceCreateParams};
 use crate::cli::commands::AllegraCommands;
+use crate::params::Payload;
+#[cfg(feature="tarpc")]
 use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposeServiceParams};
+#[cfg(feature="tarpc")]
 use crate::rpc::VmmClient;
+use crate::allegra_rpc::vmm_client::VmmClient;
 use std::io::Read;
+#[cfg(feature="tarpc")]
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::io::Write;
 use ethers_core::k256::elliptic_curve::SecretKey;
 use sha3::{Digest, Sha3_256};
+#[cfg(feature="tarpc")]
 use tarpc::client;
+#[cfg(feature="tarpc")]
 use tarpc::tokio_serde::formats::Json;
 use ethers_core::{
     k256::ecdsa::{
@@ -20,6 +28,7 @@ use tokio::net::TcpStream;
 use ssh2::Session;
 use std::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tonic::transport::Channel;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletInfo {
@@ -84,9 +93,9 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     name: name.clone(),
                     distro: distro.clone(), 
                     version: version.clone(), 
-                    vmtype: vmtype.clone(),
+                    vmtype: vmtype.clone().to_string(),
                     sig: String::default(), 
-                    recovery_id: u8::default(),
+                    recovery_id: u32::default(),
                 }
             )
         }
@@ -97,7 +106,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     console,
                     stateless,
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -106,7 +115,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                 InstanceStopParams {
                     name: name.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -117,7 +126,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     force,
                     interactive,
                     sig: String::default(),
-                    recovery_id: u8::default(),
+                    recovery_id: u32::default(),
                 }
             )
         }
@@ -127,18 +136,31 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     name: name.clone(),
                     pubkey: pubkey.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
         AllegraCommands::ExposeService { ref name, ref port, ref service_type, .. } => {
+            let port: Vec<u32> = port.iter().map(|n| {
+                *n as u32
+            }).collect();
+
+            let service_type: Vec<i32> = service_type.iter().filter_map(|service| {
+                service.clone().try_into().map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                }).ok()
+            }).collect();
+
             Box::new(
                 InstanceExposeServiceParams {
                     name: name.clone(),
                     port: port.clone(),
                     service_type: service_type.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -281,34 +303,26 @@ fn generate_signature(
     return Ok((signature, recovery_id))
 }
 
-pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
-    let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
+pub async fn create_allegra_rpc_client<T>() -> std::io::Result<VmmClient<Channel>> {
+    let vmclient = VmmClient::connect("http://[::1]:50051").await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e
         )
     })?;
-    let mut client_transport = tarpc::serde_transport::tcp::connect(addr, Json::default);
-    client_transport.config_mut().max_frame_length(usize::MAX);
-    let vmclient = VmmClient::new(
-        client::Config::default(),
-        client_transport.await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?
-    ).spawn();
 
     Ok(vmclient)
 }
 
 pub async fn enter_ssh_session(
-    rpc_client: &VmmClient,
+    rpc_client: &mut VmmClient<Channel>,
     params: InstanceGetSshDetails,
-    context: tarpc::context::Context
 ) -> std::io::Result<()> {
-    let resp = rpc_client.get_ssh_details(context, params.clone()).await.map_err(|e| {
+    let resp = rpc_client.get_ssh_details(
+        tonic::Request::new(
+            params.clone()
+        )
+    ).await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e.to_string()
@@ -316,7 +330,7 @@ pub async fn enter_ssh_session(
     })?;
 
     log::info!("{:?}", resp);
-    if let Some(ssh_details) = resp.ssh_details {
+    if let Some(ssh_details) = resp.into_inner().ssh_details {
         log::info!("{:?}", ssh_details);
         let tcp = TcpStream::connect(format!("{}:{}", ssh_details.ip, ssh_details.port)).await?;
         let mut session = Session::new()?; 

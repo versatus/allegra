@@ -9,7 +9,7 @@ use crate::{
         TaskStatus,
         ExposedPort,
         Account,
-    }, vmm::Instance, params::ServiceType, expose::{update_nginx_config, reload_nginx},
+    }, vmm::Instance, params::ServiceType, expose::update_nginx_config,
 };
 use std::str::FromStr;
 use sha3::{Digest, Sha3_256};
@@ -198,7 +198,9 @@ pub async fn update_iptables(
     handle_update_iptables_output(&prerouting, &forwarding, &state)?;
     update_ufw_out(&instance_ip)?;
     let exposed_ports = vec![
-        ExposedPort::new(next_port, None)
+        ExposedPort::new(
+            next_port, None
+        )
     ];
     update_account(
         state_client.clone(),
@@ -220,8 +222,18 @@ pub async fn update_iptables(
 
     let res = update_nginx_config(
         &instance_ip,
-        internal_port,
-        next_port
+        internal_port.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?,
+        next_port.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?
     ).await?;
 
     dbg!(res);
