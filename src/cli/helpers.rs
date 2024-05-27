@@ -1,13 +1,21 @@
+use crate::allegra_rpc::{InstanceGetSshDetails, InstanceExposeServiceParams, InstanceAddPubkeyParams, InstanceDeleteParams, InstanceStopParams, InstanceStartParams, InstanceCreateParams};
 use crate::cli::commands::AllegraCommands;
+use crate::params::Payload;
+#[cfg(feature="tarpc")]
 use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposeServiceParams};
+#[cfg(feature="tarpc")]
 use crate::rpc::VmmClient;
+use crate::allegra_rpc::vmm_client::VmmClient;
 use std::io::Read;
+#[cfg(feature="tarpc")]
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::io::Write;
 use ethers_core::k256::elliptic_curve::SecretKey;
 use sha3::{Digest, Sha3_256};
+#[cfg(feature="tarpc")]
 use tarpc::client;
+#[cfg(feature="tarpc")]
 use tarpc::tokio_serde::formats::Json;
 use ethers_core::{
     k256::ecdsa::{
@@ -19,7 +27,8 @@ use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use ssh2::Session;
 use std::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tonic::transport::Channel;
+use termion::{async_stdin, raw::IntoRawMode};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletInfo {
@@ -84,9 +93,9 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     name: name.clone(),
                     distro: distro.clone(), 
                     version: version.clone(), 
-                    vmtype: vmtype.clone(),
+                    vmtype: vmtype.clone().to_string(),
                     sig: String::default(), 
-                    recovery_id: u8::default(),
+                    recovery_id: u32::default(),
                 }
             )
         }
@@ -97,7 +106,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     console,
                     stateless,
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -106,7 +115,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                 InstanceStopParams {
                     name: name.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -117,7 +126,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     force,
                     interactive,
                     sig: String::default(),
-                    recovery_id: u8::default(),
+                    recovery_id: u32::default(),
                 }
             )
         }
@@ -127,18 +136,31 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     name: name.clone(),
                     pubkey: pubkey.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
         AllegraCommands::ExposeService { ref name, ref port, ref service_type, .. } => {
+            let port: Vec<u32> = port.iter().map(|n| {
+                *n as u32
+            }).collect();
+
+            let service_type: Vec<i32> = service_type.iter().filter_map(|service| {
+                service.clone().try_into().map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                }).ok()
+            }).collect();
+
             Box::new(
                 InstanceExposeServiceParams {
                     name: name.clone(),
                     port: port.clone(),
                     service_type: service_type.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -281,34 +303,26 @@ fn generate_signature(
     return Ok((signature, recovery_id))
 }
 
-pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
-    let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
+pub async fn create_allegra_rpc_client<T>() -> std::io::Result<VmmClient<Channel>> {
+    let vmclient = VmmClient::connect("http://[::1]:50051").await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e
         )
     })?;
-    let mut client_transport = tarpc::serde_transport::tcp::connect(addr, Json::default);
-    client_transport.config_mut().max_frame_length(usize::MAX);
-    let vmclient = VmmClient::new(
-        client::Config::default(),
-        client_transport.await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?
-    ).spawn();
 
     Ok(vmclient)
 }
 
 pub async fn enter_ssh_session(
-    rpc_client: &VmmClient,
+    rpc_client: &mut VmmClient<Channel>,
     params: InstanceGetSshDetails,
-    context: tarpc::context::Context
 ) -> std::io::Result<()> {
-    let resp = rpc_client.get_ssh_details(context, params.clone()).await.map_err(|e| {
+    let resp = rpc_client.get_ssh_details(
+        tonic::Request::new(
+            params.clone()
+        )
+    ).await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e.to_string()
@@ -316,7 +330,7 @@ pub async fn enter_ssh_session(
     })?;
 
     log::info!("{:?}", resp);
-    if let Some(ssh_details) = resp.ssh_details {
+    if let Some(ssh_details) = resp.into_inner().ssh_details {
         log::info!("{:?}", ssh_details);
         let tcp = TcpStream::connect(format!("{}:{}", ssh_details.ip, ssh_details.port)).await?;
         let mut session = Session::new()?; 
@@ -359,52 +373,32 @@ pub async fn enter_ssh_session(
         let mut channel = session.channel_session()?;
         log::info!("channel established, requesting shell");
         channel.request_pty("xterm", None, None)?;
+        channel.handle_extended_data(ssh2::ExtendedData::Merge)?;
         channel.shell()?;
         log::info!("shell acquired, establishing stdin and stdout");
 
+        let stdout = std::io::stdout();
+        let mut stdout = stdout.lock().into_raw_mode()?;
+        let mut stdin = async_stdin();
 
-        let mut stdout = tokio::io::stdout();
-        let mut stdin = tokio::io::stdin();
+        let mut buf_in = Vec::new();
 
-        let mut channel_stdout = channel.stream(0);
-        let mut channel_stdin = channel.stream(1);
-        
-        let handle: tokio::task::JoinHandle<std::io::Result<()>> = tokio::spawn(
-            async move {
-                let mut buffer = [0; 1024];
-
-                loop {
-                    match channel_stdout.read(&mut buffer) {
-                        Ok(n) if n == 0 => break,
-                        Ok(n) => {
-                            stdout.write_all(&buffer[..n]).await?;
-                            stdout.flush().await?;
-                        }
-                        Err(_) => break,
-                    }
-                }
-
-                Ok(())
+        while !channel.eof() {
+            let bytes_available = channel.read_window().available;
+            if bytes_available > 0 {
+                let mut buffer = vec![0; bytes_available as usize];
+                channel.read_exact(&mut buffer)?;
+                stdout.write(&buffer)?;
+                stdout.flush()?;
             }
-        );
 
-        log::info!("stdin and stdout established...");
-        let mut buffer = [0; 1024];
-        loop {
-            match stdin.read(&mut buffer).await {
-                Ok(n) if n == 0 => break,
-                Ok(n) => {
-                    channel_stdin.write_all(&buffer[..n])?;
-                    channel_stdin.flush()?;
-                }
-                Err(_) => break
-            }
+            stdin.read_to_end(&mut buf_in)?;
+            buf_in.clear();
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
 
-        handle.await??;
-        channel.send_eof()?;
         channel.wait_close()?;
-
         return Ok(())
     }
 

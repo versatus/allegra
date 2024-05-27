@@ -1,5 +1,8 @@
 use clap::Subcommand;
-use crate::{vm_types::VmType, params::ServiceType};
+
+use crate::params::ServiceType;
+use crate::vm_types::VmType;
+
 
 #[derive(Clone, Subcommand)]
 pub enum AllegraCommands {

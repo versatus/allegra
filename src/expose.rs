@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, io::Write};
+
 
 use lazy_static::lazy_static;
 //TODO(asmith) replace with environment variable
@@ -65,6 +65,7 @@ pub async fn update_nginx_config(
             )
         )
     }
+    log::info!("confirmed nginx config file free of syntax errors...");
 
     let output = std::process::Command::new("sudo")
         .args(["systemctl", "reload", "nginx"])
@@ -78,6 +79,8 @@ pub async fn update_nginx_config(
             )
         )
     }
+
+    log::info!("reloaded nginx...");
     Ok(())
 }
 

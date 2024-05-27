@@ -3,6 +3,14 @@ name = "allegra"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+opt-level = 3
+
+[features]
+default = ["grpc"]
+grpc = []
+tarpc = []
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
@@ -50,3 +58,9 @@ ssh2 = "0.9.4"
 reqwest = "0.12.4"
 warp = "0.3.7"
 lazy_static = "1.4.0"
+tonic = "0.11.0"
+prost = "0.12.6"
+termion = { version = "4.0.0", features = ["serde"] }
+
+[build-dependencies]
+tonic-build = "0.11.0"
