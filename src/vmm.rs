@@ -107,12 +107,14 @@ impl Instance {
 #[derive(Debug)]
 pub enum VmManagerMessage {
     NewInstance {
+        #[cfg(feature="grpc")]
         params: InstanceCreateParams,
         #[cfg(feature="tarpc")]
         params: InstanceCreateParams,
         task_id: TaskId 
     },
     StopInstance {
+        #[cfg(feature="grpc")]
         params: InstanceStopParams,
         #[cfg(feature="tarpc")]
         params: InstanceStopParams,
@@ -120,6 +122,7 @@ pub enum VmManagerMessage {
         task_id: TaskId
     },
     DeleteInstance {
+        #[cfg(feature="grpc")]
         params: InstanceDeleteParams,
         #[cfg(feature="tarpc")]
         params: InstanceDeleteParams,
@@ -127,6 +130,7 @@ pub enum VmManagerMessage {
         task_id: TaskId 
     },
     InjectAuth {
+        #[cfg(feature="grpc")]
         params: InstanceAddPubkeyParams,
         #[cfg(feature="tarpc")]
         params: InstanceAddPubkeyParams,
@@ -134,6 +138,7 @@ pub enum VmManagerMessage {
         task_id: TaskId 
     },
     StartInstance {
+        #[cfg(feature="grpc")]
         params: InstanceStartParams,
         #[cfg(feature="tarpc")]
         params: InstanceStartParams,
@@ -141,6 +146,7 @@ pub enum VmManagerMessage {
         task_id: TaskId 
     },
     ExposeService {
+        #[cfg(feature="grpc")]
         params: InstanceExposeServiceParams,
         #[cfg(feature="tarpc")]
         params: InstanceExposeServiceParams,

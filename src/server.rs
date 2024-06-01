@@ -1,4 +1,3 @@
-
 use allegra::grpc::VmmService;
 
 use futures::{

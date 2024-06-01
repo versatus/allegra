@@ -303,7 +303,7 @@ fn generate_signature(
     return Ok((signature, recovery_id))
 }
 
-pub async fn create_allegra_rpc_client<T>() -> std::io::Result<VmmClient<Channel>> {
+pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient<Channel>> {
     let vmclient = VmmClient::connect("http://[::1]:50051").await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,

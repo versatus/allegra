@@ -1,16 +1,19 @@
 use crate::{
     allegra_rpc::{
+        vmm_server::Vmm,
         VmResponse,
-        vmm_server::{
-            Vmm
-        },
         InstanceCreateParams,
         InstanceStartParams,
         InstanceStopParams,
         InstanceDeleteParams,
         InstanceExposeServiceParams,
         InstanceAddPubkeyParams, 
-        GetTaskStatusRequest}, 
+        GetTaskStatusRequest,
+        InstanceGetSshDetails,
+        NewPeerMessage,
+        PingMessage,
+        PongMessage, Ack, SyncMessage, MigrateMessage
+    }, 
     vmm::VmManagerMessage, 
     account::{
         TaskId, 
@@ -25,6 +28,7 @@ use tokio::sync::mpsc::Sender;
 use sha3::{Digest, Sha3_256};
 use std::sync::{Arc, RwLock};
 use tonic::{Request, Response, Status};
+use std::result::Result;
 use lru::LruCache;
 
 
@@ -215,10 +219,39 @@ impl Vmm for VmmService {
 
     async fn get_ssh_details(
         &self,
-        _request:tonic::Request<crate::allegra_rpc::InstanceGetSshDetails>
-    ) -> std::result::Result<tonic::Response<crate::allegra_rpc::VmResponse>,tonic::Status> {
+        _request: Request<InstanceGetSshDetails>
+    ) -> Result<Response<VmResponse>, Status> {
         todo!()
     }
+
+    async fn register(
+        &self,
+        _request: Request<NewPeerMessage>
+    ) -> Result<Response<Ack>, Status> {
+        todo!()
+    }
+
+    async fn ping(
+        &self,
+        _request: Request<PingMessage>
+    ) -> Result<Response<PongMessage>, Status> {
+        todo!()
+    }
+
+    async fn sync(
+        &self,
+        _request: Request<SyncMessage>
+    ) -> Result<Response<Ack>, Status> {
+        todo!()
+    }
+    
+    async fn migrate(
+        &self,
+        _request: Request<MigrateMessage>
+    ) -> Result<Response<Ack>, Status> {
+        todo!()
+    }
+
 }
 
 pub fn generate_task_id(params: impl Payload) -> Result<TaskId, Status> {

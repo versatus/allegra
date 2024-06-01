@@ -1,0 +1,219 @@
+use crate::{
+    allegra_rpc::{
+        vmm_client::VmmClient, SyncMessage, MessageHeader, NewPeerMessage, MigrateMessage, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams
+    }, create_allegra_rpc_client, event::NetworkEvent
+};
+use tokio::sync::broadcast::{Receiver, error::RecvError};
+use crate::event::Event;
+use tonic::transport::Channel;
+
+#[derive(Debug)]
+pub struct NetworkClient {
+    local_peer_id: String,
+    local_peer_address: String,
+    events: Receiver<Event>,
+    client: VmmClient<Channel>
+}
+
+impl NetworkClient {
+    pub async fn new(
+        events: Receiver<Event>,
+        local_peer_id: String,
+        local_peer_address: String
+    ) -> std::io::Result<Self> {
+        let client = create_allegra_rpc_client().await?;
+
+        Ok(Self { local_peer_id, local_peer_address, events, client })
+    }
+
+    pub async fn run(&mut self) -> std::io::Result<()> {
+        loop {
+            match self.events.recv().await {
+                Ok(event) => {
+                    match self.handle_networking_event(event).await {
+                        Err(e) => log::error!("{e}"),
+                        _ => {}
+                    };
+                }
+                Err(e) => {
+                    match e {
+                        RecvError::Closed => break,
+                        _ => log::error!("{e}")
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[allow(unused)]
+    async fn handle_networking_event(&mut self, event: Event) -> std::io::Result<()> {
+        match event {
+            Event::NetworkEvent(ne) => {
+                match ne {
+                    NetworkEvent::Sync { 
+                        namespace, last_update
+                    } => {
+                        let header = MessageHeader {
+                            peer_id: self.local_peer_id.clone(),
+                            peer_address: self.local_peer_address.clone(),
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                        };
+
+                        let sync_message = SyncMessage {
+                            header: Some(header), 
+                            namespace,
+                            last_update
+                        };
+
+                        let resp = self.client.sync(sync_message).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                    NetworkEvent::NewPeer { 
+                        peer_id, peer_address, peer_number 
+                    } => {
+                        let header = MessageHeader {
+                            peer_id: self.local_peer_id.clone(),
+                            peer_address: self.local_peer_address.clone(),
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                        };
+
+                        let new_peer_message = NewPeerMessage {
+                            header: Some(header),
+                            new_peer_id: peer_id,
+                            new_peer_address: peer_address,
+                            peer_number
+                        };
+
+                        let resp = self.client.register(new_peer_message).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                    NetworkEvent::Migrate { 
+                        namespace, new_quorum 
+                    } => {
+                        let header = MessageHeader {
+                            peer_id: self.local_peer_id.clone(),
+                            peer_address: self.local_peer_address.clone(),
+                            message_id: uuid::Uuid::new_v4().to_string(),
+                        };
+
+                        let migrate_message = MigrateMessage {
+                            header: Some(header),
+                            namespace,
+                            new_quorum
+                        };
+
+                        let resp = self.client.migrate(migrate_message).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                    NetworkEvent::ExposeService { 
+                        name, sig, recovery_id, port, service_type 
+                    } => {
+                        let port: Vec<u32> = port.iter().map(|n| *n as u32).collect();
+                        let service_type: Vec<i32> = service_type.iter().map(|s| s.clone().into()).collect();
+                        let recovery_id = recovery_id as u32;
+                        let expose_service_message = InstanceExposeServiceParams {
+                            name, sig, recovery_id, port, service_type
+                        };
+
+                        let resp = self.client.expose_vm_ports(
+                            tonic::Request::new(
+                                expose_service_message
+                            )
+                        ).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                    NetworkEvent::Stop { 
+                        name, sig, recovery_id 
+                    } => {
+                        let stop_message = InstanceStopParams { name, sig, recovery_id: recovery_id as u32 };
+                        
+                        let resp = self.client.shutdown_vm(
+                            tonic::Request::new(
+                                stop_message
+                            )
+                        ).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                    NetworkEvent::Start { 
+                        name, sig, recovery_id, console, stateless 
+                    } => {
+                        let start_message = InstanceStartParams { name, sig, recovery_id: recovery_id as u32, console, stateless };
+
+                        let resp = self.client.start_vm(
+                            tonic::Request::new(
+                                start_message
+                            )
+                        ).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                    NetworkEvent::Delete { 
+                        name, force, interactive, sig, recovery_id 
+                    }=> {
+                        let delete_message = InstanceDeleteParams { name, force, interactive, sig, recovery_id: recovery_id as u32 };
+
+                        let resp = self.client.delete_vm(
+                            tonic::Request::new(
+                                delete_message
+                            )
+                        ).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                    NetworkEvent::AddPubkey { 
+                        name, sig, recovery_id, pubkey 
+                    } => {
+                        let add_pubkey_message = InstanceAddPubkeyParams { name, sig, recovery_id: recovery_id as u32, pubkey };
+
+                        let resp = self.client.set_ssh_pubkey(
+                            tonic::Request::new(
+                                add_pubkey_message
+                            )
+                        ).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
+                }
+            }
+            _ => return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "invalid event for networking"
+                )
+            )
+        }
+
+        Ok(())
+    }
+}

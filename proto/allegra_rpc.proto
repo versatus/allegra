@@ -83,6 +83,45 @@ message GetTaskStatusRequest {
   string id = 2;
 }
 
+message MessageHeader {
+    string peer_id = 1;
+    string peer_address = 2;
+    string message_id = 3;
+}
+
+message NewPeerMessage {
+    MessageHeader header = 1;
+    string new_peer_id = 2;
+    string new_peer_address = 3;
+    uint32 peer_number = 4;
+}
+
+message Ack {
+    MessageHeader header = 1;
+    string request_id = 2;
+}
+
+message PingMessage {
+    MessageHeader header = 1;
+}
+
+message PongMessage {
+    MessageHeader header = 1; 
+    string ping_message_id = 2;
+}
+
+message SyncMessage {
+    MessageHeader header = 1;
+    string namespace = 2;
+    uint64 last_update = 3;
+}
+
+message MigrateMessage {
+    MessageHeader header = 1;
+    string namespace = 2;
+    string new_quorum = 3;
+}
+
 service Vmm {
   rpc CreateVm(InstanceCreateParams) returns (VmResponse);
   rpc ShutdownVm(InstanceStopParams) returns (VmResponse);
@@ -92,4 +131,8 @@ service Vmm {
   rpc ExposeVmPorts(InstanceExposeServiceParams) returns (VmResponse);
   rpc GetTaskStatus(GetTaskStatusRequest) returns (VmResponse);
   rpc GetSshDetails(InstanceGetSshDetails) returns (VmResponse);
+  rpc Register(NewPeerMessage) returns (Ack);
+  rpc Ping(PingMessage) returns (PongMessage);
+  rpc Sync(SyncMessage) returns (Ack);
+  rpc Migrate(MigrateMessage) returns (Ack);
 }
