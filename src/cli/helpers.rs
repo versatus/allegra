@@ -7,6 +7,7 @@ use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceS
 use crate::rpc::VmmClient;
 use crate::allegra_rpc::vmm_client::VmmClient;
 use std::io::Read;
+use std::net::SocketAddr;
 #[cfg(feature="tarpc")]
 use std::net::SocketAddr;
 use std::collections::HashMap;
@@ -27,7 +28,7 @@ use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use ssh2::Session;
 use std::fs::File;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
 use termion::{async_stdin, raw::IntoRawMode};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -301,6 +302,23 @@ fn generate_signature(
     })?;
 
     return Ok((signature, recovery_id))
+}
+
+pub async fn create_allegra_rpc_client_to_addr(dst: &str) -> std::io::Result<VmmClient<Channel>> {
+    let endpoint: Endpoint = Endpoint::from_shared(dst.to_string()).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
+    let vmclient = VmmClient::connect(endpoint).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
+
+    Ok(vmclient)
 }
 
 pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient<Channel>> {

@@ -37,12 +37,13 @@ use crate::params::{
     InstanceAddPubkeyParams,
     InstanceExposeServiceParams, Payload, ServiceType
 };
-use futures::stream::{FuturesUnordered, StreamExt};
+use futures::{stream::{FuturesUnordered, StreamExt}, Future};
 use tokio::task::JoinHandle;
 use lru::LruCache;
 use sha3::{Digest, Sha3_256};
 use std::sync::{Arc, RwLock};
 use serde::{Serialize, Deserialize};
+use std::pin::Pin;
 
 pub const LOWEST_PORT: u16 = 2222;
 pub const HIGHEST_PORT: u16 = 65535;
@@ -152,6 +153,10 @@ pub enum VmManagerMessage {
         params: InstanceExposeServiceParams,
         sig: String,
         task_id: TaskId,
+    },
+    SyncInstance {
+        namespace: String,
+        requestor_address: String,
     }
 }
 
@@ -159,6 +164,7 @@ pub struct VmManager {
     network: String,
     next_port: u16,
     handles: FuturesUnordered<JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>>>,
+    sync_futures: FuturesUnordered<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>,
     vmlist: VmList,
     state_client: tikv_client::RawClient,
     task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>> 
@@ -253,6 +259,8 @@ impl VmManager {
                 )
             )
         );
+        
+        let sync_futures = FuturesUnordered::new();
 
         Ok(Self {
             network: network.to_string(),
@@ -261,6 +269,7 @@ impl VmManager {
             vmlist,
             state_client,
             task_cache,
+            sync_futures
         })
     }
 
@@ -427,6 +436,9 @@ impl VmManager {
             } => {
                 log::info!("received ExposeService message, attempting to delete instance.");
                 return self.expose_service(params, sig, task_id).await
+            }
+            VmManagerMessage::SyncInstance { namespace, requestor_address } => {
+                return self.sync_instance(namespace, requestor_address).await
             }
         }
     }
@@ -1108,7 +1120,6 @@ impl VmManager {
             ).await
         }
     }
-
     pub async fn launch_instance(
         &mut self,
         params: InstanceCreateParams,
@@ -1216,4 +1227,23 @@ impl VmManager {
 
         Ok(())
     }
+
+    pub async fn sync_instance(&mut self, namespace: String, requestor_address: String) -> std::io::Result<()> {
+        let future = copy_instance(
+            namespace.clone(),
+            requestor_address.clone()
+        );
+
+        self.sync_futures.push(Box::pin(future));
+
+        Ok(())
+    }
+}
+
+pub async fn copy_instance(namespace: String, requestor_address: String) -> std::io::Result<()> {
+    Ok(())
+}
+
+pub async fn migrate_instance(namespace: String, requestor_address: String) -> std::io::Result<()> {
+    Ok(())
 }

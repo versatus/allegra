@@ -69,6 +69,9 @@ tower = { version = "0.4.13", features = ["full"] }
 uuid = { version = "1.8.0", features = [ "v4", "fast-rng", "macro-diagnostics" ] }
 async-recursion = "1.1.1"
 base64 = "0.22.1"
+geolocation = "0.2.1"
+haversine = "0.2.1"
+rand = "0.8.5"
 
 [build-dependencies]
 tonic-build = "0.11.0"

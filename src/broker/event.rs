@@ -2,8 +2,7 @@ use std::collections::VecDeque;
 
 use serde::{Serialize, Deserialize};
 use tokio::sync::broadcast::{Sender, Receiver};
-
-use crate::{params::ServiceType, vm_types::VmType};
+use crate::{params::ServiceType, vm_types::VmType, account::Namespace, allegra_rpc::SshDetails};
 
 #[derive(Clone, Debug)]
 pub struct Topic {
@@ -174,8 +173,10 @@ pub enum QuorumEvent {
         id: String,
         address: String
     },
-    Consolidate(String)
+    Consolidate(String),
+    RequestSshDetails(Namespace) 
 }
+
 
 pub trait BrokerEvent {}
 

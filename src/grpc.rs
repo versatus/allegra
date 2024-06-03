@@ -12,33 +12,38 @@ use crate::{
         InstanceGetSshDetails,
         NewPeerMessage,
         PingMessage,
-        PongMessage, Ack, SyncMessage, MigrateMessage
+        PongMessage, Ack, SyncMessage, MigrateMessage, SshDetails, ServiceType,
+        GetPortMessage, PortResponse, MessageHeader
     }, 
-    vmm::VmManagerMessage, 
+    vmm::{VmManagerMessage, SUCCESS, Instance}, 
     account::{
         TaskId, 
         TaskStatus,
         Account
     }, 
-    params::Payload
+    params::Payload, helpers::recover_namespace, dht::{AllegraNetworkState, Peer}, create_allegra_rpc_client_to_addr
 };
 
 use tokio::sync::mpsc::Sender;
+use tokio::sync::RwLock;
 
 use sha3::{Digest, Sha3_256};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use std::result::Result;
 use lru::LruCache;
+use rand::Rng;
 
 
 #[derive(Clone)]
 pub struct VmmService {
     pub network: String,
     pub port: u16,
+    pub local_peer: Peer,
     pub vmm_sender: Sender<VmManagerMessage>,
     pub tikv_client: tikv_client::RawClient,
-    pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>> 
+    pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>, 
+    pub network_state: Arc<RwLock<AllegraNetworkState>>
 }
 
 #[tonic::async_trait]
@@ -163,18 +168,18 @@ impl Vmm for VmmService {
             hex::decode(&params.owner).map_err(|e| Status::internal(e.to_string()))?
         };
 
-        match self.task_cache.write() {
-            Ok(mut guard) => {
-                if let Some(task_status) = guard.get(&TaskId::new(params.id.clone())) {
-                    return Ok(Response::new(VmResponse {
+        let mut guard = self.task_cache.write().await; 
+        if let Some(task_status) = guard.get(&TaskId::new(params.id.clone())) {
+            return Ok(
+                Response::new(
+                    VmResponse {
                         status: "SUCCESS".to_string(),
                         details: task_status.to_string(),
                         ssh_details: None,
-                    }));
-                }
-            }
-            Err(_) => {}
-        };
+                    }
+                )
+            );
+        }
 
         match self.tikv_client.get(address_bytes.to_vec()).await {
             Ok(Some(account_bytes)) => {
@@ -219,39 +224,309 @@ impl Vmm for VmmService {
 
     async fn get_ssh_details(
         &self,
-        _request: Request<InstanceGetSshDetails>
+        request: Request<InstanceGetSshDetails>
     ) -> Result<Response<VmResponse>, Status> {
-        todo!()
+        let remote_addr = request.remote_addr();
+        let inner = request.into_inner().clone();
+        let owner_bytes = if inner.owner.starts_with("0x") {
+            let bytes = hex::decode(&inner.owner[2..]).map_err(|e| {
+                Status::from_error(Box::new(e))
+            })?;
+            let mut owner_bytes = [0u8; 20];
+            owner_bytes.copy_from_slice(&bytes[..]);
+            owner_bytes
+        } else {
+            let bytes = hex::decode(&inner.owner).map_err(|e| {
+                Status::from_error(Box::new(e))
+            })?;
+            let mut owner_bytes = [0u8; 20];
+            owner_bytes.copy_from_slice(&bytes[..]);
+            owner_bytes
+        };
+
+        let namespace = recover_namespace(owner_bytes, &inner.name);
+
+        let (id, quorum) = {
+            let guard = self.network_state.read().await;
+            let id = guard.get_instance_quorum_membership(&namespace).ok_or(
+                Status::not_found(
+                    format!("Unable to find quorum responsible for instance: {}", &namespace)
+                )
+            )?.clone();
+
+            let quorum = guard.get_quorum_by_id(&id).ok_or(
+                Status::not_found(
+                    format!("Unable to find quorum responsible for instance: {}", &namespace)
+                )
+            )?.clone();
+
+            (id, quorum)
+        };
+        let peers = quorum.peers();
+            
+        if let Some(socket_addr) = remote_addr {
+            if let Ok(location) = geolocation::find(&socket_addr.ip().to_string()) {
+                
+                let locations: Vec<geolocation::Locator> = peers.iter().filter_map(|p| {
+                    geolocation::find(p.address()).ok()
+                }).collect();
+
+                if let Ok(latitude) = location.latitude.parse::<f64>() {
+                    if let Ok(longitude) = location.longitude.parse::<f64>() {
+                        let distances: Vec<(String, f64)> = locations.iter().filter_map(|loc| {
+                            let node_latitude = loc.latitude.parse::<f64>().ok();
+                            let node_longitude = loc.longitude.parse::<f64>().ok();
+
+                            match (node_latitude, node_longitude) {
+                                (Some(x), Some(y)) => {
+                                    let requestor_location = haversine::Location {
+                                        latitude, longitude
+                                    };
+
+                                    let node_location = haversine::Location {
+                                        latitude: x, longitude: y
+                                    };
+
+                                    let distance = haversine::distance(
+                                        requestor_location, 
+                                        node_location, 
+                                        haversine::Units::Kilometers
+                                    );
+                                    
+                                    Some((loc.ip.clone(), distance))
+                                }
+                                _ => None
+                            }
+                        }).collect();
+                        
+                        if let Some(closest) = distances.iter().min_by(|a, b| {
+                            match a.1.partial_cmp(&b.1) {
+                                Some(order) => order,
+                                None => std::cmp::Ordering::Equal
+                            }
+                        }) {
+
+                            if let Ok(resp) = get_port(namespace.inner().clone(), &closest.0, ServiceType::Ssh).await {
+                                return Ok(
+                                    Response::new(
+                                        VmResponse {
+                                            status: SUCCESS.to_string(),
+                                            details: "Successfully acquired geographically closest node".to_string(),
+                                            ssh_details: Some(SshDetails {
+                                                ip: closest.0.clone(),
+                                                port: resp.into_inner().port
+                                            })
+                                        }
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            let random_ip = {
+                let mut rng = rand::thread_rng();
+                let len = peers.len();
+                let random_choice = rng.gen_range(0..len);
+                peers[random_choice].address().to_string()
+            };
+
+            if let Ok(resp) = get_port(namespace.inner().clone(), &random_ip, ServiceType::Ssh).await {
+                return Ok(
+                    Response::new(
+                        VmResponse {
+                            status: SUCCESS.to_string(),
+                            details: "Successfully acquired random node, unable to acquire geographically closest".to_string(),
+                            ssh_details: Some(
+                                SshDetails {
+                                    ip: random_ip.to_string(),
+                                    port: resp.into_inner().port
+                                }
+                            )
+                        }
+                    )
+                )
+            }
+        } else {
+            return Err(Status::failed_precondition(
+                "Unable to acquire lock on network state"
+            ))
+        }
+
+        return Err(
+            Status::failed_precondition(
+                "Unable to find a node to service the request"
+            )
+        )
     }
 
     async fn register(
         &self,
-        _request: Request<NewPeerMessage>
+        request: Request<NewPeerMessage>
     ) -> Result<Response<Ack>, Status> {
-        todo!()
+        let new_peer = request.into_inner();
+        let header = new_peer.header;
+        let request_id = uuid::Uuid::new_v4();
+
+        let mut guard = self.network_state.write().await;
+
+        let peer = Peer::new(
+            uuid::Uuid::parse_str(&new_peer.new_peer_id).map_err(|e| {
+                Status::from_error(Box::new(e))
+            })?,
+            new_peer.new_peer_address
+        );
+        
+        guard.add_peer(&peer).await.map_err(|e| {
+            Status::from_error(Box::new(e))
+        })?;
+
+        return Ok(Response::new(Ack { header, request_id: request_id.to_string() }));
     }
 
     async fn ping(
         &self,
-        _request: Request<PingMessage>
+        request: Request<PingMessage>
     ) -> Result<Response<PongMessage>, Status> {
-        todo!()
+        let header = MessageHeader {
+            peer_id: self.local_peer.id().to_string(),
+            peer_address: self.local_peer.address().to_string(),
+            message_id: uuid::Uuid::new_v4().to_string()
+        };
+        let ping_message_id = request.into_inner().header.ok_or(
+            Status::failed_precondition(
+                "Ping message had no header"
+            )
+        )?.message_id.clone();
+        let pong_message = PongMessage {
+            header: Some(header),
+            ping_message_id
+        };
+
+        return Ok(Response::new(pong_message))
     }
 
     async fn sync(
         &self,
-        _request: Request<SyncMessage>
+        request: Request<SyncMessage>
     ) -> Result<Response<Ack>, Status> {
-        todo!()
+        let message = request.into_inner().clone();
+        let header = message.header.ok_or(
+            Status::failed_precondition(
+                "unable to acquire requestor address, MessageHeader missing"
+            )
+        )?;
+        
+        let requestor_address = header.peer_address.clone();
+        let namespace = message.namespace.clone();
+
+        let message = VmManagerMessage::SyncInstance {
+            requestor_address,
+            namespace,
+        };
+
+        let message_id = uuid::Uuid::new_v4();
+        let new_header = MessageHeader {
+            peer_id: self.local_peer.id().to_string(),
+            peer_address: self.local_peer.address().to_string(),
+            message_id: message_id.to_string()
+        };
+
+        let ack = Ack {
+            header: Some(new_header),
+            request_id: header.message_id
+        };
+
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
+            Ok(_) => return Ok(Response::new(ack)),
+            Err(e) => return Err(Status::internal(e.to_string())),
+        }
     }
     
     async fn migrate(
         &self,
-        _request: Request<MigrateMessage>
+        request: Request<MigrateMessage>
     ) -> Result<Response<Ack>, Status> {
-        todo!()
+        let message = request.into_inner().clone();
+        let header = message.header.ok_or(
+            Status::failed_precondition(
+                "unable to acquire requestor address, MessageHeader missing"
+            )
+        )?;
+        
+        let requestor_address = header.peer_address.clone();
+        let namespace = message.namespace.clone();
+
+        let message = VmManagerMessage::SyncInstance {
+            requestor_address,
+            namespace,
+        };
+
+        let message_id = uuid::Uuid::new_v4();
+        let new_header = MessageHeader {
+            peer_id: self.local_peer.id().to_string(),
+            peer_address: self.local_peer.address().to_string(),
+            message_id: message_id.to_string()
+        };
+
+        let ack = Ack {
+            header: Some(new_header),
+            request_id: header.message_id
+        };
+
+        let vmm_sender = self.vmm_sender.clone();
+        match vmm_sender.send(message).await {
+            Ok(_) => return Ok(Response::new(ack)),
+            Err(e) => return Err(Status::internal(e.to_string())),
+        }
     }
 
+    async fn get_port(
+        &self,
+        request: Request<GetPortMessage>
+    ) -> Result<Response<PortResponse>, Status> {
+        let message = request.into_inner().clone();
+        let namespace = message.namespace;
+        let service = message.service_type;
+
+        match self.tikv_client.get(namespace.clone()).await {
+            Ok(Some(instance_bytes)) => {
+                let instance = serde_json::from_slice::<Instance>(&instance_bytes).map_err(|e| {
+                    Status::from_error(Box::new(e))
+                })?;
+
+                let port = {
+                    let services = instance.port_map();
+                    let mut port: u16 = 0;
+                    for (_, value) in services {
+                        let service_int: i32 = value.1.clone().into();
+                        if service_int == service {
+                            port = value.0;
+                        }
+                    }
+
+                    port
+                };
+
+                let port_response = PortResponse {
+                    namespace,
+                    service_type: service,
+                    port: port.into()
+                };
+
+                return Ok(Response::new(port_response))
+            }
+            _ => {
+                return Err(
+                    Status::failed_precondition(
+                        format!("Unable to find instance: {}", &namespace)
+                    )
+                )
+            }
+        }
+    }
 }
 
 pub fn generate_task_id(params: impl Payload) -> Result<TaskId, Status> {
@@ -264,4 +539,20 @@ pub fn generate_task_id(params: impl Payload) -> Result<TaskId, Status> {
     Ok(TaskId::new(
         hex::encode(&result[..])
     ))
+}
+
+pub async fn get_port(
+    namespace: String,
+    ip: &str,
+    service_type: ServiceType
+) -> Result<Response<PortResponse>, Status> {
+    let mut client = create_allegra_rpc_client_to_addr(&format!("http://{}:50051", ip)).await.map_err(|e| {
+        Status::from_error(Box::new(e))
+    })?;
+
+    let get_port_message = GetPortMessage {
+        namespace, service_type: service_type.into()
+    };
+
+    client.get_port(Request::new(get_port_message)).await
 }

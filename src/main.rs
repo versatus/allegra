@@ -1,3 +1,4 @@
+#![allow(unused)]
 use allegra::grpc::VmmService;
 use allegra::vm_types::VmType;
 use allegra::allegra_rpc::{InstanceCreateParams, InstanceStopParams};
@@ -12,6 +13,7 @@ use allegra::allegra_rpc::vmm_client::VmmClient;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+/*
     let pd_endpoints = vec!["127.0.0.1:2379"];
     let tikv_client = tikv_client::RawClient::new(
         pd_endpoints
@@ -101,5 +103,6 @@ async fn main() -> std::io::Result<()> {
 
     println!("{:?}", vmm_response);
 
+*/
     Ok(())
 }

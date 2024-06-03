@@ -1,3 +1,4 @@
+#![allow(unused)]
 use allegra::grpc::VmmService;
 
 use futures::{
@@ -14,6 +15,7 @@ pub async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+/*
     simple_logger::init_with_level(log::Level::Info)
         .map_err(|e| {
             std::io::Error::new(
@@ -73,5 +75,6 @@ async fn main() -> std::io::Result<()> {
     })?;
 
     vmm_handle.await?;
+*/
     Ok(())
 }

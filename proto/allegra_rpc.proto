@@ -122,6 +122,17 @@ message MigrateMessage {
     string new_quorum = 3;
 }
 
+message GetPortMessage {
+    string namespace = 1;
+    ServiceType service_type = 2;
+}
+
+message PortResponse {
+    string namespace = 1;
+    ServiceType service_type = 2;
+    uint32 port = 3;
+}
+
 service Vmm {
   rpc CreateVm(InstanceCreateParams) returns (VmResponse);
   rpc ShutdownVm(InstanceStopParams) returns (VmResponse);
@@ -135,4 +146,5 @@ service Vmm {
   rpc Ping(PingMessage) returns (PongMessage);
   rpc Sync(SyncMessage) returns (Ack);
   rpc Migrate(MigrateMessage) returns (Ack);
+  rpc GetPort(GetPortMessage) returns (PortResponse);
 }

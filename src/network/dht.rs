@@ -196,6 +196,10 @@ impl AllegraNetworkState {
         Some(q.peers().clone())
     }
 
+    pub fn get_quorum_by_id(&self, id: &Uuid) -> Option<&Quorum> {
+        self.quorums.get(id)
+    }
+
     pub fn add_instance(&mut self, namespace: &Namespace) -> std::io::Result<()> {
         let q = self.instance_hashring.get_resource(namespace.clone()).ok_or(
             std::io::Error::new(
