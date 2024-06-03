@@ -422,7 +422,8 @@ impl Vmm for VmmService {
         let namespace = message.namespace.clone();
 
         let message = VmManagerMessage::SyncInstance {
-            requestor_address,
+            local: self.local_peer.address().to_string(),
+            source: requestor_address,
             namespace,
         };
 
@@ -458,10 +459,13 @@ impl Vmm for VmmService {
         
         let requestor_address = header.peer_address.clone();
         let namespace = message.namespace.clone();
+        let new_quorum = message.new_quorum.clone();
 
-        let message = VmManagerMessage::SyncInstance {
-            requestor_address,
+        let message = VmManagerMessage::MigrateInstance {
+            local: self.local_peer.address().to_string(),
+            source: requestor_address,
             namespace,
+            new_quorum
         };
 
         let message_id = uuid::Uuid::new_v4();

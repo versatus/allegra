@@ -156,7 +156,14 @@ pub enum VmManagerMessage {
     },
     SyncInstance {
         namespace: String,
-        requestor_address: String,
+        local: String,
+        source: String,
+    },
+    MigrateInstance {
+        namespace: String,
+        local: String,
+        source: String,
+        new_quorum: String,
     }
 }
 
@@ -321,6 +328,16 @@ impl VmManager {
                         None => {}
                     }
                 },
+                sync_status = self.sync_futures.next() => {
+                    match sync_status {
+                        Some(Ok(())) => {
+                        }
+                        Some(Err(e)) => {
+                            log::error!("error handling future {e}");
+                        }
+                        None => {}
+                    }
+                },
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(180)) => {
                     log::info!("refreshing vm list");
                     match self.refresh_vmlist().await {
@@ -434,11 +451,16 @@ impl VmManager {
                 sig, 
                 task_id 
             } => {
-                log::info!("received ExposeService message, attempting to delete instance.");
+                log::info!("received ExposeService message, attempting to expose service on instance.");
                 return self.expose_service(params, sig, task_id).await
             }
-            VmManagerMessage::SyncInstance { namespace, requestor_address } => {
-                return self.sync_instance(namespace, requestor_address).await
+            VmManagerMessage::SyncInstance { namespace, source, local } => {
+                log::info!("received SyncInstance message, attempting to sync instance");
+                return self.sync_instance(namespace, local, source).await
+            }
+            VmManagerMessage::MigrateInstance { namespace, local, source, new_quorum } => {
+                log::info!("received MigrateInstance message, attempting to migrate instance");
+                return self.move_instance(namespace, local, source, new_quorum).await
             }
         }
     }
@@ -1228,22 +1250,92 @@ impl VmManager {
         Ok(())
     }
 
-    pub async fn sync_instance(&mut self, namespace: String, requestor_address: String) -> std::io::Result<()> {
-        let future = copy_instance(
-            namespace.clone(),
-            requestor_address.clone()
-        );
-
+    pub async fn sync_instance(
+        &mut self,
+        namespace: String,
+        local: String,
+        source: String
+    ) -> std::io::Result<()> {
+        let future = copy_instance(namespace.clone(), source.clone(), local.clone());
         self.sync_futures.push(Box::pin(future));
+        Ok(())
+    }
 
+    pub async fn move_instance(
+        &mut self,
+        namespace: String,
+        local: String,
+        source: String,
+        new_quorum: String
+    ) -> std::io::Result<()> {
+        let future = migrate_instance(namespace.clone(), source.clone(), local, new_quorum.clone());
+        self.sync_futures.push(Box::pin(future));
         Ok(())
     }
 }
 
-pub async fn copy_instance(namespace: String, requestor_address: String) -> std::io::Result<()> {
-    Ok(())
+pub async fn copy_instance(
+    namespace: String,
+    source: String,
+    target: String,
+) -> std::io::Result<()> {
+    let output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("copy")
+        .arg(&format!("{source}:{namespace}"))
+        .arg(&namespace)
+        .arg("--mode")
+        .arg("pull")
+        .arg("--refresh").output()?;
+
+    if output.status.success() {
+        return Ok(())
+    } else {
+        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                stderr
+            )
+        )
+    }
 }
 
-pub async fn migrate_instance(namespace: String, requestor_address: String) -> std::io::Result<()> {
-    Ok(())
+pub async fn migrate_instance(
+    namespace: String,
+    local: String,
+    source: String,
+    new_quorum: String,
+) -> std::io::Result<()> {
+    let output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("move")
+        .arg(&format!("{source}:{namespace}"))
+        .arg(&namespace)
+        .arg("--mode")
+        .arg("pull")
+        .output()?;
+
+    if output.status.success() {
+        return Ok(())
+    } else {
+        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        return Err( 
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                stderr
+            )
+        )
+    }
 }
