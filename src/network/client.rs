@@ -59,9 +59,10 @@ impl NetworkClient {
                         let mut buffer = Vec::new();
                         file.read_to_end(&mut buffer).await?;
 
+                        let request_namespace = namespace.clone();
                         let request = tonic::Request::new(futures::stream::once(async move {
                             FileChunk {
-                                namespace,
+                                namespace: request_namespace,
                                 content: buffer
                             }
                         }));
@@ -74,6 +75,7 @@ impl NetworkClient {
                         })?.into_inner();
 
                         if resp.success {
+                            crate::vmm::remove_temp_instance(&namespace, &path).await?;
                             return Ok(())
                         } else {
                             return Err(
@@ -114,9 +116,10 @@ impl NetworkClient {
                         let mut buffer = Vec::new();
                         file.read_to_end(&mut buffer).await?;
 
+                        let request_namespace = namespace.clone();
                         let request = tonic::Request::new(futures::stream::once(async move {
                             FileChunk {
-                                namespace,
+                                namespace: request_namespace,
                                 content: buffer
                             }
                         }));
@@ -129,6 +132,7 @@ impl NetworkClient {
                         })?.into_inner();
 
                         if resp.success {
+                            crate::vmm::remove_temp_instance(&namespace, &path).await?;
                             return Ok(())
                         } else {
                             return Err(

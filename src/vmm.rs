@@ -1287,6 +1287,7 @@ impl VmManager {
                     .output()?;
 
                 if copy_output.status.success() {
+                    remove_temp_instance(&namespace, &path).await?;
                     return Ok(())
                 } else {
                     return Err(
@@ -1305,6 +1306,7 @@ impl VmManager {
                 .output()?;
 
             if rename_output.status.success() {
+                remove_temp_instance(&namespace, &path).await?;
                 return Ok(())
             } else {
                 return Err(
@@ -1457,4 +1459,29 @@ pub async fn transfer_temp_instance(broker: std::sync::Arc<tokio::sync::Mutex<Ev
     guard.publish("Network".to_string(), event).await;
 
     Ok(())
+}
+
+pub async fn remove_temp_instance(namespace: &str, path: &str) -> std::io::Result<()> {
+    let delete_output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("delete")
+        .arg(&format!("{}-temp", namespace))
+        .output()?;
+
+    let rm_output = std::process::Command::new("sudo")
+        .arg("rm")
+        .arg("-rf")
+        .arg(path)
+        .output()?;
+
+    if delete_output.status.success() && rm_output.status.success() {
+        return Ok(())
+    }
+
+    return Err(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Unable to delete or remove temporary instance from local fs"
+        )
+    )
 }
