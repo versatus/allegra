@@ -96,10 +96,15 @@ pub enum NetworkEvent {
     },
     Sync {
         namespace: String,
-        last_update: u64,
+        path: String,
+        target: String,
+        last_update: Option<u64>,
     }, //lxc copy --refresh
     Migrate {
         namespace: String,
+        path: String,
+        target: String,
+        last_update: Option<u64>,
         new_quorum: String
     }, //lxc move
     ExposeService {

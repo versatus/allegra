@@ -13,9 +13,9 @@ use crate::{
         NewPeerMessage,
         PingMessage,
         PongMessage, Ack, SyncMessage, MigrateMessage, SshDetails, ServiceType,
-        GetPortMessage, PortResponse, MessageHeader
+        GetPortMessage, PortResponse, MessageHeader, TransferStatus
     }, 
-    vmm::{VmManagerMessage, SUCCESS, Instance}, 
+    vmm::{VmManagerMessage, SUCCESS, Instance, TEMP_PATH}, 
     account::{
         TaskId, 
         TaskStatus,
@@ -24,7 +24,7 @@ use crate::{
     params::Payload, helpers::recover_namespace, dht::{AllegraNetworkState, Peer}, create_allegra_rpc_client_to_addr
 };
 
-use tokio::sync::mpsc::Sender;
+use tokio::{sync::mpsc::Sender, fs::File, io::AsyncWriteExt};
 use tokio::sync::RwLock;
 
 use sha3::{Digest, Sha3_256};
@@ -33,6 +33,7 @@ use tonic::{Request, Response, Status};
 use std::result::Result;
 use lru::LruCache;
 use rand::Rng;
+use futures::StreamExt;
 
 
 #[derive(Clone)]
@@ -409,47 +410,56 @@ impl Vmm for VmmService {
 
     async fn sync(
         &self,
-        request: Request<SyncMessage>
-    ) -> Result<Response<Ack>, Status> {
-        let message = request.into_inner().clone();
-        let header = message.header.ok_or(
-            Status::failed_precondition(
-                "unable to acquire requestor address, MessageHeader missing"
-            )
-        )?;
+        request: Request<tonic::Streaming<crate::allegra_rpc::FileChunk>>
+    ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
+
+        let mut stream = request.into_inner();
+        let mut namespace = String::new();
+        let mut file = None;
+
+        let path = format!(
+            "{}/{}-temp.tar.gz", 
+            TEMP_PATH.to_string(),
+            namespace.to_string()
+        );
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if namespace.is_empty() {
+                namespace = chunk.namespace.clone();
+                file = Some(
+                    File::create(
+                        &path
+                    ).await?
+                );
+            }
+
+            if let Some(ref mut file) = file {
+                file.write_all(&chunk.content).await?;
+            }
+        }
+
+        let response = TransferStatus {
+            message: format!("File for instance '{}' received in full", namespace),
+            success: true
+        };
         
-        let requestor_address = header.peer_address.clone();
-        let namespace = message.namespace.clone();
-
-        let message = VmManagerMessage::SyncInstance {
-            local: self.local_peer.address().to_string(),
-            source: requestor_address,
-            namespace,
-        };
-
-        let message_id = uuid::Uuid::new_v4();
-        let new_header = MessageHeader {
-            peer_id: self.local_peer.id().to_string(),
-            peer_address: self.local_peer.address().to_string(),
-            message_id: message_id.to_string()
-        };
-
-        let ack = Ack {
-            header: Some(new_header),
-            request_id: header.message_id
-        };
-
-        let vmm_sender = self.vmm_sender.clone();
-        match vmm_sender.send(message).await {
-            Ok(_) => return Ok(Response::new(ack)),
-            Err(e) => return Err(Status::internal(e.to_string())),
+        let message = VmManagerMessage::SyncInstance { namespace, path };
+        match self.vmm_sender.send(message).await {
+            Ok(()) => {
+                Ok(Response::new(response))
+            }
+            Err(e) => {
+                Err(Status::from_error(Box::new(e)))
+            }
         }
     }
     
     async fn migrate(
         &self,
-        request: Request<MigrateMessage>
-    ) -> Result<Response<Ack>, Status> {
+        request: Request<tonic::Streaming<crate::allegra_rpc::FileChunk>>
+    ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
+        /*
         let message = request.into_inner().clone();
         let header = message.header.ok_or(
             Status::failed_precondition(
@@ -485,6 +495,8 @@ impl Vmm for VmmService {
             Ok(_) => return Ok(Response::new(ack)),
             Err(e) => return Err(Status::internal(e.to_string())),
         }
+        */
+        todo!()
     }
 
     async fn get_port(

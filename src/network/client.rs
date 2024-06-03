@@ -1,9 +1,9 @@
 use crate::{
     allegra_rpc::{
-        vmm_client::VmmClient, SyncMessage, MessageHeader, NewPeerMessage, MigrateMessage, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams
+        vmm_client::VmmClient, SyncMessage, MessageHeader, NewPeerMessage, MigrateMessage, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams, FileChunk
     }, create_allegra_rpc_client, event::NetworkEvent
 };
-use tokio::sync::broadcast::{Receiver, error::RecvError};
+use tokio::{sync::broadcast::{Receiver, error::RecvError}, io::AsyncReadExt};
 use crate::event::Event;
 use tonic::transport::Channel;
 
@@ -53,26 +53,36 @@ impl NetworkClient {
             Event::NetworkEvent(ne) => {
                 match ne {
                     NetworkEvent::Sync { 
-                        namespace, last_update
+                        namespace, path, last_update, target
                     } => {
-                        let header = MessageHeader {
-                            peer_id: self.local_peer_id.clone(),
-                            peer_address: self.local_peer_address.clone(),
-                            message_id: uuid::Uuid::new_v4().to_string(),
-                        };
+                        let mut file = tokio::fs::File::open(&path).await?;
+                        let mut buffer = Vec::new();
+                        file.read_to_end(&mut buffer).await?;
 
-                        let sync_message = SyncMessage {
-                            header: Some(header), 
-                            namespace,
-                            last_update
-                        };
+                        let request = tonic::Request::new(futures::stream::once(async move {
+                            FileChunk {
+                                namespace,
+                                content: buffer
+                            }
+                        }));
 
-                        let resp = self.client.sync(sync_message).await.map_err(|e| {
+                        let resp = self.client.sync(request).await.map_err(|e| {
                             std::io::Error::new(
                                 std::io::ErrorKind::Other,
-                                e.to_string()
+                                e
                             )
                         })?.into_inner();
+
+                        if resp.success {
+                            return Ok(())
+                        } else {
+                            return Err(
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    format!("{} failed", &resp.message)
+                                )
+                            )
+                        }
                     }
                     NetworkEvent::NewPeer { 
                         peer_id, peer_address, peer_number 
@@ -98,26 +108,36 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Migrate { 
-                        namespace, new_quorum 
+                        namespace, path, new_quorum, target, last_update 
                     } => {
-                        let header = MessageHeader {
-                            peer_id: self.local_peer_id.clone(),
-                            peer_address: self.local_peer_address.clone(),
-                            message_id: uuid::Uuid::new_v4().to_string(),
-                        };
+                        let mut file = tokio::fs::File::open(&path).await?;
+                        let mut buffer = Vec::new();
+                        file.read_to_end(&mut buffer).await?;
 
-                        let migrate_message = MigrateMessage {
-                            header: Some(header),
-                            namespace,
-                            new_quorum
-                        };
+                        let request = tonic::Request::new(futures::stream::once(async move {
+                            FileChunk {
+                                namespace,
+                                content: buffer
+                            }
+                        }));
 
-                        let resp = self.client.migrate(migrate_message).await.map_err(|e| {
+                        let resp = self.client.sync(request).await.map_err(|e| {
                             std::io::Error::new(
                                 std::io::ErrorKind::Other,
-                                e.to_string()
+                                e
                             )
                         })?.into_inner();
+
+                        if resp.success {
+                            return Ok(())
+                        } else {
+                            return Err(
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    format!("{} failed", &resp.message)
+                                )
+                            )
+                        }
                     }
                     NetworkEvent::ExposeService { 
                         name, sig, recovery_id, port, service_type 

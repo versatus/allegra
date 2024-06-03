@@ -122,6 +122,16 @@ message MigrateMessage {
     string new_quorum = 3;
 }
 
+message FileChunk {
+    string namespace = 1;
+    bytes content = 2;
+}
+
+message TransferStatus {
+    string message = 1;
+    bool success = 2;
+}
+
 message GetPortMessage {
     string namespace = 1;
     ServiceType service_type = 2;
@@ -144,7 +154,7 @@ service Vmm {
   rpc GetSshDetails(InstanceGetSshDetails) returns (VmResponse);
   rpc Register(NewPeerMessage) returns (Ack);
   rpc Ping(PingMessage) returns (PongMessage);
-  rpc Sync(SyncMessage) returns (Ack);
-  rpc Migrate(MigrateMessage) returns (Ack);
+  rpc Sync(stream FileChunk) returns (TransferStatus);
+  rpc Migrate(stream FileChunk) returns (TransferStatus);
   rpc GetPort(GetPortMessage) returns (PortResponse);
 }

@@ -14,7 +14,7 @@ use crate::{
         verify_ownership,
         update_iptables,
         update_account, update_instance
-    }, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}
+    }, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}, event::{Event, NetworkEvent}, broker::broker::EventBroker
 };
 
 #[cfg(feature="grpc")]
@@ -38,7 +38,8 @@ use crate::params::{
     InstanceExposeServiceParams, Payload, ServiceType
 };
 use futures::{stream::{FuturesUnordered, StreamExt}, Future};
-use tokio::task::JoinHandle;
+use lazy_static::lazy_static;
+use tokio::{task::JoinHandle, sync::Mutex};
 use lru::LruCache;
 use sha3::{Digest, Sha3_256};
 use std::sync::{Arc, RwLock};
@@ -58,6 +59,11 @@ pub struct Instance {
     vminfo: VmInfo,
     port_map: HashMap<u16, (u16, ServiceType)>,
     last_snapshot: Option<u64>,
+}
+
+lazy_static! {
+    //TODO: replace with ENV variable
+    pub static ref TEMP_PATH: &'static str = "/var/snap/lxd/common/lxd/tmp"; 
 }
 
 impl Instance {
@@ -156,13 +162,11 @@ pub enum VmManagerMessage {
     },
     SyncInstance {
         namespace: String,
-        local: String,
-        source: String,
+        path: String,
     },
     MigrateInstance {
         namespace: String,
-        local: String,
-        source: String,
+        path: String,
         new_quorum: String,
     }
 }
@@ -174,7 +178,8 @@ pub struct VmManager {
     sync_futures: FuturesUnordered<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>,
     vmlist: VmList,
     state_client: tikv_client::RawClient,
-    task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>> 
+    task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>,
+    event_broker: Arc<Mutex<EventBroker>>
 }
 
 impl VmManager {
@@ -187,7 +192,8 @@ impl VmManager {
     pub async fn new<S: Into<String>>(
         pd_endpoints: Vec<S>,
         config: Option<tikv_client::Config>,
-        next_port: u16
+        next_port: u16,
+        event_broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>
     ) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
         let handles = FuturesUnordered::new();
@@ -276,7 +282,8 @@ impl VmManager {
             vmlist,
             state_client,
             task_cache,
-            sync_futures
+            sync_futures,
+            event_broker
         })
     }
 
@@ -454,13 +461,19 @@ impl VmManager {
                 log::info!("received ExposeService message, attempting to expose service on instance.");
                 return self.expose_service(params, sig, task_id).await
             }
-            VmManagerMessage::SyncInstance { namespace, source, local } => {
+            VmManagerMessage::SyncInstance { namespace, path } => {
                 log::info!("received SyncInstance message, attempting to sync instance");
-                return self.sync_instance(namespace, local, source).await
+                let vmlist = self.vmlist.clone();
+                let future = Box::pin(Self::sync_instance(vmlist, namespace, path));
+                self.sync_futures.push(future);
+                return Ok(())
             }
-            VmManagerMessage::MigrateInstance { namespace, local, source, new_quorum } => {
+            VmManagerMessage::MigrateInstance { namespace, new_quorum, path } => {
                 log::info!("received MigrateInstance message, attempting to migrate instance");
-                return self.move_instance(namespace, local, source, new_quorum).await
+                let vmlist = self.vmlist.clone();
+                let future = Box::pin(Self::move_instance(vmlist, namespace, path, new_quorum));
+                self.sync_futures.push(future);
+                return Ok(())
             }
         }
     }
@@ -1251,25 +1264,73 @@ impl VmManager {
     }
 
     pub async fn sync_instance(
-        &mut self,
+        vmlist: VmList,
         namespace: String,
-        local: String,
-        source: String
+        path: String 
     ) -> std::io::Result<()> {
-        let future = copy_instance(namespace.clone(), source.clone(), local.clone());
-        self.sync_futures.push(Box::pin(future));
-        Ok(())
+
+        let import_output = std::process::Command::new("sudo")
+            .arg("lxc")
+            .arg("import")
+            .arg(&path)
+            .arg(&format!("{}-temp", namespace))
+            .output()?;
+
+        if import_output.status.success() {
+            if let Some(vm) = vmlist.get(&namespace) {
+                let copy_output = std::process::Command::new("sudo")
+                    .arg("lxc")
+                    .arg("copy")
+                    .arg(&format!("{}-temp", namespace))
+                    .arg(&namespace)
+                    .arg("--refresh")
+                    .output()?;
+
+                if copy_output.status.success() {
+                    return Ok(())
+                } else {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Unable to sync existing instance with temp instance"
+                        )
+                    )
+                }
+            }
+        } else {
+            let rename_output = std::process::Command::new("sudo")
+                .arg("move")
+                .arg(&format!("{}-temp", namespace))
+                .arg(&namespace)
+                .output()?;
+
+            if rename_output.status.success() {
+                return Ok(())
+            } else {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Unable to rename instance to permanent name"
+                    )
+                )
+            }
+        }
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to import instance from tarball"
+            )
+        )
     }
 
     pub async fn move_instance(
-        &mut self,
+        vmlist: VmList,
         namespace: String,
-        local: String,
-        source: String,
+        path: String,
         new_quorum: String
     ) -> std::io::Result<()> {
-        let future = migrate_instance(namespace.clone(), source.clone(), local, new_quorum.clone());
-        self.sync_futures.push(Box::pin(future));
+        migrate_instance(vmlist, namespace, path, new_quorum.clone()).await?;
         Ok(())
     }
 }
@@ -1278,15 +1339,33 @@ pub async fn copy_instance(
     namespace: String,
     source: String,
     target: String,
+    path: String,
+    event_broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>
 ) -> std::io::Result<()> {
+    create_temp_instance(&namespace).await?;
+    stop_temp_instance(&namespace).await?;
+    let fqp = export_temp_instance(&namespace, &path).await?;
+    transfer_temp_instance(event_broker, &namespace, &fqp, &target).await?;
+
+    Ok(())
+}
+
+pub async fn migrate_instance(
+    vmlist: VmList,
+    namespace: String,
+    path: String, 
+    new_quorum: String,
+) -> std::io::Result<()> {
+    todo!()
+}
+
+pub async fn create_temp_instance(namespace: &str) -> std::io::Result<()> {
     let output = std::process::Command::new("sudo")
         .arg("lxc")
         .arg("copy")
-        .arg(&format!("{source}:{namespace}"))
         .arg(&namespace)
-        .arg("--mode")
-        .arg("pull")
-        .arg("--refresh").output()?;
+        .arg(&format!("{namespace}-temp"))
+        .output()?;
 
     if output.status.success() {
         return Ok(())
@@ -1307,19 +1386,12 @@ pub async fn copy_instance(
     }
 }
 
-pub async fn migrate_instance(
-    namespace: String,
-    local: String,
-    source: String,
-    new_quorum: String,
-) -> std::io::Result<()> {
+pub async fn stop_temp_instance(namespace: &str) -> std::io::Result<()> {
     let output = std::process::Command::new("sudo")
         .arg("lxc")
-        .arg("move")
-        .arg(&format!("{source}:{namespace}"))
+        .arg("stop")
         .arg(&namespace)
-        .arg("--mode")
-        .arg("pull")
+        .arg(&format!("{namespace}-temp"))
         .output()?;
 
     if output.status.success() {
@@ -1331,11 +1403,58 @@ pub async fn migrate_instance(
                 e
             )
         })?;
-        return Err( 
+
+        return Err(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 stderr
             )
         )
     }
+}
+
+pub async fn export_temp_instance(namespace: &str, path: &str) -> std::io::Result<String> {
+    let fqp = format!("{path}/{namespace}-temp.tar.gz");
+    let output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("export")
+        .arg(&format!("{namespace}-temp"))
+        .arg(&fqp)
+        .output()?;
+
+    if output.status.success() {
+        return Ok(fqp)
+    } else {
+        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                stderr
+            )
+        )
+    }
+}
+
+pub async fn transfer_temp_instance(broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>, namespace: &str, path: &str, dst: &str) -> std::io::Result<()> {
+    // Send event to network to transfer the exported temp instance 
+    // to the destination
+    let network_event = NetworkEvent::Sync { 
+        namespace: namespace.to_string(), 
+        path: path.to_string(),
+        target: dst.to_string(),
+        last_update: None 
+    };
+
+    let event = Event::NetworkEvent(network_event);
+
+    let mut guard = broker.lock().await;
+    guard.publish("Network".to_string(), event).await;
+
+    Ok(())
 }
