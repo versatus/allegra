@@ -125,6 +125,7 @@ message MigrateMessage {
 message FileChunk {
     string namespace = 1;
     bytes content = 2;
+    optional string new_quorum = 3;
 }
 
 message TransferStatus {

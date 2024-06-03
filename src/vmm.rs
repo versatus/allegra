@@ -167,7 +167,7 @@ pub enum VmManagerMessage {
     MigrateInstance {
         namespace: String,
         path: String,
-        new_quorum: String,
+        new_quorum: Option<String>,
     }
 }
 
@@ -1330,7 +1330,7 @@ impl VmManager {
         vmlist: VmList,
         namespace: String,
         path: String,
-        new_quorum: String
+        new_quorum: Option<String>
     ) -> std::io::Result<()> {
         migrate_instance(vmlist, namespace, path, new_quorum.clone()).await?;
         Ok(())
@@ -1356,7 +1356,7 @@ pub async fn migrate_instance(
     vmlist: VmList,
     namespace: String,
     path: String, 
-    new_quorum: String,
+    new_quorum: Option<String>,
 ) -> std::io::Result<()> {
     todo!()
 }

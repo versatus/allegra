@@ -63,7 +63,8 @@ impl NetworkClient {
                         let request = tonic::Request::new(futures::stream::once(async move {
                             FileChunk {
                                 namespace: request_namespace,
-                                content: buffer
+                                content: buffer,
+                                new_quorum: None
                             }
                         }));
 
@@ -120,7 +121,8 @@ impl NetworkClient {
                         let request = tonic::Request::new(futures::stream::once(async move {
                             FileChunk {
                                 namespace: request_namespace,
-                                content: buffer
+                                content: buffer,
+                                new_quorum: None,
                             }
                         }));
 

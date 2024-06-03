@@ -459,44 +459,49 @@ impl Vmm for VmmService {
         &self,
         request: Request<tonic::Streaming<crate::allegra_rpc::FileChunk>>
     ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
-        /*
-        let message = request.into_inner().clone();
-        let header = message.header.ok_or(
-            Status::failed_precondition(
-                "unable to acquire requestor address, MessageHeader missing"
-            )
-        )?;
-        
-        let requestor_address = header.peer_address.clone();
-        let namespace = message.namespace.clone();
-        let new_quorum = message.new_quorum.clone();
+        let mut stream = request.into_inner();
+        let mut namespace = String::new();
+        let mut file = None;
+        let mut new_quorum = None;
 
-        let message = VmManagerMessage::MigrateInstance {
-            local: self.local_peer.address().to_string(),
-            source: requestor_address,
-            namespace,
-            new_quorum
-        };
+        let path = format!(
+            "{}/{}-temp.tar.gz", 
+            TEMP_PATH.to_string(),
+            namespace.to_string()
+        );
 
-        let message_id = uuid::Uuid::new_v4();
-        let new_header = MessageHeader {
-            peer_id: self.local_peer.id().to_string(),
-            peer_address: self.local_peer.address().to_string(),
-            message_id: message_id.to_string()
-        };
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if namespace.is_empty() {
+                namespace = chunk.namespace.clone();
+                file = Some(
+                    File::create(
+                        &path
+                    ).await?
+                );
+            }
 
-        let ack = Ack {
-            header: Some(new_header),
-            request_id: header.message_id
-        };
+            if let Some(ref mut file) = file {
+                file.write_all(&chunk.content).await?;
+            }
 
-        let vmm_sender = self.vmm_sender.clone();
-        match vmm_sender.send(message).await {
-            Ok(_) => return Ok(Response::new(ack)),
-            Err(e) => return Err(Status::internal(e.to_string())),
+            new_quorum = chunk.new_quorum;
         }
-        */
-        todo!()
+
+        let response = TransferStatus {
+            message: format!("File for instance '{}' received in full", namespace),
+            success: true
+        };
+        
+        let message = VmManagerMessage::MigrateInstance { namespace, path, new_quorum };
+        match self.vmm_sender.send(message).await {
+            Ok(()) => {
+                Ok(Response::new(response))
+            }
+            Err(e) => {
+                Err(Status::from_error(Box::new(e)))
+            }
+        }
     }
 
     async fn get_port(
