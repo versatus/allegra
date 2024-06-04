@@ -39,10 +39,10 @@ use crate::params::{
 };
 use futures::{stream::{FuturesUnordered, StreamExt}, Future};
 use lazy_static::lazy_static;
-use tokio::{task::JoinHandle, sync::Mutex};
+use tokio::{task::JoinHandle, sync::{RwLock, Mutex}};
 use lru::LruCache;
 use sha3::{Digest, Sha3_256};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use serde::{Serialize, Deserialize};
 use std::pin::Pin;
 
@@ -543,12 +543,7 @@ impl VmManager {
         sig: String,
         task_id: TaskId
     ) -> std::io::Result<()> {
-        let payload = serde_json::json!({
-            "command": "start",
-            "name": &params.name,
-            "console": params.console,
-            "stateless": params.stateless
-        }).to_string();
+        let payload = params.into_payload();
 
         let mut hasher = sha3::Sha3_256::new();
         hasher.update(
@@ -1108,6 +1103,7 @@ impl VmManager {
         owner: [u8; 20],
         task_id: TaskId
     ) -> std::io::Result<()> {
+        log::error!("Launch instance failed");
         let err_str = std::str::from_utf8(
             &output.stderr
         ).map_err(|e| {
@@ -1116,13 +1112,15 @@ impl VmManager {
                 e.to_string()
             )
         })?.to_string();
+        log::error!("Error from failed launch: {err_str}");
         update_task_status(
             self.state_client.clone(),
             owner,
-            task_id, 
+            task_id.clone(), 
             TaskStatus::Failure(err_str.clone()),
             &mut self.task_cache
         ).await?;
+        log::info!("Updated task status from PENDING to FAILURE for task {task_id}");
 
         return Err(
             std::io::Error::new(
@@ -1268,7 +1266,76 @@ impl VmManager {
         namespace: String,
         path: String 
     ) -> std::io::Result<()> {
+        log::info!("Attempting to sync instance {namespace}");
+        let import_output = std::process::Command::new("sudo")
+            .arg("lxc")
+            .arg("import")
+            .arg(&path)
+            .arg(&format!("{}-temp", namespace))
+            .output()?;
 
+        if import_output.status.success() {
+            log::info!("Successfully imported temporary instance {namespace}");
+            if let Some(vm) = vmlist.get(&namespace) {
+                let copy_output = std::process::Command::new("sudo")
+                    .arg("lxc")
+                    .arg("copy")
+                    .arg(&format!("{}-temp", namespace))
+                    .arg(&namespace)
+                    .arg("--refresh")
+                    .output()?;
+
+                if copy_output.status.success() {
+                    log::info!("Successfully copied temporary instance to permanent instance {namespace}");
+                    remove_temp_instance(&namespace, &path).await?;
+                    log::info!("Successfully removed temporary instance {namespace}");
+                    return Ok(())
+                } else {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Unable to sync existing instance with temp instance"
+                        )
+                    )
+                }
+            }
+        } else {
+            log::info!("Instance does not exist, moving from temp to permanent {namespace}");
+            let rename_output = std::process::Command::new("sudo")
+                .arg("move")
+                .arg(&format!("{}-temp", namespace))
+                .arg(&namespace)
+                .output()?;
+
+            if rename_output.status.success() {
+                log::info!("Successfully moved temporary instance to permanent {namespace}");
+                remove_temp_instance(&namespace, &path).await?;
+                log::info!("Successfully removed temporary instance {namespace}");
+                return Ok(())
+            } else {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Unable to rename instance to permanent name"
+                    )
+                )
+            }
+        }
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to import instance from tarball"
+            )
+        )
+    }
+
+    pub async fn move_instance(
+        vmlist: VmList,
+        namespace: String,
+        path: String,
+        new_quorum: Option<String>,
+    ) -> std::io::Result<()> {
         let import_output = std::process::Command::new("sudo")
             .arg("lxc")
             .arg("import")
@@ -1325,29 +1392,24 @@ impl VmManager {
             )
         )
     }
-
-    pub async fn move_instance(
-        vmlist: VmList,
-        namespace: String,
-        path: String,
-        new_quorum: Option<String>
-    ) -> std::io::Result<()> {
-        migrate_instance(vmlist, namespace, path, new_quorum.clone()).await?;
-        Ok(())
-    }
 }
 
 pub async fn copy_instance(
     namespace: String,
-    source: String,
     target: String,
     path: String,
     event_broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>
 ) -> std::io::Result<()> {
+    log::info!("creating temporary instance");
     create_temp_instance(&namespace).await?;
+    log::info!("stopping temporary instance");
     stop_temp_instance(&namespace).await?;
+    log::info!("exporting temporary instance");
     let fqp = export_temp_instance(&namespace, &path).await?;
+    log::info!("transferring temporary instance");
     transfer_temp_instance(event_broker, &namespace, &fqp, &target).await?;
+    log::info!("removing temporary instance");
+    remove_temp_instance(&namespace, &path).await?;
 
     Ok(())
 }
@@ -1355,13 +1417,28 @@ pub async fn copy_instance(
 pub async fn migrate_instance(
     vmlist: VmList,
     namespace: String,
+    target: String,
     path: String, 
     new_quorum: Option<String>,
+    event_broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>
 ) -> std::io::Result<()> {
-    todo!()
+    log::info!("creating temporary instance");
+    create_temp_instance(&namespace).await?;
+    log::info!("stopping temporary instance");
+    stop_temp_instance(&namespace).await?;
+    log::info!("exporting temporary instance");
+    let fqp = export_temp_instance(&namespace, &path).await?;
+    log::info!("exporting temporary instance");
+    transfer_temp_instance(event_broker, &namespace, &path, &target).await?;
+    log::info!("removing temporary instance");
+    remove_temp_instance(&namespace, &path).await?;
+
+    Ok(())
 }
 
-pub async fn create_temp_instance(namespace: &str) -> std::io::Result<()> {
+pub async fn create_temp_instance(
+    namespace: &str
+) -> std::io::Result<()> {
     let output = std::process::Command::new("sudo")
         .arg("lxc")
         .arg("copy")
@@ -1370,6 +1447,7 @@ pub async fn create_temp_instance(namespace: &str) -> std::io::Result<()> {
         .output()?;
 
     if output.status.success() {
+        log::info!("temporary instance succesfully created");
         return Ok(())
     } else {
         let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -1397,6 +1475,7 @@ pub async fn stop_temp_instance(namespace: &str) -> std::io::Result<()> {
         .output()?;
 
     if output.status.success() {
+        log::info!("temporary instance succesfully stopped");
         return Ok(())
     } else {
         let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -1415,7 +1494,10 @@ pub async fn stop_temp_instance(namespace: &str) -> std::io::Result<()> {
     }
 }
 
-pub async fn export_temp_instance(namespace: &str, path: &str) -> std::io::Result<String> {
+pub async fn export_temp_instance(
+    namespace: &str,
+    path: &str
+) -> std::io::Result<String> {
     let fqp = format!("{path}/{namespace}-temp.tar.gz");
     let output = std::process::Command::new("sudo")
         .arg("lxc")
@@ -1425,6 +1507,7 @@ pub async fn export_temp_instance(namespace: &str, path: &str) -> std::io::Resul
         .output()?;
 
     if output.status.success() {
+        log::info!("temporary instance succesfully exported");
         return Ok(fqp)
     } else {
         let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -1443,25 +1526,34 @@ pub async fn export_temp_instance(namespace: &str, path: &str) -> std::io::Resul
     }
 }
 
-pub async fn transfer_temp_instance(broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>, namespace: &str, path: &str, dst: &str) -> std::io::Result<()> {
-    // Send event to network to transfer the exported temp instance 
-    // to the destination
+pub async fn transfer_temp_instance(
+    broker: Arc<Mutex<EventBroker>>,
+    namespace: &str,
+    path: &str,
+    dst: &str
+) -> std::io::Result<()> {
     let network_event = NetworkEvent::Sync { 
         namespace: namespace.to_string(), 
         path: path.to_string(),
         target: dst.to_string(),
-        last_update: None 
+        last_update: None,
+        dst: dst.to_string(),
     };
 
     let event = Event::NetworkEvent(network_event);
 
     let mut guard = broker.lock().await;
     guard.publish("Network".to_string(), event).await;
+    drop(guard);
 
+    log::info!("NetworkEvent successfully added to event broker");
     Ok(())
 }
 
-pub async fn remove_temp_instance(namespace: &str, path: &str) -> std::io::Result<()> {
+pub async fn remove_temp_instance(
+    namespace: &str,
+    path: &str
+) -> std::io::Result<()> {
     let delete_output = std::process::Command::new("sudo")
         .arg("lxc")
         .arg("delete")
@@ -1475,6 +1567,7 @@ pub async fn remove_temp_instance(namespace: &str, path: &str) -> std::io::Resul
         .output()?;
 
     if delete_output.status.success() && rm_output.status.success() {
+        log::info!("Successfully deleted temporary instance and removed backup tarball");
         return Ok(())
     }
 

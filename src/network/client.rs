@@ -1,18 +1,16 @@
 use crate::{
     allegra_rpc::{
-        vmm_client::VmmClient, SyncMessage, MessageHeader, NewPeerMessage, MigrateMessage, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams, FileChunk
-    }, create_allegra_rpc_client, event::NetworkEvent
+        MessageHeader, NewPeerMessage, InstanceCreateParams, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams, FileChunk
+    }, event::NetworkEvent, create_allegra_rpc_client_to_addr
 };
 use tokio::{sync::broadcast::{Receiver, error::RecvError}, io::AsyncReadExt};
 use crate::event::Event;
-use tonic::transport::Channel;
 
 #[derive(Debug)]
 pub struct NetworkClient {
     local_peer_id: String,
     local_peer_address: String,
     events: Receiver<Event>,
-    client: VmmClient<Channel>
 }
 
 impl NetworkClient {
@@ -21,9 +19,7 @@ impl NetworkClient {
         local_peer_id: String,
         local_peer_address: String
     ) -> std::io::Result<Self> {
-        let client = create_allegra_rpc_client().await?;
-
-        Ok(Self { local_peer_id, local_peer_address, events, client })
+        Ok(Self { local_peer_id, local_peer_address, events })
     }
 
     pub async fn run(&mut self) -> std::io::Result<()> {
@@ -52,8 +48,25 @@ impl NetworkClient {
         match event {
             Event::NetworkEvent(ne) => {
                 match ne {
+                    NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst } => {
+                        let create_instance_message = InstanceCreateParams {
+                            name, distro, version, vmtype, sig, recovery_id: recovery_id.into()
+                        };
+
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.create_vm(
+                            tonic::Request::new(
+                                create_instance_message
+                            )
+                        ).await.map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                e.to_string()
+                            )
+                        })?.into_inner();
+                    }
                     NetworkEvent::Sync { 
-                        namespace, path, last_update, target
+                        namespace, path, last_update, target, dst
                     } => {
                         let mut file = tokio::fs::File::open(&path).await?;
                         let mut buffer = Vec::new();
@@ -68,7 +81,8 @@ impl NetworkClient {
                             }
                         }));
 
-                        let resp = self.client.sync(request).await.map_err(|e| {
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.sync(request).await.map_err(|e| {
                             std::io::Error::new(
                                 std::io::ErrorKind::Other,
                                 e
@@ -88,7 +102,7 @@ impl NetworkClient {
                         }
                     }
                     NetworkEvent::NewPeer { 
-                        peer_id, peer_address, peer_number 
+                        peer_id, peer_address, peer_number, dst 
                     } => {
                         let header = MessageHeader {
                             peer_id: self.local_peer_id.clone(),
@@ -103,7 +117,8 @@ impl NetworkClient {
                             peer_number
                         };
 
-                        let resp = self.client.register(new_peer_message).await.map_err(|e| {
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.register(new_peer_message).await.map_err(|e| {
                             std::io::Error::new(
                                 std::io::ErrorKind::Other,
                                 e.to_string()
@@ -111,7 +126,7 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Migrate { 
-                        namespace, path, new_quorum, target, last_update 
+                        namespace, path, new_quorum, target, last_update, dst 
                     } => {
                         let mut file = tokio::fs::File::open(&path).await?;
                         let mut buffer = Vec::new();
@@ -126,7 +141,8 @@ impl NetworkClient {
                             }
                         }));
 
-                        let resp = self.client.sync(request).await.map_err(|e| {
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.sync(request).await.map_err(|e| {
                             std::io::Error::new(
                                 std::io::ErrorKind::Other,
                                 e
@@ -146,7 +162,7 @@ impl NetworkClient {
                         }
                     }
                     NetworkEvent::ExposeService { 
-                        name, sig, recovery_id, port, service_type 
+                        name, sig, recovery_id, port, service_type, dst 
                     } => {
                         let port: Vec<u32> = port.iter().map(|n| *n as u32).collect();
                         let service_type: Vec<i32> = service_type.iter().map(|s| s.clone().into()).collect();
@@ -155,7 +171,8 @@ impl NetworkClient {
                             name, sig, recovery_id, port, service_type
                         };
 
-                        let resp = self.client.expose_vm_ports(
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.expose_vm_ports(
                             tonic::Request::new(
                                 expose_service_message
                             )
@@ -167,11 +184,12 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Stop { 
-                        name, sig, recovery_id 
+                        name, sig, recovery_id, dst 
                     } => {
                         let stop_message = InstanceStopParams { name, sig, recovery_id: recovery_id as u32 };
                         
-                        let resp = self.client.shutdown_vm(
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.shutdown_vm(
                             tonic::Request::new(
                                 stop_message
                             )
@@ -183,11 +201,12 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Start { 
-                        name, sig, recovery_id, console, stateless 
+                        name, sig, recovery_id, console, stateless, dst 
                     } => {
                         let start_message = InstanceStartParams { name, sig, recovery_id: recovery_id as u32, console, stateless };
 
-                        let resp = self.client.start_vm(
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.start_vm(
                             tonic::Request::new(
                                 start_message
                             )
@@ -199,11 +218,12 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Delete { 
-                        name, force, interactive, sig, recovery_id 
+                        name, force, interactive, sig, recovery_id, dst 
                     }=> {
                         let delete_message = InstanceDeleteParams { name, force, interactive, sig, recovery_id: recovery_id as u32 };
 
-                        let resp = self.client.delete_vm(
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.delete_vm(
                             tonic::Request::new(
                                 delete_message
                             )
@@ -215,11 +235,12 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::AddPubkey { 
-                        name, sig, recovery_id, pubkey 
+                        name, sig, recovery_id, pubkey, dst 
                     } => {
                         let add_pubkey_message = InstanceAddPubkeyParams { name, sig, recovery_id: recovery_id as u32, pubkey };
 
-                        let resp = self.client.set_ssh_pubkey(
+                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
+                        let resp = client.set_ssh_pubkey(
                             tonic::Request::new(
                                 add_pubkey_message
                             )

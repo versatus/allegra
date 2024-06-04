@@ -93,26 +93,39 @@ pub enum NetworkEvent {
         peer_id: String,
         peer_address: String,
         peer_number: u32,
+        dst: String,
+    },
+    Create {
+        name: String,
+        distro: String,
+        version: String,
+        vmtype: String,
+        sig: String,
+        recovery_id: u8,
+        dst: String,
     },
     Sync {
         namespace: String,
         path: String,
         target: String,
         last_update: Option<u64>,
+        dst: String,
     }, //lxc copy --refresh
     Migrate {
         namespace: String,
         path: String,
         target: String,
         last_update: Option<u64>,
-        new_quorum: String
+        new_quorum: String,
+        dst: String,
     }, //lxc move
     ExposeService {
         name: String,
-        sig: String,
+        sig: String, 
         recovery_id: u8,
         port: Vec<u16>,
-        service_type: Vec<ServiceType>
+        service_type: Vec<ServiceType>,
+        dst: String,
     },
     Start {
         name: String,
@@ -120,11 +133,13 @@ pub enum NetworkEvent {
         recovery_id: u8,
         console: bool,
         stateless: bool,
+        dst: String,
     },
     Stop {
         name: String, 
         sig: String,
         recovery_id: u8,
+        dst: String,
     },
     Delete {
         name: String,
@@ -132,12 +147,14 @@ pub enum NetworkEvent {
         interactive: bool,
         sig: String,
         recovery_id: u8,
+        dst: String,
     },
     AddPubkey {
         name: String,
         sig: String,
         recovery_id: u8,
         pubkey: String,
+        dst: String,
     }
 }
 

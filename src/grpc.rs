@@ -12,19 +12,30 @@ use crate::{
         InstanceGetSshDetails,
         NewPeerMessage,
         PingMessage,
-        PongMessage, Ack, SyncMessage, MigrateMessage, SshDetails, ServiceType,
-        GetPortMessage, PortResponse, MessageHeader, TransferStatus
+        PongMessage, 
+        Ack, 
+        SshDetails, 
+        ServiceType,
+        GetPortMessage, 
+        PortResponse, 
+        MessageHeader, 
+        TransferStatus
     }, 
-    vmm::{VmManagerMessage, SUCCESS, Instance, TEMP_PATH}, 
+    vmm::{
+        VmManagerMessage,
+        SUCCESS,
+        Instance, 
+        TEMP_PATH
+    }, 
     account::{
         TaskId, 
         TaskStatus,
         Account
     }, 
-    params::Payload, helpers::recover_namespace, dht::{AllegraNetworkState, Peer}, create_allegra_rpc_client_to_addr
+    params::Payload, helpers::{recover_namespace, recover_owner_address}, dht::{AllegraNetworkState, Peer}, create_allegra_rpc_client_to_addr, broker::broker::EventBroker, event::{NetworkEvent, Event}
 };
 
-use tokio::{sync::mpsc::Sender, fs::File, io::AsyncWriteExt};
+use tokio::{sync::{mpsc::Sender, Mutex}, fs::File, io::AsyncWriteExt};
 use tokio::sync::RwLock;
 
 use sha3::{Digest, Sha3_256};
@@ -44,7 +55,8 @@ pub struct VmmService {
     pub vmm_sender: Sender<VmManagerMessage>,
     pub tikv_client: tikv_client::RawClient,
     pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>, 
-    pub network_state: Arc<RwLock<AllegraNetworkState>>
+    pub network_state: Arc<RwLock<AllegraNetworkState>>,
+    pub event_broker: Arc<Mutex<EventBroker>>
 }
 
 #[tonic::async_trait]
@@ -55,15 +67,109 @@ impl Vmm for VmmService {
     ) -> Result<Response<VmResponse>, Status> {
         let params = request.into_inner();
         let task_id = generate_task_id(params.clone())?;
-        let message = VmManagerMessage::NewInstance { params, task_id: task_id.clone() };
-        let vmm_sender = self.vmm_sender.clone();
-        match vmm_sender.send(message).await {
-            Ok(_) => Ok(Response::new(VmResponse {
+
+        let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(
+            payload.as_bytes()
+        );
+        let hash = hasher.finalize().to_vec();
+
+        log::info!("hashed params payload...");
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("converted recovery_id into u32...");
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
+        let guard = self.network_state.read().await;
+
+        let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
+            Status::failed_precondition(
+                "Unable to allocate instance to a quorum"
+            )
+        )?;
+        let local_peer_quorum_id = guard.get_peer_quorum_membership(&self.local_peer).ok_or(
+            Status::failed_precondition(
+                "Local peer not a member of a quorum"
+            )
+        )?;
+
+        if instance_quorum_id == local_peer_quorum_id {
+            let message = VmManagerMessage::NewInstance { params: params.clone(), task_id: task_id.clone() };
+            let vmm_sender = self.vmm_sender.clone();
+            match vmm_sender.send(message).await {
+                Ok(_) => {
+                    let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                        Status::failed_precondition(
+                            "Unable to acquire quorum members"
+                        )
+                    )?.clone();
+                    drop(guard);
+
+                    let mut guard = self.event_broker.lock().await;
+                    for peer in quorum_members.peers() {
+                        let event = Event::NetworkEvent(
+                            NetworkEvent::Create { 
+                                name: params.name.clone(), 
+                                distro: params.distro.clone(), 
+                                version: params.version.clone(), 
+                                vmtype: params.vmtype.clone(), 
+                                sig: params.sig.clone(), 
+                                recovery_id,
+                                dst: peer.address().to_string()
+                            }
+                        ); 
+
+                        guard.publish("Network".to_string(), event).await;
+                    }
+
+                    drop(guard);
+                    return Ok(Response::new(VmResponse {
+                        status: "PENDING".to_string(),
+                        details: format!("TaskId: {}", task_id.task_id()),
+                        ssh_details: None,
+                    }))
+                },
+                Err(e) => Err(Status::internal(e.to_string())),
+            }
+        } else {
+            let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                Status::failed_precondition(
+                    "Unable to acquire quorum members"
+                )
+            )?.clone();
+            drop(guard);
+
+            let mut guard = self.event_broker.lock().await;
+            for peer in quorum_members.peers() {
+                let event = Event::NetworkEvent(
+                    NetworkEvent::Create { 
+                        name: params.name.clone(), 
+                        distro: params.distro.clone(), 
+                        version: params.version.clone(), 
+                        vmtype: params.vmtype.clone(), 
+                        sig: params.sig.clone(), 
+                        recovery_id,
+                        dst: peer.address().to_string()
+                    }
+                ); 
+
+                guard.publish("Network".to_string(), event).await;
+            }
+            drop(guard);
+
+            return Ok(Response::new(VmResponse {
                 status: "PENDING".to_string(),
                 details: format!("TaskId: {}", task_id.task_id()),
-                ssh_details: None,
-            })),
-            Err(e) => Err(Status::internal(e.to_string())),
+                ssh_details: None
+            }))
         }
     }
 
@@ -382,6 +488,8 @@ impl Vmm for VmmService {
         guard.add_peer(&peer).await.map_err(|e| {
             Status::from_error(Box::new(e))
         })?;
+
+        drop(guard);
 
         return Ok(Response::new(Ack { header, request_id: request_id.to_string() }));
     }

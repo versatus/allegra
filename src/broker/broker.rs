@@ -1,19 +1,17 @@
-use tokio::sync::mpsc::Receiver;
 use tokio::sync::broadcast;
 use std::collections::HashMap;
 use crate::event::Event;
 use crate::event::Topic;
 
 pub struct EventBroker {
-    pub rx: Receiver<Event>,
     pub map: HashMap<String, Topic>
 }
 
 
 impl EventBroker {
-    pub fn new(rx: Receiver<Event>) -> Self {
+    pub fn new() -> Self {
         Self {
-            rx, map: HashMap::new()
+            map: HashMap::new()
         }
     }
 

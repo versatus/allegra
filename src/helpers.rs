@@ -22,7 +22,8 @@ use ethers_core::{
     }
 };
 use lru::LruCache;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub fn handle_get_instance_ip_output_success(
     output: &std::process::Output,
@@ -499,24 +500,17 @@ pub async fn update_task_status(
     )?;
 
     log::info!("attempting to update task status in cache...");
-    match cache.write() {
-        Ok(mut guard) => {
-            log::info!("acquired cache guard...");
-            guard.put(task_id.clone(), task_status.clone());
-            log::info!("updated task status in LRU cache...");
-            account.update_task_status(&task_id.clone(), task_status.clone());
-            log::info!("updated task status in Account...");
-        }
-        Err(e) => {
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string()
-                )
-            )
-        }
-    }
-    
+    let mut guard = cache.write().await;
+
+    log::info!("acquired cache guard...");
+    guard.put(task_id.clone(), task_status.clone());
+
+    log::info!("updated task status in LRU cache...");
+    account.update_task_status(&task_id.clone(), task_status.clone());
+    log::info!("updated task status in Account...");
+
+    drop(guard);
+
     log::info!("writing updated account to state...");
     state_client.put(
         owner.to_vec(),
