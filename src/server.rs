@@ -62,27 +62,28 @@ async fn main() -> std::io::Result<()> {
     guard.add_peer(&local_peer).await?;
 
     #[cfg(not(feature="bootstrap"))]
-    {
-        let bootstrap_addr = std::env::var(
-            "BOOTSTRAP_ADDR"
+    let bootstrap_addr = std::env::var(
+        "BOOTSTRAP_ADDR"
+    ).expect(
+        "If not configured as bootsrap node, bootstrap node is required"
+    );
+    #[cfg(not(feature="bootstrap"))]
+    let bootstrap_id = std::env::var(
+        "BOOTSTRAP_ID"
+    ).expect(
+        "If not configured as boostrap node, bootstrap node is required"
+    ); 
+    #[cfg(not(feature="bootstrap"))]
+    let bootstrap_peer = Peer::new(
+        uuid::Uuid::parse_str(
+            &bootstrap_id
         ).expect(
-            "If not configured as bootsrap node, bootstrap node is required"
-        );
-        let bootstrap_id = std::env::var(
-            "BOOTSTRAP_ID"
-        ).expect(
-            "If not configured as boostrap node, bootstrap node is required"
-        ); 
-        let bootstrap_peer = Peer::new(
-            uuid::Uuid::parse_str(
-                &bootstrap_id
-            ).expect(
-                "bootstrap_id must be valid uuid v4"
-            ), bootstrap_addr
-        );
+            "bootstrap_id must be valid uuid v4"
+        ), bootstrap_addr
+    );
 
-        guard.add_peer(&bootstrap_peer).await?;
-    }
+    #[cfg(not(feature="bootstrap"))]
+    guard.add_peer(&bootstrap_peer).await?;
 
     drop(guard);
 
