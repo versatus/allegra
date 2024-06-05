@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::event::Event;
 use crate::event::Topic;
 
+#[derive(Clone, Debug)]
 pub struct EventBroker {
     pub map: HashMap<String, Topic>
 }

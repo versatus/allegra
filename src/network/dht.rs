@@ -1,8 +1,9 @@
-use std::{collections::HashMap, hash::RandomState};
+use std::{collections::HashMap, hash::RandomState, sync::Arc};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 use anchorhash::AnchorHash;
 
-use crate::account::Namespace;
+use crate::{account::Namespace, broker::broker::EventBroker};
 
 lazy_static::lazy_static! {
     pub static ref BOOTSTRAP_QUORUM: Quorum = Quorum::new(); 
@@ -64,12 +65,13 @@ pub struct AllegraNetworkState {
     instances: HashMap<Namespace, Quorum>,
     quorums: HashMap<Uuid, Quorum>,
     peer_hashring: AnchorHash<Uuid, Quorum, RandomState>,
-    instance_hashring: AnchorHash<Namespace, Quorum, RandomState>
+    instance_hashring: AnchorHash<Namespace, Quorum, RandomState>,
+    event_broker: Arc<Mutex<EventBroker>>
 }
 
 
 impl AllegraNetworkState {
-    pub fn new() -> Self {
+    pub fn new(event_broker: Arc<Mutex<EventBroker>>) -> Self {
         let peer_hashring = anchorhash::Builder::default()
             .with_resources(
                 vec![BOOTSTRAP_QUORUM.clone()]
@@ -88,7 +90,8 @@ impl AllegraNetworkState {
             instances: HashMap::new(),
             quorums,
             peer_hashring,
-            instance_hashring
+            instance_hashring,
+            event_broker,
         }
     }
 
@@ -161,7 +164,6 @@ impl AllegraNetworkState {
         if quorum.size() >= 50 {
             self.create_new_quorum().await?;
         }
-
 
         Ok(())
     }
