@@ -784,7 +784,8 @@ impl Vmm for VmmService {
                 let mut rng = rand::thread_rng();
                 let len = peers.len();
                 let random_choice = rng.gen_range(0..len);
-                peers[random_choice].address().to_string()
+                let peers_to_choose: Vec<&Peer> = peers.iter().collect();
+                peers_to_choose[random_choice].address().to_string()
             };
 
             if let Ok(resp) = get_port(namespace.inner().clone(), &random_ip, ServiceType::Ssh).await {

@@ -352,6 +352,14 @@ impl VmManager {
                         _ => {}
                     }
                 }
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(900)) => {
+                    log::info!("syncing VMs that have not synced in past 15 minutes");
+                    match self.refresh_vmlist().await {
+                        Ok(()) => {
+                        }
+                        Err(e) => log::error!("{e}")
+                    }
+                }
             }
         }
 
