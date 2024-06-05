@@ -75,8 +75,10 @@ async fn main() -> std::io::Result<()> {
                 "bootstrap_id must be valid uuid v4"
             ), bootstrap_addr
         );
+
         guard.add_peer(&bootstrap_peer).await?;
     }
+
     drop(guard);
 
     let mut vmm = VmManager::new(

@@ -1,15 +1,15 @@
-use std::{collections::HashMap, hash::RandomState, sync::Arc};
+use std::{collections::{HashMap, HashSet}, hash::RandomState, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use anchorhash::AnchorHash;
 
-use crate::{account::Namespace, broker::broker::EventBroker};
+use crate::{account::Namespace, broker::broker::EventBroker, event::{Event, NetworkEvent}};
 
 lazy_static::lazy_static! {
     pub static ref BOOTSTRAP_QUORUM: Quorum = Quorum::new(); 
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Peer {
     id: Uuid,
     address: String
@@ -29,28 +29,33 @@ impl Peer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Quorum {
     id: Uuid,
-    peers: Vec<Peer>,
+    peers: HashSet<Peer>,
 }
 
 impl Quorum {
     pub fn new() -> Self {
         let id = Uuid::new_v4(); 
-        Self { id, peers: Vec::new() }
+        Self { id, peers: HashSet::new() }
     }
 
     pub fn id(&self) -> &Uuid {
         &self.id
     }
 
-    pub fn peers(&self) -> &Vec<Peer> {
+    pub fn peers(&self) -> &HashSet<Peer> {
         &self.peers
     }
     
-    pub fn add_peer(&mut self, peer: &Peer) {
-        self.peers.push(peer.clone());
+    pub fn add_peer(&mut self, peer: &Peer) -> bool {
+        if !self.peers.contains(peer) {
+            self.peers.insert(peer.clone());
+            return true
+        } else {
+            return false
+        }
     }
     
     pub fn size(&self) -> usize {
@@ -98,7 +103,7 @@ impl AllegraNetworkState {
     #[async_recursion::async_recursion]
     async fn reorganize_resources(&mut self) -> std::io::Result<()> {
         self.quorums.iter_mut().for_each(|(_, q)| {
-            q.peers = Vec::new();
+            q.peers = HashSet::new();
         });
 
         for (_, peer) in self.peers.clone() {
@@ -159,7 +164,23 @@ impl AllegraNetworkState {
         log::info!("quorum.size() = {}", quorum.size());
         quorum.add_peer(peer);
         log::info!("quorum.size() = {}", quorum.size());
-        self.peers.insert(peer.id, peer.clone());
+        if !self.peers.contains_key(&peer.id()) {
+            self.peers.insert(peer.id, peer.clone());
+            for (_, dst_peer) in &self.peers {
+                if dst_peer != peer {
+                    let event = Event::NetworkEvent(
+                        NetworkEvent::NewPeer { 
+                            peer_id: peer.id().to_string(), 
+                            peer_address: peer.address().to_string(), 
+                            peer_number: (self.peers.len() + 1) as u32, 
+                            dst: dst_peer.address().to_string() 
+                        }
+                    );
+                    let mut guard = self.event_broker.lock().await;
+                    guard.publish("Network".to_string(), event).await;
+                }
+            }
+        } 
 
         if quorum.size() >= 50 {
             self.create_new_quorum().await?;
@@ -192,7 +213,7 @@ impl AllegraNetworkState {
         Some(q.clone())
     }
 
-    pub fn get_quorum_peers(&self, peer: &Peer) -> Option<Vec<Peer>> {
+    pub fn get_quorum_peers(&self, peer: &Peer) -> Option<HashSet<Peer>> {
         let q = self.get_peer_quorum(peer)?;
 
         Some(q.peers().clone())

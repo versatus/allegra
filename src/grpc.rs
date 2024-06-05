@@ -839,7 +839,14 @@ impl Vmm for VmmService {
 
         drop(guard);
 
-        return Ok(Response::new(Ack { header, request_id: request_id.to_string() }));
+
+        return Ok(
+            Response::new(
+                Ack { 
+                    header, request_id: request_id.to_string() 
+                }
+            )
+        );
     }
 
     async fn ping(
