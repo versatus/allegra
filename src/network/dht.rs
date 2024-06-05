@@ -168,7 +168,7 @@ impl AllegraNetworkState {
             self.peers.insert(peer.id, peer.clone());
             for (_, dst_peer) in &self.peers {
                 if dst_peer != peer {
-                    let event = Event::NetworkEvent(
+                    let dst_event = Event::NetworkEvent(
                         NetworkEvent::NewPeer { 
                             peer_id: peer.id().to_string(), 
                             peer_address: peer.address().to_string(), 
@@ -176,8 +176,19 @@ impl AllegraNetworkState {
                             dst: dst_peer.address().to_string() 
                         }
                     );
+
+                    let new_peer_event = Event::NetworkEvent(
+                        NetworkEvent::NewPeer { 
+                            peer_id: dst_peer.id().to_string(), 
+                            peer_address: dst_peer.address().to_string(), 
+                            peer_number: (self.peers.len() + 1) as u32, 
+                            dst: dst_peer.address().to_string() 
+                        }
+                    );
+
                     let mut guard = self.event_broker.lock().await;
-                    guard.publish("Network".to_string(), event).await;
+                    guard.publish("Network".to_string(), dst_event).await;
+                    guard.publish("Network".to_string(), new_peer_event).await;
                 }
             }
         } 

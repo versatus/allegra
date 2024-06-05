@@ -1,5 +1,6 @@
 #![allow(unused)]
 use allegra::broker::broker::EventBroker;
+use allegra::client::NetworkClient;
 use allegra::dht::{Peer, AllegraNetworkState};
 use allegra::grpc::VmmService;
 
@@ -44,6 +45,10 @@ async fn main() -> std::io::Result<()> {
         )
     );
 
+    let mut guard = event_broker.lock().await;
+    guard.get_or_create_topic("Network".to_string());
+    guard.get_or_create_topic("Vmm".to_string());
+    guard.get_or_create_topic("Dht".to_string());
 
     let mut network_state = Arc::new(
         RwLock::new(
@@ -95,6 +100,20 @@ async fn main() -> std::io::Result<()> {
             &mut rx,
             &mut stop_rx
         ).await;
+    });
+
+    let mut guard = event_broker.lock().await;
+    let mut network_rx = guard.subscribe("Network".to_string()).await;
+    drop(guard);
+
+    let mut network_client = NetworkClient::new(
+        network_rx, 
+        local_peer.id().to_string(),
+        local_peer.address().to_string()
+    ).await?;
+
+    let network_client_handle = tokio::task::spawn(async move {
+        let _ = network_client.run();
     });
 
     let pd_endpoints = vec!["127.0.0.1:2379"];
