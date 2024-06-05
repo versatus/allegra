@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 
 use serde::{Serialize, Deserialize};
+use sha3::{Digest, Sha3_256};
 use tokio::sync::broadcast::{Sender, Receiver};
-use crate::{params::ServiceType, vm_types::VmType, account::Namespace, allegra_rpc::SshDetails};
+use crate::{params::ServiceType, vm_types::VmType, account::Namespace, allegra_rpc::{SshDetails, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceAddPubkeyParams}, dht::Peer, grpc::generate_task_id, helpers::{recover_owner_address, recover_namespace}};
+use crate::params::Payload;
 
 #[derive(Clone, Debug)]
 pub struct Topic {
@@ -208,3 +210,291 @@ impl BrokerEvent for NetworkEvent {}
 impl BrokerEvent for DnsEvent {} 
 impl BrokerEvent for StateEvent {} 
 impl BrokerEvent for QuorumEvent {} 
+
+impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
+    type Error = std::io::Error;
+    fn try_from(value: (Peer, InstanceCreateParams)) -> Result<Self, Self::Error> {
+        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        Ok(NetworkEvent::Create { 
+            name: value.1.name.clone(), 
+            distro: value.1.distro.clone(), 
+            version: value.1.version.clone(), 
+            vmtype: value.1.vmtype.clone(), 
+            sig: value.1.sig.clone(), 
+            recovery_id,
+            dst: value.0.address().to_string()
+        })
+    }
+}
+
+
+impl TryFrom<(Peer, InstanceStopParams)> for NetworkEvent {
+    type Error = std::io::Error;
+    fn try_from(value: (Peer, InstanceStopParams)) -> Result<Self, Self::Error> {
+        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        Ok(NetworkEvent::Stop { 
+            name: value.1.name,
+            sig: value.1.sig,
+            recovery_id, 
+            dst: value.0.address().to_string() 
+        })
+    }
+}
+
+impl TryFrom<(Peer, InstanceStartParams)> for NetworkEvent {
+    type Error = std::io::Error;
+    fn try_from(value: (Peer, InstanceStartParams)) -> Result<Self, Self::Error> {
+        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        Ok(NetworkEvent::Start { 
+            name: value.1.name.clone(), 
+            sig: value.1.sig.clone(), 
+            recovery_id,
+            console: value.1.console, 
+            stateless: value.1.stateless, 
+            dst: value.0.address().to_string(), 
+        })
+    }
+}
+
+impl TryFrom<(Peer, InstanceAddPubkeyParams)> for NetworkEvent {
+    type Error = std::io::Error;
+    fn try_from(value: (Peer, InstanceAddPubkeyParams)) -> Result<Self, Self::Error> {
+        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        Ok(NetworkEvent::AddPubkey { 
+            name: value.1.name.clone(), 
+            sig: value.1.sig.clone(), 
+            recovery_id, 
+            pubkey: value.1.pubkey, 
+            dst: value.0.address().to_string() 
+        })  
+    }
+}
+
+impl TryFrom<(Peer, InstanceDeleteParams)> for NetworkEvent {
+    type Error = std::io::Error;
+    fn try_from(value: (Peer, InstanceDeleteParams)) -> Result<Self, Self::Error> {
+        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        Ok(NetworkEvent::Delete { 
+            name: value.1.name.clone(), 
+            force: value.1.force, 
+            interactive: value.1.interactive, 
+            sig: value.1.sig, 
+            recovery_id, 
+            dst: value.0.address().to_string() 
+        }) 
+    }
+}
+
+impl TryFrom<(Peer, InstanceExposeServiceParams)> for NetworkEvent {
+    type Error = std::io::Error;
+    fn try_from(value: (Peer, InstanceExposeServiceParams)) -> Result<Self, Self::Error> {
+        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        Ok(NetworkEvent::ExposeService { 
+            name: value.1.name.clone(), 
+            sig: value.1.sig.clone(), 
+            recovery_id, 
+            port: value.1.port.iter().filter_map(|p| {
+                p.to_owned().try_into().ok()
+            }).collect::<Vec<u16>>().clone(), 
+            service_type: value.1.service_type.iter().map(|st| {
+                st.to_owned().into()
+            }).collect::<Vec<ServiceType>>().clone(), 
+            dst: value.0.address().to_string() 
+        }) 
+    }
+}
+
+impl TryFrom<InstanceCreateParams> for Namespace {
+    type Error = std::io::Error;
+
+    fn try_from(params: InstanceCreateParams) -> Result<Self, Self::Error> {
+        let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
+        let mut hasher = Sha3_256::new();
+        hasher.update(
+            payload.as_bytes()
+        );
+        let hash = hasher.finalize().to_vec();
+        log::info!("hashed params payload...");
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("converted recovery_id into u32...");
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        Ok(namespace)
+    }
+}
+
+
+impl TryFrom<InstanceStopParams> for Namespace {
+    type Error = std::io::Error;
+
+    fn try_from(params: InstanceStopParams) -> Result<Self, Self::Error> {
+        let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
+        let mut hasher = Sha3_256::new();
+        hasher.update(
+            payload.as_bytes()
+        );
+        let hash = hasher.finalize().to_vec();
+        log::info!("hashed params payload...");
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("converted recovery_id into u32...");
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        Ok(namespace)
+    }
+}
+
+
+impl TryFrom<InstanceStartParams> for Namespace {
+    type Error = std::io::Error;
+
+    fn try_from(params: InstanceStartParams) -> Result<Self, Self::Error> {
+        let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
+        let mut hasher = Sha3_256::new();
+        hasher.update(
+            payload.as_bytes()
+        );
+        let hash = hasher.finalize().to_vec();
+        log::info!("hashed params payload...");
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("converted recovery_id into u32...");
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        Ok(namespace)
+    }
+}
+
+
+impl TryFrom<InstanceDeleteParams> for Namespace {
+    type Error = std::io::Error;
+
+    fn try_from(params: InstanceDeleteParams) -> Result<Self, Self::Error> {
+        let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
+        let mut hasher = Sha3_256::new();
+        hasher.update(
+            payload.as_bytes()
+        );
+        let hash = hasher.finalize().to_vec();
+        log::info!("hashed params payload...");
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("converted recovery_id into u32...");
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        Ok(namespace)
+    }
+}
+
+impl TryFrom<InstanceExposeServiceParams> for Namespace {
+    type Error = std::io::Error;
+
+    fn try_from(params: InstanceExposeServiceParams) -> Result<Self, Self::Error> {
+        let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
+        let mut hasher = Sha3_256::new();
+        hasher.update(
+            payload.as_bytes()
+        );
+        let hash = hasher.finalize().to_vec();
+        log::info!("hashed params payload...");
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("converted recovery_id into u32...");
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        Ok(namespace)
+    }
+}
+
+impl TryFrom<InstanceAddPubkeyParams> for Namespace {
+    type Error = std::io::Error;
+
+    fn try_from(params: InstanceAddPubkeyParams) -> Result<Self, Self::Error> {
+        let payload = params.into_payload(); 
+        log::info!("converted params into payload...");
+        let mut hasher = Sha3_256::new();
+        hasher.update(
+            payload.as_bytes()
+        );
+        let hash = hasher.finalize().to_vec();
+        log::info!("hashed params payload...");
+        let recovery_id = params.recovery_id.try_into().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("converted recovery_id into u32...");
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
+
+        Ok(namespace)
+    }
+}
