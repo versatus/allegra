@@ -2,6 +2,7 @@
 use allegra::broker::broker::EventBroker;
 use allegra::client::NetworkClient;
 use allegra::dht::{Peer, AllegraNetworkState};
+use allegra::event::{Event, NetworkEvent};
 use allegra::grpc::VmmService;
 
 use allegra::helpers::get_public_ip;
@@ -87,6 +88,8 @@ async fn main() -> std::io::Result<()> {
 
     drop(guard);
 
+
+
     let mut vmm = VmManager::new(
         pd_endpoints,
         None,
@@ -131,8 +134,8 @@ async fn main() -> std::io::Result<()> {
     let next_port = 2222;
 
     let service = VmmService {
-        local_peer,
-        network_state,
+        local_peer: local_peer.clone(),
+        network_state: network_state.clone(),
         network: "lxdbr0".to_string(),
         port: next_port,
         vmm_sender: tx.clone(),
@@ -151,6 +154,22 @@ async fn main() -> std::io::Result<()> {
             e
         )
     })?;
+
+    #[cfg(not(feature="bootstrap"))]
+    let guard = network_state.read().await;
+    #[cfg(not(feature="bootstrap"))]
+    let peer_number = guard.peers().len() + 1;
+    #[cfg(not(feature="bootstrap"))]
+    let event = Event::NetworkEvent(
+        NetworkEvent::NewPeer { 
+            peer_id: local_peer.id().to_string(), 
+            peer_address: local_peer.address().to_string(), 
+            peer_number: peer_number as u32, 
+            dst: bootstrap_peer.address().to_string() 
+        }
+    ); 
+    #[cfg(not(feature="bootstrap"))]
+    drop(guard);
 
     Server::builder().add_service(
         vmmserver
