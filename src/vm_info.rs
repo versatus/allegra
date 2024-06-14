@@ -176,7 +176,7 @@ pub struct VmConfig {
     #[serde(rename = "volatile.uuid.generation")]
     volatile_uuid_generation: String,
     #[serde(rename = "volatile.vsock_id")]
-    volatile_vsock_id: String,
+    volatile_vsock_id: Option<String>,
 }
 
 impl VmConfig {
@@ -248,7 +248,7 @@ impl VmConfig {
         self.volatile_uuid_generation.clone()
     }
 
-    pub fn volatile_vsock_id(&self) -> String {
+    pub fn volatile_vsock_id(&self) -> Option<String> {
         self.volatile_vsock_id.clone()
     }
 }
