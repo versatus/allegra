@@ -20,6 +20,7 @@ pub mod expose;
 pub mod adns;
 pub mod grpc;
 pub mod broker;
+pub mod cluster;
 
 pub use cli::commands::*;
 pub use cli::helpers::*;

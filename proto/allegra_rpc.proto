@@ -93,7 +93,6 @@ message NewPeerMessage {
     MessageHeader header = 1;
     string new_peer_id = 2;
     string new_peer_address = 3;
-    uint32 peer_number = 4;
 }
 
 message Ack {
@@ -142,6 +141,14 @@ message PortResponse {
     string namespace = 1;
     ServiceType service_type = 2;
     uint32 port = 3;
+}
+
+message ClusterCertMessage {
+    string leader = 1;
+    string peer_id = 2;
+    string peer_address = 3;
+    string cert = 4;
+    string quorum = 5;
 }
 
 service Vmm {

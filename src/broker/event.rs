@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
@@ -94,7 +94,6 @@ pub enum NetworkEvent {
     NewPeer {
         peer_id: String,
         peer_address: String,
-        peer_number: u32,
         dst: String,
     },
     Create {
@@ -157,6 +156,13 @@ pub enum NetworkEvent {
         recovery_id: u8,
         pubkey: String,
         dst: String,
+    },
+    DistributeCerts {
+        certs: HashMap<Peer, String>,
+    },
+    ShareCert {
+        peer: Peer,
+        cert: String, 
     }
 }
 

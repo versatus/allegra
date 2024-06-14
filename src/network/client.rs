@@ -102,7 +102,7 @@ impl NetworkClient {
                         }
                     }
                     NetworkEvent::NewPeer { 
-                        peer_id, peer_address, peer_number, dst 
+                        peer_id, peer_address, dst
                     } => {
                         let header = MessageHeader {
                             peer_id: self.local_peer_id.clone(),
@@ -114,7 +114,6 @@ impl NetworkClient {
                             header: Some(header),
                             new_peer_id: peer_id,
                             new_peer_address: peer_address,
-                            peer_number
                         };
 
                         let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
@@ -250,6 +249,12 @@ impl NetworkClient {
                                 e.to_string()
                             )
                         })?.into_inner();
+                    }
+                    NetworkEvent::DistributeCerts { certs } => {
+                        todo!()
+                    }
+                    NetworkEvent::ShareCert { peer, cert } => {
+                        todo!()
                     }
                 }
             }

@@ -9,6 +9,7 @@ use allegra::helpers::get_public_ip;
 use futures::{
     prelude::*
 };
+use std::collections::VecDeque;
 
 use allegra::allegra_rpc::{vmm_server::VmmServer};
 use allegra::vmm::VmManager;
@@ -16,6 +17,12 @@ use tokio::sync::RwLock;
 use tonic::{transport::Server};
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast::channel};
+use libretto::client::handle_events;
+use libretto::watcher;
+
+lazy_static::lazy_static! {
+    static ref DEFAULT_LXD_STORAGE_DIR: &'static str = "/home/ans/projects/sandbox/test-dir/";     
+}
 
 pub async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
     tokio::spawn(fut);
@@ -158,18 +165,36 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature="bootstrap"))]
     let guard = network_state.read().await;
     #[cfg(not(feature="bootstrap"))]
-    let peer_number = guard.peers().len() + 1;
-    #[cfg(not(feature="bootstrap"))]
     let event = Event::NetworkEvent(
         NetworkEvent::NewPeer { 
             peer_id: local_peer.id().to_string(), 
             peer_address: local_peer.address().to_string(), 
-            peer_number: peer_number as u32, 
             dst: bootstrap_peer.address().to_string() 
         }
     ); 
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
+
+    let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
+    let queue = Arc::new(
+        RwLock::new(
+            VecDeque::new()
+        )
+    );
+
+    let event_handling_queue = queue.clone();
+
+    let handle_monitor_events = tokio::spawn(async move {
+        handle_events(event_handling_queue.clone()).await;
+    });
+
+    let directory_to_monitor = std::env::var("LXD_STORAGE_DIR").unwrap_or_else(|_| {
+        DEFAULT_LXD_STORAGE_DIR.to_string()
+    });
+
+    let monitor_directory = tokio::spawn(async move {
+        watcher::monitor_directory(&directory_to_monitor, queue, stop_rx).await;
+    });
 
     Server::builder().add_service(
         vmmserver
@@ -183,6 +208,8 @@ async fn main() -> std::io::Result<()> {
     })?;
 
     vmm_handle.await?;
+    handle_monitor_events.await;
+    monitor_directory.await;
 
     Ok(())
 }

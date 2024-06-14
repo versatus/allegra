@@ -39,7 +39,7 @@ tarpc = { version = "0.34.0", features = ["full"] }
 serde = { version = "1.0.199", features = ["derive"] }
 serde_json = "1.0.116"
 virt = { version = "0.3.1", features = ["qemu"] }
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
 tokio-serde = { version = "0.9.0", features = ["cbor", "messagepack", "bincode", "json"] }
 anyhow = "1.0"
 futures = "0.3"
@@ -67,12 +67,15 @@ tonic = "0.11.0"
 prost = "0.12.6"
 termion = { version = "4.0.0", features = ["serde"] }
 tower = { version = "0.4.13", features = ["full"] }
-uuid = { version = "1.8.0", features = [ "v4", "fast-rng", "macro-diagnostics" ] }
+uuid = { version = "1.8.0", features = [ "v4", "fast-rng", "macro-diagnostics", "serde"] }
 async-recursion = "1.1.1"
 base64 = "0.22.1"
 geolocation = "0.2.1"
 haversine = "0.2.1"
 rand = "0.8.5"
+serde_yml = "0.0.10"
+derive_builder = "0.20.0" 
+libretto = { git = "https://github.com/versatus/libretto" }
 
 [build-dependencies]
 tonic-build = "0.11.0"

@@ -1,7 +1,8 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, sync::Arc};
+use std::{collections::{HashMap, HashSet}, hash::RandomState, sync::Arc, fmt::Display};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use anchorhash::AnchorHash;
+use serde::{Serialize, Deserialize};
 
 use crate::{account::Namespace, broker::broker::EventBroker, event::{Event, NetworkEvent}};
 
@@ -9,7 +10,7 @@ lazy_static::lazy_static! {
     pub static ref BOOTSTRAP_QUORUM: Quorum = Quorum::new(); 
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Peer {
     id: Uuid,
     address: String
@@ -145,6 +146,116 @@ impl AllegraNetworkState {
         Ok(())
     }
 
+    pub async fn share_cert(&mut self, local_id: &str, peer: &Peer) -> std::io::Result<()> {
+        let peer_id_bytes = peer.id().to_string().as_bytes().to_vec();
+        let local_peer_id_bytes = local_id.as_bytes();
+
+        let peer_trust_name = {
+            assert_eq!(local_peer_id_bytes.len(), peer_id_bytes.len());
+            let mut result = Vec::with_capacity(local_peer_id_bytes.len());
+            for i in 0..local_peer_id_bytes.len() {
+                result.push(local_peer_id_bytes[i] ^ peer_id_bytes[i]);
+            }
+
+            match std::str::from_utf8(&result) {
+                Ok(res) => res.to_string(),
+                Err(e) => {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e
+                        )
+                    )
+                }
+            }
+        };
+
+        let output = std::process::Command::new("sudo")
+            .arg("lxc")
+            .arg("config")
+            .arg("trust")
+            .arg("add")
+            .arg("--name")
+            .arg(&peer_trust_name)
+            .output()?;
+
+        if output.status.success() {
+            log::info!("Successfully added client certificate to trust store for peer {}", &peer.id().to_string());
+
+            let cert = match std::str::from_utf8(&output.stdout) {
+                Ok(res) => res.to_string(),
+                Err(e) => return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                )
+            };
+
+            let event = Event::NetworkEvent(
+                NetworkEvent::ShareCert { 
+                    peer: peer.clone(), 
+                    cert 
+                }
+            );
+
+            let mut guard = self.event_broker.lock().await;
+            guard.publish("Network".to_string(), event);
+            drop(guard);
+
+        } else {
+            let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Unable to add client certificate to trust store for peer {}: {}", &peer.id().to_string(), &stderr)
+                )
+            )
+        }
+
+
+        Ok(())
+    }
+
+    pub async fn accept_cert(
+        &mut self,
+        peer: &Peer,
+        cert: &str
+    ) -> std::io::Result<()> {
+        //TODO: We will want to check against their stake to verify membership
+
+        let output = std::process::Command::new("sudo")
+            .arg("lxc")
+            .arg("remote")
+            .arg("add")
+            .arg(peer.id().to_string())
+            .arg(cert)
+            .output()?;
+
+        if output.status.success() {
+            log::info!("Successfully added peer {} certificate to trust store", &peer.id().to_string());
+            return Ok(())
+        } else {
+            let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to add peer {} certificate to trust store: {}", &peer.id().to_string(), stderr)
+                )
+            )
+        }
+    }
+
     pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
         log::info!("Attempting to add peer: {:?} to DHT", peer);
         let q = self.peer_hashring.get_resource(peer.id().clone()).ok_or(
@@ -172,7 +283,6 @@ impl AllegraNetworkState {
                         NetworkEvent::NewPeer { 
                             peer_id: peer.id().to_string(), 
                             peer_address: peer.address().to_string(), 
-                            peer_number: (self.peers.len() + 1) as u32, 
                             dst: dst_peer.address().to_string() 
                         }
                     );
@@ -181,7 +291,6 @@ impl AllegraNetworkState {
                         NetworkEvent::NewPeer { 
                             peer_id: dst_peer.id().to_string(), 
                             peer_address: dst_peer.address().to_string(), 
-                            peer_number: (self.peers.len() + 1) as u32, 
                             dst: dst_peer.address().to_string() 
                         }
                     );

@@ -128,11 +128,15 @@ impl Vmm for VmmService {
 
                     drop(guard);
 
-                    return Ok(Response::new(VmResponse {
-                        status: "PENDING".to_string(),
-                        details: format!("TaskId: {}", task_id.task_id()),
-                        ssh_details: None,
-                    }))
+                    return Ok(
+                        Response::new(
+                            VmResponse {
+                                status: "PENDING".to_string(),
+                                details: format!("TaskId: {}", task_id.task_id()),
+                                ssh_details: None,
+                            }
+                        )
+                    )
                 },
                 Err(e) => Err(Status::internal(e.to_string())),
             }
