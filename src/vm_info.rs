@@ -232,7 +232,7 @@ impl VmConfig {
         self.volatile_eth0_host_name.clone()
     }
 
-    pub fn volatile_eth0_hwaddr(&self) -> String {
+    pub fn volatile_eth0_hwaddr(&self) -> Option<String> {
         self.volatile_eth0_hwaddr.clone()
     }
 
