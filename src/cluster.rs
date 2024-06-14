@@ -55,8 +55,8 @@ pub struct Profile {
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(setter(into), build_fn(error = "ClusterConfigError"))]
 pub struct Devices {
-    pub root: Device,
-    pub eth0: Device,
+    pub root: Option<Device>,
+    pub eth0: Option<Device>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]

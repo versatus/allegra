@@ -349,11 +349,11 @@ impl VmState {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct VmDisk {
-    root: VmDiskUsage,
+    root: Option<VmDiskUsage>,
 }
 
 impl VmDisk {
-    pub fn root(&self) -> VmDiskUsage {
+    pub fn root(&self) -> Option<VmDiskUsage> {
         self.root.clone()
     }
 }
