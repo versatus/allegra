@@ -168,7 +168,7 @@ pub struct VmConfig {
     #[serde(rename = "volatile.eth0.host_name")]
     volatile_eth0_host_name: Option<String>,
     #[serde(rename = "volatile.eth0.hwaddr")]
-    volatile_eth0_hwaddr: String,
+    volatile_eth0_hwaddr: Option<String>,
     #[serde(rename = "volatile.last_state.power")]
     volatile_last_state_power: String,
     #[serde(rename = "volatile.uuid")]
