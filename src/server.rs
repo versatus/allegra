@@ -228,15 +228,18 @@ async fn main() -> std::io::Result<()> {
     let directory_to_monitor = std::env::var("LXD_STORAGE_DIR").unwrap_or_else(|_| {
         DEFAULT_LXD_STORAGE_DIR.to_string()
     });
+
     log::info!("acquired directory to monitor");
 
+    /*
     let monitor_directory = tokio::spawn(async move {
         watcher::monitor_directory(&directory_to_monitor, queue, stop_rx).await;
     });
+
     log::info!("started monitor directory thread");
+    */
 
-    log::info!("running grpc server");
-
+    log::info!("running grpc server on {}", &addr);
     let reflection_service = Builder::configure().register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET).build().map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -253,7 +256,7 @@ async fn main() -> std::io::Result<()> {
     })?;
     vmm_handle.await?;
     handle_monitor_events.await;
-    monitor_directory.await;
+    // monitor_directory.await;
 
     Ok(())
 }
