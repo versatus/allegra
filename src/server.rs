@@ -59,10 +59,6 @@ async fn main() -> std::io::Result<()> {
     let local_peer = Peer::new(local_peer_id, local_peer_address);
     log::info!("local peer created");
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
-    log::info!("established channel");
-    let (_stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1024);
-    log::info!("established channel");
     let pd_endpoints = vec!["127.0.0.1:2379"];
     log::info!("set pd endpoints");
 
@@ -139,6 +135,10 @@ async fn main() -> std::io::Result<()> {
     log::info!("create task cache");
 
 /*
+    let (_stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1024);
+    log::info!("established channel");
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+    log::info!("established channel");
     let vmm_handle = tokio::task::spawn(async move {
         let _ = vmm.run(
             &mut rx,
