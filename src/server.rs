@@ -152,7 +152,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("acquired network topic rx");
     drop(guard);
     log::info!("dropped event broker guard");
-
+/*
     let mut network_client = NetworkClient::new(
         network_rx, 
         local_peer.id().to_string(),
@@ -169,7 +169,7 @@ async fn main() -> std::io::Result<()> {
 
     let next_port = 2222;
     log::info!("established network port");
-
+*/
     let service = VmmService {
 //        local_peer: local_peer.clone(),
 //        network_state: network_state.clone(),
