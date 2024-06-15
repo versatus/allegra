@@ -180,6 +180,7 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
 
+    /*
     let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
     log::info!("created channel");
     let queue = Arc::new(
@@ -191,7 +192,6 @@ async fn main() -> std::io::Result<()> {
 
     let event_handling_queue = queue.clone();
     log::info!("initiated event handling queue");
-
     let handle_monitor_events = tokio::spawn(async move {
         handle_events(event_handling_queue.clone()).await;
     });
@@ -207,12 +207,12 @@ async fn main() -> std::io::Result<()> {
     });
 
     log::info!("started monitor directory thread");
-
+    */
     let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
 
     let next_port = 2222;
     log::info!("established network port");
-
+    
     let service = VmmService {
         local_peer: local_peer.clone(),
         network_state: network_state.clone(),
@@ -256,8 +256,8 @@ async fn main() -> std::io::Result<()> {
         )
     })?;
     // vmm_handle.await?;
-    handle_monitor_events.await;
-    monitor_directory.await;
+    //handle_monitor_events.await;
+    //monitor_directory.await;
 
     Ok(())
 }
