@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, sync::Arc, fmt::Display};
+use std::{collections::{HashMap, HashSet}, hash::RandomState, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use anchorhash::AnchorHash;
@@ -200,7 +200,7 @@ impl AllegraNetworkState {
             );
 
             let mut guard = self.event_broker.lock().await;
-            guard.publish("Network".to_string(), event);
+            guard.publish("Network".to_string(), event).await;
             drop(guard);
 
         } else {

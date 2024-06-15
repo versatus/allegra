@@ -155,7 +155,7 @@ async fn main() -> std::io::Result<()> {
         service
     );
 
-    let addr = "[::1]:50051".parse().map_err(|e| {
+    let addr = "0.0.0.0:50051".parse().map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e
