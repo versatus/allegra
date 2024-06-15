@@ -86,132 +86,44 @@ impl Vmm for VmmService {
     ) -> Result<Response<VmResponse>, Status> {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
-        let guard = self.network_state.read().await;
-
         let task_id = generate_task_id(params.clone())?;
-        let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
-            Status::failed_precondition(
-                "Unable to allocate instance to a quorum"
-            )
-        )?;
 
-        let local_peer_quorum_id = guard.get_peer_quorum_membership(&self.local_peer).ok_or(
-            Status::failed_precondition(
-                "Local peer not a member of a quorum"
-            )
-        )?;
+        let inner_task_id = task_id.clone();
+        let inner_vmm_sender = self.vmm_sender.clone();
+        let inner_network_state = self.network_state.clone();
+        let inner_local_peer = self.local_peer.clone();
+        let inner_event_broker = self.event_broker.clone();
 
-        if instance_quorum_id == local_peer_quorum_id {
-            let message = VmManagerMessage::NewInstance { params: params.clone(), task_id: task_id.clone() };
-            let vmm_sender = self.vmm_sender.clone();
-            match vmm_sender.send(message).await {
-                Ok(_) => {
-
-                    let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
-                        Status::failed_precondition(
-                            "Unable to acquire quorum members"
-                        )
-                    )?.clone();
-
-                    drop(guard);
-
-                    let mut guard = self.event_broker.lock().await;
-                    for peer in quorum_members.peers() {
-                        let event = Event::NetworkEvent(
-                            (peer.clone(), params.clone()).try_into().map_err(|e| {
-                                Status::from_error(Box::new(e))
-                            })?
-                        ); 
-
-                        guard.publish("Network".to_string(), event).await;
-                    }
-
-                    drop(guard);
-
-                    return Ok(
-                        Response::new(
-                            VmResponse {
-                                status: "PENDING".to_string(),
-                                details: format!("TaskId: {}", task_id.task_id()),
-                                ssh_details: None,
-                            }
-                        )
-                    )
-                },
-                Err(e) => Err(Status::internal(e.to_string())),
-            }
-        } else {
-            let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+        tokio::spawn(async move {
+            let guard = inner_network_state.read().await;
+            let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
                 Status::failed_precondition(
-                    "Unable to acquire quorum members"
+                    "Unable to allocate instance to a quorum"
                 )
-            )?.clone();
+            )?;
 
-            drop(guard);
+            let local_peer_quorum_id = guard.get_peer_quorum_membership(&inner_local_peer).ok_or(
+                Status::failed_precondition(
+                    "Local peer not a member of a quorum"
+                )
+            )?;
 
-            let mut guard = self.event_broker.lock().await;
-            for peer in quorum_members.peers() {
-                let event = Event::NetworkEvent(
-                    (peer.clone(), params.clone()).try_into().map_err(|e| {
-                        Status::from_error(Box::new(e))
-                    })?
-                ); 
+            if instance_quorum_id == local_peer_quorum_id {
+                let message = VmManagerMessage::NewInstance { params: params.clone(), task_id: inner_task_id.clone() };
+                let vmm_sender = inner_vmm_sender.clone();
+                match vmm_sender.send(message).await {
+                    Ok(_) => {
 
-                guard.publish("Network".to_string(), event).await;
-            }
-            drop(guard);
+                        let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                            Status::failed_precondition(
+                                "Unable to acquire quorum members"
+                            )
+                        )?.clone();
 
-            return Ok(Response::new(VmResponse {
-                status: "PENDING".to_string(),
-                details: format!("TaskId: {}", task_id.task_id()),
-                ssh_details: None
-            }))
-        }
-    }
+                        drop(guard);
 
-    async fn shutdown_vm(
-        &self,
-        request: Request<InstanceStopParams>,
-    ) -> Result<Response<VmResponse>, Status> {
-        let params = request.into_inner();
-        let namespace: Namespace = params.clone().try_into()?;
-
-        let guard = self.network_state.read().await;
-        let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
-            Status::failed_precondition(
-                "Unable to allocate instance to a quorum"
-            )
-        )?;
-
-        let local_peer_quorum_id = guard.get_peer_quorum_membership(&self.local_peer).ok_or(
-            Status::failed_precondition(
-                "Local peer not a member of a quorum"
-            )
-        )?;
-
-        let task_id = generate_task_id(params.clone())?;
-
-        if instance_quorum_id == local_peer_quorum_id {
-            let message = VmManagerMessage::StopInstance { 
-                params: params.clone(), 
-                sig: params.sig.clone(), 
-                task_id: task_id.clone() 
-            };
-            let vmm_sender = self.vmm_sender.clone();
-            match vmm_sender.send(message).await {
-                Ok(_) => {
-                    let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
-                        Status::failed_precondition(
-                            "Unable to acquire quorum members"
-                        )
-                    )?.clone();
-
-                    drop(guard);
-
-                    let mut guard = self.event_broker.lock().await;
-
-                    for peer in quorum_members.peers() {
-                        if peer.id() != self.local_peer.id() {
+                        let mut guard = inner_event_broker.lock().await;
+                        for peer in quorum_members.peers() {
                             let event = Event::NetworkEvent(
                                 (peer.clone(), params.clone()).try_into().map_err(|e| {
                                     Status::from_error(Box::new(e))
@@ -220,43 +132,136 @@ impl Vmm for VmmService {
 
                             guard.publish("Network".to_string(), event).await;
                         }
-                    }
 
-                    Ok(Response::new(VmResponse {
-                        status: "PENDING".to_string(),
-                        details: format!("TaskId: {}", task_id.task_id()),
-                        ssh_details: None,
-                    }))
-                },
-                Err(e) => Err(Status::internal(e.to_string())),
+                        drop(guard);
+                    },
+                    _ => log::error!("Error sending vm manager message to vm manager")
+                }
+            } else {
+                let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                    Status::failed_precondition(
+                        "Unable to acquire quorum members"
+                    )
+                )?.clone();
+
+                drop(guard);
+
+                let mut guard = inner_event_broker.lock().await;
+                for peer in quorum_members.peers() {
+                    let event = Event::NetworkEvent(
+                        (peer.clone(), params.clone()).try_into().map_err(|e| {
+                            Status::from_error(Box::new(e))
+                        })?
+                    ); 
+
+                    guard.publish("Network".to_string(), event).await;
+                }
+                drop(guard);
             }
-        } else {
-            let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+
+            return Ok::<(), Status>(())
+        });
+        return Ok(
+            Response::new(
+                VmResponse {
+                    status: "PENDING".to_string(),
+                    details: format!("TaskId: {}", task_id.task_id()),
+                    ssh_details: None,
+                }
+            )
+        )
+    }
+
+    async fn shutdown_vm(
+        &self,
+        request: Request<InstanceStopParams>,
+    ) -> Result<Response<VmResponse>, Status> {
+        let params = request.into_inner();
+        let namespace: Namespace = params.clone().try_into()?;
+        let task_id = generate_task_id(params.clone())?;
+
+        let inner_task_id = task_id.clone();
+        let inner_vmm_sender = self.vmm_sender.clone();
+        let inner_network_state = self.network_state.clone();
+        let inner_local_peer = self.local_peer.clone();
+        let inner_event_broker = self.event_broker.clone();
+
+        tokio::spawn(async move {
+            let guard = inner_network_state.read().await;
+            let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
                 Status::failed_precondition(
-                    "Unable to acquire quorum members"
+                    "Unable to allocate instance to a quorum"
                 )
-            )?.clone();
+            )?;
 
-            drop(guard);
+            let local_peer_quorum_id = guard.get_peer_quorum_membership(&inner_local_peer).ok_or(
+                Status::failed_precondition(
+                    "Local peer not a member of a quorum"
+                )
+            )?;
 
-            let mut guard = self.event_broker.lock().await;
+            if instance_quorum_id == local_peer_quorum_id {
+                let message = VmManagerMessage::StopInstance { 
+                    params: params.clone(), 
+                    sig: params.sig.clone(), 
+                    task_id: inner_task_id.clone() 
+                };
+                let vmm_sender = inner_vmm_sender.clone();
+                match vmm_sender.send(message).await {
+                    Ok(_) => {
+                        let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                            Status::failed_precondition(
+                                "Unable to acquire quorum members"
+                            )
+                        )?.clone();
 
-            for peer in quorum_members.peers() {
-                let event = Event::NetworkEvent(
-                    (peer.clone(), params.clone()).try_into().map_err(|e| {
-                        Status::from_error(Box::new(e))
-                    })?
-                ); 
+                        drop(guard);
 
-                guard.publish("Network".to_string(), event).await;
+                        let mut guard = inner_event_broker.lock().await;
+
+                        for peer in quorum_members.peers() {
+                            if peer.id() != inner_local_peer.id() {
+                                let event = Event::NetworkEvent(
+                                    (peer.clone(), params.clone()).try_into().map_err(|e| {
+                                        Status::from_error(Box::new(e))
+                                    })?
+                                ); 
+
+                                guard.publish("Network".to_string(), event).await;
+                            }
+                        }
+                    },
+                    Err(e) => log::error!("Error sending vm manager message to vm manager: {e}")
+                }
+            } else {
+                let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                    Status::failed_precondition(
+                        "Unable to acquire quorum members"
+                    )
+                )?.clone();
+
+                drop(guard);
+
+                let mut guard = inner_event_broker.lock().await;
+
+                for peer in quorum_members.peers() {
+                    let event = Event::NetworkEvent(
+                        (peer.clone(), params.clone()).try_into().map_err(|e| {
+                            Status::from_error(Box::new(e))
+                        })?
+                    ); 
+
+                    guard.publish("Network".to_string(), event).await;
+                }
             }
 
-            Ok(Response::new(VmResponse {
-                status: "PENDING".to_string(),
-                details: format!("TaskId: {}", task_id.task_id()),
-                ssh_details: None,
-            }))
-        }
+            Ok::<(), Status>(())
+        });
+        Ok(Response::new(VmResponse {
+            status: "PENDING".to_string(),
+            details: format!("TaskId: {}", task_id.task_id()),
+            ssh_details: None,
+        }))
     }
 
     async fn start_vm(
@@ -265,88 +270,93 @@ impl Vmm for VmmService {
     ) -> Result<Response<VmResponse>, Status> {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
-
-        let guard = self.network_state.read().await;
-        let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
-            Status::failed_precondition(
-                "Unable to allocate instance to a quorum"
-            )
-        )?;
-
-        let local_peer_quorum_id = guard.get_peer_quorum_membership(&self.local_peer).ok_or(
-            Status::failed_precondition(
-                "Local peer not a member of a quorum"
-            )
-        )?;
-
         let task_id = generate_task_id(params.clone())?;
 
-        if instance_quorum_id == local_peer_quorum_id {
-            let message = VmManagerMessage::StartInstance { 
-                params: params.clone(), 
-                sig: params.sig.clone(), 
-                task_id: task_id.clone() 
-            };
-            let vmm_sender = self.vmm_sender.clone();
-            match vmm_sender.send(message).await {
-                Ok(_) => {
-                    let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
-                        Status::failed_precondition(
-                            "Unable to acquire quorum members"
-                        )
-                    )?.clone();
+        let inner_task_id = task_id.clone();
+        let inner_vmm_sender = self.vmm_sender.clone();
+        let inner_network_state = self.network_state.clone();
+        let inner_local_peer = self.local_peer.clone();
+        let inner_event_broker = self.event_broker.clone();
 
-                    drop(guard);
 
-                    let mut guard = self.event_broker.lock().await;
-
-                    for peer in quorum_members.peers() {
-                        let event = Event::NetworkEvent(
-                            (peer.clone(), params.clone()).try_into().map_err(|e| {
-                                Status::from_error(Box::new(e))
-                            })?
-                        ); 
-
-                        guard.publish("Network".to_string(), event).await;
-
-                    }
-
-                    Ok(Response::new(VmResponse {
-                        status: "PENDING".to_string(),
-                        details: format!("TaskId: {}", task_id.task_id()),
-                        ssh_details: None,
-                    }))
-                },
-                Err(e) => Err(Status::internal(e.to_string())),
-            }
-        } else {
-            let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+        tokio::spawn(async move {
+            let guard = inner_network_state.read().await;
+            let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
                 Status::failed_precondition(
-                    "Unable to acquire quorum members"
+                    "Unable to allocate instance to a quorum"
                 )
-            )?.clone();
+            )?;
 
-            drop(guard);
+            let local_peer_quorum_id = guard.get_peer_quorum_membership(&inner_local_peer).ok_or(
+                Status::failed_precondition(
+                    "Local peer not a member of a quorum"
+                )
+            )?;
 
-            let mut guard = self.event_broker.lock().await;
 
-            for peer in quorum_members.peers() {
-                let event = Event::NetworkEvent(
-                    (peer.clone(), params.clone()).try_into().map_err(|e| {
-                        Status::from_error(Box::new(e))
-                    })?
-                ); 
+            if instance_quorum_id == local_peer_quorum_id {
+                let message = VmManagerMessage::StartInstance { 
+                    params: params.clone(), 
+                    sig: params.sig.clone(), 
+                    task_id: inner_task_id.clone() 
+                };
+                let vmm_sender = inner_vmm_sender.clone();
+                match vmm_sender.send(message).await {
+                    Ok(_) => {
+                        let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                            Status::failed_precondition(
+                                "Unable to acquire quorum members"
+                            )
+                        )?.clone();
 
-                guard.publish("Network".to_string(), event).await;
+                        drop(guard);
 
+                        let mut guard = inner_event_broker.lock().await;
+
+                        for peer in quorum_members.peers() {
+                            let event = Event::NetworkEvent(
+                                (peer.clone(), params.clone()).try_into().map_err(|e| {
+                                    Status::from_error(Box::new(e))
+                                })?
+                            ); 
+
+                            guard.publish("Network".to_string(), event).await;
+
+                        }
+                    },
+                    Err(e) => {},
+                }
+            } else {
+                let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                    Status::failed_precondition(
+                        "Unable to acquire quorum members"
+                    )
+                )?.clone();
+
+                drop(guard);
+
+                let mut guard = inner_event_broker.lock().await;
+
+                for peer in quorum_members.peers() {
+                    let event = Event::NetworkEvent(
+                        (peer.clone(), params.clone()).try_into().map_err(|e| {
+                            Status::from_error(Box::new(e))
+                        })?
+                    ); 
+
+                    guard.publish("Network".to_string(), event).await;
+
+                }
             }
 
-            Ok(Response::new(VmResponse {
-                status: "PENDING".to_string(),
-                details: format!("TaskId: {}", task_id.task_id()),
-                ssh_details: None,
-            }))
-        }
+            Ok::<(), Status>(())
+        });
+
+        Ok(Response::new(VmResponse {
+            status: "PENDING".to_string(),
+            details: format!("TaskId: {}", task_id.task_id()),
+            ssh_details: None,
+        }))
     }
 
     async fn set_ssh_pubkey(
@@ -355,88 +365,93 @@ impl Vmm for VmmService {
     ) -> Result<Response<VmResponse>, Status> {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
-        let guard = self.network_state.read().await;
-        let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
-            Status::failed_precondition(
-                "Unable to allocate instance to a quorum"
-            )
-        )?;
-
-        let local_peer_quorum_id = guard.get_peer_quorum_membership(&self.local_peer).ok_or(
-            Status::failed_precondition(
-                "Local peer not a member of a quorum"
-            )
-        )?;
-
         let task_id = generate_task_id(params.clone())?;
 
-        if instance_quorum_id == local_peer_quorum_id {
-            let message = VmManagerMessage::InjectAuth { 
-                params: params.clone(), 
-                sig: params.sig.clone(), 
-                task_id: task_id.clone() 
-            };
+        let inner_task_id = task_id.clone();
+        let inner_vmm_sender = self.vmm_sender.clone();
+        let inner_network_state = self.network_state.clone();
+        let inner_local_peer = self.local_peer.clone();
+        let inner_event_broker = self.event_broker.clone();
 
-            let vmm_sender = self.vmm_sender.clone();
-            match vmm_sender.send(message).await {
-                Ok(_) => {
-                    let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
-                        Status::failed_precondition(
-                            "Unable to acquire quorum members"
-                        )
-                    )?.clone();
-
-                    drop(guard);
-
-                    let mut guard = self.event_broker.lock().await;
-
-                    for peer in quorum_members.peers() {
-                        let event = Event::NetworkEvent(
-                            (peer.clone(), params.clone()).try_into().map_err(|e| {
-                                Status::from_error(Box::new(e))
-                            })?
-                        ); 
-
-                        guard.publish("Network".to_string(), event).await;
-
-                    }
-
-                    Ok(Response::new(VmResponse {
-                        status: "PENDING".to_string(),
-                        details: format!("TaskId: {}", task_id.task_id()),
-                        ssh_details: None,
-                    }))
-                }
-                Err(e) => Err(Status::internal(e.to_string())),
-            }
-        } else {
-            let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+        tokio::spawn(async move {
+            let guard = inner_network_state.read().await;
+            let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
                 Status::failed_precondition(
-                    "Unable to acquire quorum members"
+                    "Unable to allocate instance to a quorum"
                 )
-            )?.clone();
+            )?;
 
-            drop(guard);
+            let local_peer_quorum_id = guard.get_peer_quorum_membership(&inner_local_peer).ok_or(
+                Status::failed_precondition(
+                    "Local peer not a member of a quorum"
+                )
+            )?;
 
-            let mut guard = self.event_broker.lock().await;
+            if instance_quorum_id == local_peer_quorum_id {
+                let message = VmManagerMessage::InjectAuth { 
+                    params: params.clone(), 
+                    sig: params.sig.clone(), 
+                    task_id: inner_task_id.clone() 
+                };
 
-            for peer in quorum_members.peers() {
-                let event = Event::NetworkEvent(
-                    (peer.clone(), params.clone()).try_into().map_err(|e| {
-                        Status::from_error(Box::new(e))
-                    })?
-                ); 
+                let vmm_sender = inner_vmm_sender.clone();
+                match vmm_sender.send(message).await {
+                    Ok(_) => {
+                        let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                            Status::failed_precondition(
+                                "Unable to acquire quorum members"
+                            )
+                        )?.clone();
 
-                guard.publish("Network".to_string(), event).await;
+                        drop(guard);
 
+                        let mut guard = inner_event_broker.lock().await;
+
+                        for peer in quorum_members.peers() {
+                            let event = Event::NetworkEvent(
+                                (peer.clone(), params.clone()).try_into().map_err(|e| {
+                                    Status::from_error(Box::new(e))
+                                })?
+                            ); 
+
+                            guard.publish("Network".to_string(), event).await;
+
+                        }
+                    }
+                    Err(e) => {},
+                }
+            } else {
+                let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                    Status::failed_precondition(
+                        "Unable to acquire quorum members"
+                    )
+                )?.clone();
+
+                drop(guard);
+
+                let mut guard = inner_event_broker.lock().await;
+
+                for peer in quorum_members.peers() {
+                    let event = Event::NetworkEvent(
+                        (peer.clone(), params.clone()).try_into().map_err(|e| {
+                            Status::from_error(Box::new(e))
+                        })?
+                    ); 
+
+                    guard.publish("Network".to_string(), event).await;
+
+                }
             }
 
-            Ok(Response::new(VmResponse {
-                status: "PENDING".to_string(),
-                details: format!("TaskId: {}", task_id.task_id()),
-                ssh_details: None,
-            }))
-        }
+            Ok::<(), Status>(())
+        });
+
+        Ok(Response::new(VmResponse {
+            status: "PENDING".to_string(),
+            details: format!("TaskId: {}", task_id.task_id()),
+            ssh_details: None,
+        }))
+
     }
 
     async fn delete_vm(
@@ -445,86 +460,92 @@ impl Vmm for VmmService {
     ) -> Result<Response<VmResponse>, Status> {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
-
-        let guard = self.network_state.read().await;
-        let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
-            Status::failed_precondition(
-                "Unable to allocate instance to a quorum"
-            )
-        )?;
-
-        let local_peer_quorum_id = guard.get_peer_quorum_membership(&self.local_peer).ok_or(
-            Status::failed_precondition(
-                "Local peer not a member of a quorum"
-            )
-        )?;
-
         let task_id = generate_task_id(params.clone())?;
 
-        if instance_quorum_id == local_peer_quorum_id {
-            let message = VmManagerMessage::DeleteInstance { 
-                params: params.clone(), 
-                sig: params.sig.clone(), 
-                task_id: task_id.clone() 
-            };
-            let vmm_sender = self.vmm_sender.clone();
-            match vmm_sender.send(message).await {
-                Ok(_) => {
-                    let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
-                        Status::failed_precondition(
-                            "Unable to acquire quorum members"
-                        )
-                    )?.clone();
+        let inner_task_id = task_id.clone();
+        let inner_vmm_sender = self.vmm_sender.clone();
+        let inner_network_state = self.network_state.clone();
+        let inner_local_peer = self.local_peer.clone();
+        let inner_event_broker = self.event_broker.clone();
 
-                    drop(guard);
+        tokio::spawn(async move {
+            let guard = inner_network_state.read().await;
+            let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
+                Status::failed_precondition(
+                    "Unable to allocate instance to a quorum"
+                )
+            )?;
 
-                    let mut guard = self.event_broker.lock().await;
+            let local_peer_quorum_id = guard.get_peer_quorum_membership(&inner_local_peer).ok_or(
+                Status::failed_precondition(
+                    "Local peer not a member of a quorum"
+                )
+            )?;
 
-                    for peer in quorum_members.peers() {
-                        let event = Event::NetworkEvent(
-                            (peer.clone(), params.clone()).try_into().map_err(|e| {
-                                Status::from_error(Box::new(e))
-                            })?
-                        ); 
 
-                        guard.publish("Network".to_string(), event).await;
+            if instance_quorum_id == local_peer_quorum_id {
+                let message = VmManagerMessage::DeleteInstance { 
+                    params: params.clone(), 
+                    sig: params.sig.clone(), 
+                    task_id: inner_task_id.clone() 
+                };
+                let vmm_sender = inner_vmm_sender.clone();
+                match vmm_sender.send(message).await {
+                    Ok(_) => {
+                        let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                            Status::failed_precondition(
+                                "Unable to acquire quorum members"
+                            )
+                        )?.clone();
+
+                        drop(guard);
+
+                        let mut guard = inner_event_broker.lock().await;
+
+                        for peer in quorum_members.peers() {
+                            let event = Event::NetworkEvent(
+                                (peer.clone(), params.clone()).try_into().map_err(|e| {
+                                    Status::from_error(Box::new(e))
+                                })?
+                            ); 
+
+                            guard.publish("Network".to_string(), event).await;
+
+                        }
 
                     }
-
-                    Ok(Response::new(VmResponse {
-                        status: "PENDING".to_string(),
-                        details: format!("TaskId: {}", task_id.task_id()),
-                        ssh_details: None,
-                    }))
+                    Err(e) => {},
                 }
-                Err(e) => Err(Status::internal(e.to_string())),
+            } else {
+                let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                    Status::failed_precondition(
+                        "Unable to acquire quorum members"
+                    )
+                )?.clone();
+
+                drop(guard);
+
+                let mut guard = inner_event_broker.lock().await;
+
+                for peer in quorum_members.peers() {
+                    let event = Event::NetworkEvent(
+                        (peer.clone(), params.clone()).try_into().map_err(|e| {
+                            Status::from_error(Box::new(e))
+                        })?
+                    ); 
+                    guard.publish("Network".to_string(), event).await;
+                }
             }
-        } else {
-            let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
-                Status::failed_precondition(
-                    "Unable to acquire quorum members"
-                )
-            )?.clone();
 
-            drop(guard);
+            Ok::<(), Status>(())
 
-            let mut guard = self.event_broker.lock().await;
+        });
 
-            for peer in quorum_members.peers() {
-                let event = Event::NetworkEvent(
-                    (peer.clone(), params.clone()).try_into().map_err(|e| {
-                        Status::from_error(Box::new(e))
-                    })?
-                ); 
-                guard.publish("Network".to_string(), event).await;
-            }
-
-            Ok(Response::new(VmResponse {
-                status: "PENDING".to_string(),
-                details: format!("TaskId: {}", task_id.task_id()),
-                ssh_details: None,
-            }))
-        }
+        Ok(Response::new(VmResponse {
+            status: "PENDING".to_string(),
+            details: format!("TaskId: {}", task_id.task_id()),
+            ssh_details: None,
+        }))
     }
 
     async fn expose_vm_ports(
@@ -533,83 +554,87 @@ impl Vmm for VmmService {
     ) -> Result<Response<VmResponse>, Status> {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
-        let guard = self.network_state.read().await;
-        let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
-            Status::failed_precondition(
-                "Unable to allocate instance to a quorum"
-            )
-        )?;
-
-        let local_peer_quorum_id = guard.get_peer_quorum_membership(&self.local_peer).ok_or(
-            Status::failed_precondition(
-                "Local peer not a member of a quorum"
-            )
-        )?;
-
         let task_id = generate_task_id(params.clone())?;
 
-        if instance_quorum_id == local_peer_quorum_id {
-            let message = VmManagerMessage::ExposeService { 
-                params: params.clone(), 
-                sig: params.sig.clone(), 
-                task_id: task_id.clone() 
-            };
-            let vmm_sender = self.vmm_sender.clone();
-            match vmm_sender.send(message).await {
-                Ok(_) => {
-                    let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
-                        Status::failed_precondition(
-                            "Unable to acquire quorum members"
-                        )
-                    )?.clone();
+        let inner_task_id = task_id.clone();
+        let inner_vmm_sender = self.vmm_sender.clone();
+        let inner_network_state = self.network_state.clone();
+        let inner_local_peer = self.local_peer.clone();
+        let inner_event_broker = self.event_broker.clone();
 
-                    drop(guard);
-
-                    let mut guard = self.event_broker.lock().await;
-
-                    for peer in quorum_members.peers() {
-                        let event = Event::NetworkEvent(
-                            (peer.clone(), params.clone()).try_into().map_err(|e| {
-                                Status::from_error(Box::new(e))
-                            })?
-                        ); 
-                        guard.publish("Network".to_string(), event).await;
-                    }
-
-                    Ok(Response::new(VmResponse {
-                        status: "PENDING".to_string(),
-                        details: format!("TaskId: {}", task_id.task_id()),
-                        ssh_details: None,
-                    }))
-                }
-                Err(e) => Err(Status::internal(e.to_string())),
-            }
-        } else {
-            let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+        tokio::spawn(async move {
+            let guard = inner_network_state.read().await;
+            let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(
                 Status::failed_precondition(
-                    "Unable to acquire quorum members"
+                    "Unable to allocate instance to a quorum"
                 )
-            )?.clone();
+            )?;
 
-            drop(guard);
+            let local_peer_quorum_id = guard.get_peer_quorum_membership(&inner_local_peer).ok_or(
+                Status::failed_precondition(
+                    "Local peer not a member of a quorum"
+                )
+            )?;
 
-            let mut guard = self.event_broker.lock().await;
+            if instance_quorum_id == local_peer_quorum_id {
+                let message = VmManagerMessage::ExposeService { 
+                    params: params.clone(), 
+                    sig: params.sig.clone(), 
+                    task_id: inner_task_id.clone() 
+                };
+                let vmm_sender = inner_vmm_sender.clone();
+                match vmm_sender.send(message).await {
+                    Ok(_) => {
+                        let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                            Status::failed_precondition(
+                                "Unable to acquire quorum members"
+                            )
+                        )?.clone();
 
-            for peer in quorum_members.peers() {
-                let event = Event::NetworkEvent(
-                    (peer.clone(), params.clone()).try_into().map_err(|e| {
-                        Status::from_error(Box::new(e))
-                    })?
-                ); 
-                guard.publish("Network".to_string(), event).await;
+                        drop(guard);
+
+                        let mut guard = inner_event_broker.lock().await;
+
+                        for peer in quorum_members.peers() {
+                            let event = Event::NetworkEvent(
+                                (peer.clone(), params.clone()).try_into().map_err(|e| {
+                                    Status::from_error(Box::new(e))
+                                })?
+                            ); 
+                            guard.publish("Network".to_string(), event).await;
+                        }
+                    }
+                    Err(e) => {},
+                }
+            } else {
+                let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
+                    Status::failed_precondition(
+                        "Unable to acquire quorum members"
+                    )
+                )?.clone();
+
+                drop(guard);
+
+                let mut guard = inner_event_broker.lock().await;
+
+                for peer in quorum_members.peers() {
+                    let event = Event::NetworkEvent(
+                        (peer.clone(), params.clone()).try_into().map_err(|e| {
+                            Status::from_error(Box::new(e))
+                        })?
+                    ); 
+                    guard.publish("Network".to_string(), event).await;
+                }
             }
 
-            Ok(Response::new(VmResponse {
-                status: "PENDING".to_string(),
-                details: format!("TaskId: {}", task_id.task_id()),
-                ssh_details: None,
-            }))
-        }
+            Ok::<(), Status>(())
+        });
+
+        Ok(Response::new(VmResponse {
+            status: "PENDING".to_string(),
+            details: format!("TaskId: {}", task_id.task_id()),
+            ssh_details: None,
+        }))
     }
 
     async fn get_task_status(
