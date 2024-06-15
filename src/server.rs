@@ -208,8 +208,9 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
 
-//    let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
-//    log::info!("created channel");
+/*    
+    let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
+    log::info!("created channel");
     let queue = Arc::new(
         RwLock::new(
             VecDeque::new()
@@ -224,14 +225,12 @@ async fn main() -> std::io::Result<()> {
         handle_events(event_handling_queue.clone()).await;
     });
     log::info!("started monitor event handler thread");
-
     let directory_to_monitor = std::env::var("LXD_STORAGE_DIR").unwrap_or_else(|_| {
         DEFAULT_LXD_STORAGE_DIR.to_string()
     });
 
     log::info!("acquired directory to monitor");
 
-    /*
     let monitor_directory = tokio::spawn(async move {
         watcher::monitor_directory(&directory_to_monitor, queue, stop_rx).await;
     });
@@ -255,7 +254,7 @@ async fn main() -> std::io::Result<()> {
         )
     })?;
     vmm_handle.await?;
-    handle_monitor_events.await;
+    // handle_monitor_events.await;
     // monitor_directory.await;
 
     Ok(())
