@@ -75,7 +75,7 @@ pub struct VmmService {
     pub tikv_client: tikv_client::RawClient,
     pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>, 
     pub network_state: Arc<RwLock<AllegraNetworkState>>,
-    pub event_broker: Arc<Mutex<EventBroker>>
+//    pub event_broker: Arc<Mutex<EventBroker>>
 }
 
 #[tonic::async_trait]
