@@ -208,8 +208,8 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
 
-    let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
-    log::info!("created channel");
+//    let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
+//    log::info!("created channel");
     let queue = Arc::new(
         RwLock::new(
             VecDeque::new()
