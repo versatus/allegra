@@ -145,14 +145,13 @@ async fn main() -> std::io::Result<()> {
         ).await;
     });
     log::info!("setup vmm thread");
-
+/*
     let mut guard = event_broker.lock().await;
     log::info!("acquired event broker guard");
     let mut network_rx = guard.subscribe("Network".to_string()).await;
     log::info!("acquired network topic rx");
     drop(guard);
     log::info!("dropped event broker guard");
-/*
     let mut network_client = NetworkClient::new(
         network_rx, 
         local_peer.id().to_string(),
@@ -230,6 +229,7 @@ async fn main() -> std::io::Result<()> {
     let vmmserver = VmmServer::new(
         service
     );
+
     log::info!("created vmm server");
 
     let addr = "0.0.0.0:50051".parse().map_err(|e| {
