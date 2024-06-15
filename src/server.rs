@@ -176,7 +176,7 @@ async fn main() -> std::io::Result<()> {
         network: "lxdbr0".to_string(),
         port: next_port,
         vmm_sender: tx.clone(),
-        tikv_client,
+//        tikv_client,
 //        task_cache,
 //        event_broker: event_broker.clone()
     };
