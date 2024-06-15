@@ -173,8 +173,8 @@ async fn main() -> std::io::Result<()> {
     let service = VmmService {
 //        local_peer: local_peer.clone(),
 //        network_state: network_state.clone(),
-        network: "lxdbr0".to_string(),
-        port: next_port,
+//        network: "lxdbr0".to_string(),
+//        port: next_port,
 //        vmm_sender: tx.clone(),
 //        tikv_client,
 //        task_cache,
