@@ -88,6 +88,7 @@ impl Vmm for VmmService {
         let namespace: Namespace = params.clone().try_into()?;
         let task_id = generate_task_id(params.clone())?;
 
+        /*
         let inner_task_id = task_id.clone();
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
@@ -161,6 +162,7 @@ impl Vmm for VmmService {
 
             return Ok::<(), Status>(())
         });
+        */
         return Ok(
             Response::new(
                 VmResponse {
@@ -179,7 +181,7 @@ impl Vmm for VmmService {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
         let task_id = generate_task_id(params.clone())?;
-
+/*
         let inner_task_id = task_id.clone();
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
@@ -257,6 +259,7 @@ impl Vmm for VmmService {
 
             Ok::<(), Status>(())
         });
+    */
         Ok(Response::new(VmResponse {
             status: "PENDING".to_string(),
             details: format!("TaskId: {}", task_id.task_id()),
@@ -271,7 +274,7 @@ impl Vmm for VmmService {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
         let task_id = generate_task_id(params.clone())?;
-
+/*
         let inner_task_id = task_id.clone();
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
@@ -351,7 +354,7 @@ impl Vmm for VmmService {
 
             Ok::<(), Status>(())
         });
-
+*/
         Ok(Response::new(VmResponse {
             status: "PENDING".to_string(),
             details: format!("TaskId: {}", task_id.task_id()),
@@ -366,7 +369,7 @@ impl Vmm for VmmService {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
         let task_id = generate_task_id(params.clone())?;
-
+/*
         let inner_task_id = task_id.clone();
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
@@ -445,7 +448,7 @@ impl Vmm for VmmService {
 
             Ok::<(), Status>(())
         });
-
+*/
         Ok(Response::new(VmResponse {
             status: "PENDING".to_string(),
             details: format!("TaskId: {}", task_id.task_id()),
@@ -461,7 +464,7 @@ impl Vmm for VmmService {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
         let task_id = generate_task_id(params.clone())?;
-
+/*
         let inner_task_id = task_id.clone();
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
@@ -540,7 +543,7 @@ impl Vmm for VmmService {
             Ok::<(), Status>(())
 
         });
-
+*/
         Ok(Response::new(VmResponse {
             status: "PENDING".to_string(),
             details: format!("TaskId: {}", task_id.task_id()),
@@ -555,7 +558,7 @@ impl Vmm for VmmService {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
         let task_id = generate_task_id(params.clone())?;
-
+/*
         let inner_task_id = task_id.clone();
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
@@ -629,7 +632,7 @@ impl Vmm for VmmService {
 
             Ok::<(), Status>(())
         });
-
+*/
         Ok(Response::new(VmResponse {
             status: "PENDING".to_string(),
             details: format!("TaskId: {}", task_id.task_id()),
@@ -641,6 +644,7 @@ impl Vmm for VmmService {
         &self,
         request: Request<GetTaskStatusRequest>,
     ) -> Result<Response<VmResponse>, Status> {
+        /*
         let params = request.into_inner();
         let address_bytes = if params.owner.starts_with("0x") {
             let owner_string = &params.owner[2..];
@@ -701,12 +705,15 @@ impl Vmm for VmmService {
                 ssh_details: None,
             })),
         }
+        */
+        todo!()
     }
 
     async fn get_ssh_details(
         &self,
         request: Request<InstanceGetSshDetails>
     ) -> Result<Response<VmResponse>, Status> {
+        /*
         let remote_addr = request.remote_addr();
         let inner = request.into_inner().clone();
         let owner_bytes = if inner.owner.starts_with("0x") {
@@ -844,12 +851,15 @@ impl Vmm for VmmService {
                 "Unable to find a node to service the request"
             )
         )
+            */
+        todo!()
     }
 
     async fn register(
         &self,
         request: Request<NewPeerMessage>
     ) -> Result<Response<Ack>, Status> {
+        /*
         let new_peer = request.into_inner();
         let header = new_peer.header;
         let request_id = uuid::Uuid::new_v4();
@@ -877,6 +887,8 @@ impl Vmm for VmmService {
                 }
             )
         );
+        */
+        todo!()
     }
 
     async fn ping(
@@ -907,7 +919,7 @@ impl Vmm for VmmService {
         &self,
         request: Request<tonic::Streaming<crate::allegra_rpc::FileChunk>>
     ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
-
+/*
         let mut stream = request.into_inner();
         let mut namespace = String::new();
         let mut file = None;
@@ -939,21 +951,25 @@ impl Vmm for VmmService {
             success: true
         };
         
+        Ok(Response::new(response))
+
         let message = VmManagerMessage::SyncInstance { namespace, path };
         match self.vmm_sender.send(message).await {
             Ok(()) => {
-                Ok(Response::new(response))
             }
             Err(e) => {
                 Err(Status::from_error(Box::new(e)))
             }
         }
+*/
+        todo!()
     }
     
     async fn migrate(
         &self,
         request: Request<tonic::Streaming<crate::allegra_rpc::FileChunk>>
     ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
+        /*
         let mut stream = request.into_inner();
         let mut namespace = String::new();
         let mut file = None;
@@ -997,12 +1013,15 @@ impl Vmm for VmmService {
                 Err(Status::from_error(Box::new(e)))
             }
         }
+        */
+        todo!()
     }
 
     async fn get_port(
         &self,
         request: Request<GetPortMessage>
     ) -> Result<Response<PortResponse>, Status> {
+        /*
         let message = request.into_inner().clone();
         let namespace = message.namespace;
         let service = message.service_type;
@@ -1042,6 +1061,8 @@ impl Vmm for VmmService {
                 )
             }
         }
+        */
+        todo!()
     }
 }
 
