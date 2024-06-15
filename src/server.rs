@@ -40,6 +40,17 @@ async fn main() -> std::io::Result<()> {
         })?;
 
     log::info!("logger set up");
+    let pd_endpoints = vec!["127.0.0.1:2379"];
+    log::info!("created pd endpoints");
+
+    let tikv_client = tikv_client::RawClient::new(
+        pd_endpoints
+    ).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
     let local_peer_id = uuid::Uuid::new_v4();
     log::info!("local_peer_id = {}", &local_peer_id.to_string());
     let local_peer_address = get_public_ip().await?; 
@@ -154,17 +165,6 @@ async fn main() -> std::io::Result<()> {
     });
     log::info!("setup network client thread");
 
-    let pd_endpoints = vec!["127.0.0.1:2379"];
-    log::info!("created pd endpoints");
-
-    let tikv_client = tikv_client::RawClient::new(
-        pd_endpoints
-    ).await.map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?;
     log::info!("created tikv client");
 
     let next_port = 2222;
@@ -236,6 +236,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("started monitor directory thread");
 
     log::info!("running grpc server");
+
     let reflection_service = Builder::configure().register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET).build().map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -250,7 +251,6 @@ async fn main() -> std::io::Result<()> {
             e
         )
     })?;
-
     vmm_handle.await?;
     handle_monitor_events.await;
     monitor_directory.await;

@@ -20,6 +20,7 @@ pub mod startup;
 pub mod expose;
 pub mod adns;
 pub mod grpc;
+pub mod grpc_light;
 pub mod broker;
 pub mod cluster;
 

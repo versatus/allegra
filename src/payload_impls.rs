@@ -7,7 +7,7 @@ use crate::{
         InstanceExposeServiceParams,
         InstanceGetSshDetails,
         InstanceAddPubkeyParams,
-        InstanceStartParams
+        InstanceStartParams, GetTaskStatusRequest
     }
 };
 
@@ -29,6 +29,20 @@ impl Payload for InstanceCreateParams {
         self
     }
 }
+
+impl Payload for GetTaskStatusRequest {
+    fn into_payload(&self) -> String {
+        serde_json::json!({
+            "owner": self.owner,
+            "id": self.id,
+        }).to_string()
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+}
+
 
 impl Payload for InstanceStopParams {
     fn into_payload(&self) -> String {

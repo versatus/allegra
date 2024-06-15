@@ -30,6 +30,10 @@ path = "src/cli/cli.rs"
 name = "client"
 path = "src/client.rs"
 
+[[bin]]
+name = "light_server"
+path = "src/light_server.rs"
+
 #[[bin]]
 #name = "service"
 #path = "src/node_service/service.rs"
