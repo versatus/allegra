@@ -177,7 +177,7 @@ async fn main() -> std::io::Result<()> {
         port: next_port,
         vmm_sender: tx.clone(),
         tikv_client,
-        task_cache,
+//        task_cache,
 //        event_broker: event_broker.clone()
     };
     log::info!("created vmm service");
