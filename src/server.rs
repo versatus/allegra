@@ -171,7 +171,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("established network port");
 
     let service = VmmService {
-        local_peer: local_peer.clone(),
+//        local_peer: local_peer.clone(),
 //        network_state: network_state.clone(),
         network: "lxdbr0".to_string(),
         port: next_port,
