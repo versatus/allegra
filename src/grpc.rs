@@ -71,7 +71,7 @@ pub struct VmmService {
     pub network: String,
     pub port: u16,
     pub local_peer: Peer,
-    pub vmm_sender: Sender<VmManagerMessage>,
+//    pub vmm_sender: Sender<VmManagerMessage>,
 //    pub tikv_client: tikv_client::RawClient,
 //    pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>, 
 //    pub network_state: Arc<RwLock<AllegraNetworkState>>,
