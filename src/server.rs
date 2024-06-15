@@ -137,7 +137,6 @@ async fn main() -> std::io::Result<()> {
 /*
     let (_stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1024);
     log::info!("established channel");
-    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
     log::info!("established channel");
     let vmm_handle = tokio::task::spawn(async move {
         let _ = vmm.run(
@@ -146,6 +145,7 @@ async fn main() -> std::io::Result<()> {
         ).await;
     });
     log::info!("setup vmm thread");
+*/
     let mut guard = event_broker.lock().await;
     log::info!("acquired event broker guard");
     let mut network_rx = guard.subscribe("Network".to_string()).await;
@@ -166,10 +166,7 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("created tikv client");
 
-    let next_port = 2222;
-    log::info!("established network port");
-*/
-/*
+
     #[cfg(not(feature="bootstrap"))]
     let guard = network_state.read().await;
     #[cfg(not(feature="bootstrap"))]
@@ -182,8 +179,7 @@ async fn main() -> std::io::Result<()> {
     ); 
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
-*/
-/*    
+
     let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
     log::info!("created channel");
     let queue = Arc::new(
@@ -211,17 +207,21 @@ async fn main() -> std::io::Result<()> {
     });
 
     log::info!("started monitor directory thread");
-    */
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+
+    let next_port = 2222;
+    log::info!("established network port");
 
     let service = VmmService {
-//        local_peer: local_peer.clone(),
-//        network_state: network_state.clone(),
-//        network: "lxdbr0".to_string(),
-//        port: next_port,
-//        vmm_sender: tx.clone(),
-//        tikv_client,
-//        task_cache,
-//        event_broker: event_broker.clone()
+        local_peer: local_peer.clone(),
+        network_state: network_state.clone(),
+        network: "lxdbr0".to_string(),
+        port: next_port,
+        vmm_sender: tx.clone(),
+        tikv_client,
+        task_cache,
+        event_broker: event_broker.clone()
     };
 
     log::info!("created vmm service");
@@ -256,8 +256,8 @@ async fn main() -> std::io::Result<()> {
         )
     })?;
     // vmm_handle.await?;
-    // handle_monitor_events.await;
-    // monitor_directory.await;
+    handle_monitor_events.await;
+    monitor_directory.await;
 
     Ok(())
 }
