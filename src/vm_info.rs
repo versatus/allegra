@@ -148,13 +148,13 @@ pub struct VmConfig {
     #[serde(rename = "image.label")]
     image_label: Option<String>,
     #[serde(rename = "image.os")]
-    image_os: String,
+    image_os: Option<String>,
     #[serde(rename = "image.release")]
-    image_release: String,
+    image_release: Option<String>,
     #[serde(rename = "image.serial")]
-    image_serial: String,
+    image_serial: Option<String>,
     #[serde(rename = "image.type")]
-    image_type: String,
+    image_type: Option<String>,
     #[serde(rename = "image.version")]
     image_version: Option<String>,
     #[serde(rename = "limits.cpu")]
@@ -162,19 +162,19 @@ pub struct VmConfig {
     #[serde(rename = "limits.memory")]
     limits_memory: Option<String>,
     #[serde(rename = "volatile.base_image")]
-    volatile_base_image: String,
+    volatile_base_image: Option<String>,
     #[serde(rename = "volatile.cloud-init.instance-id")]
-    volatile_cloud_init_instance_id: String,
+    volatile_cloud_init_instance_id: Option<String>,
     #[serde(rename = "volatile.eth0.host_name")]
     volatile_eth0_host_name: Option<String>,
     #[serde(rename = "volatile.eth0.hwaddr")]
     volatile_eth0_hwaddr: Option<String>,
     #[serde(rename = "volatile.last_state.power")]
-    volatile_last_state_power: String,
+    volatile_last_state_power: Option<String>,
     #[serde(rename = "volatile.uuid")]
-    volatile_uuid: String,
+    volatile_uuid: Option<String>,
     #[serde(rename = "volatile.uuid.generation")]
-    volatile_uuid_generation: String,
+    volatile_uuid_generation: Option<String>,
     #[serde(rename = "volatile.vsock_id")]
     volatile_vsock_id: Option<String>,
 }
@@ -192,19 +192,19 @@ impl VmConfig {
         self.image_label.clone()
     }
 
-    pub fn image_os(&self) -> String {
+    pub fn image_os(&self) -> Option<String> {
         self.image_os.clone()
     }
 
-    pub fn image_release(&self) -> String {
+    pub fn image_release(&self) -> Option<String> {
         self.image_release.clone()
     }
 
-    pub fn image_serial(&self) -> String {
+    pub fn image_serial(&self) -> Option<String> {
         self.image_serial.clone()
     }
 
-    pub fn image_type(&self) -> String {
+    pub fn image_type(&self) -> Option<String> {
         self.image_type.clone()
     }
 
@@ -220,11 +220,11 @@ impl VmConfig {
         self.limits_memory.clone()
     }
 
-    pub fn volatile_base_image(&self) -> String {
+    pub fn volatile_base_image(&self) -> Option<String> {
         self.volatile_base_image.clone()
     }
 
-    pub fn volatile_cloud_init_instance_id(&self) -> String {
+    pub fn volatile_cloud_init_instance_id(&self) -> Option<String> {
         self.volatile_cloud_init_instance_id.clone()
     }
 
@@ -236,15 +236,15 @@ impl VmConfig {
         self.volatile_eth0_hwaddr.clone()
     }
 
-    pub fn volatile_last_state_power(&self) -> String {
+    pub fn volatile_last_state_power(&self) -> Option<String> {
         self.volatile_last_state_power.clone()
     }
 
-    pub fn volatile_uuid(&self) -> String {
+    pub fn volatile_uuid(&self) -> Option<String> {
         self.volatile_uuid.clone()
     }
 
-    pub fn volatile_uuid_generation(&self) -> String {
+    pub fn volatile_uuid_generation(&self) -> Option<String> {
         self.volatile_uuid_generation.clone()
     }
 
