@@ -858,11 +858,13 @@ impl Vmm for VmmService {
         &self,
         request: Request<PingMessage>
     ) -> Result<Response<PongMessage>, Status> {
+        log::info!("Received ping message");
         let header = MessageHeader {
             peer_id: self.local_peer.id().to_string(),
             peer_address: self.local_peer.address().to_string(),
             message_id: uuid::Uuid::new_v4().to_string()
         };
+        log::info!("crafted response header");
         let ping_message_id = request.into_inner().header.ok_or(
             Status::failed_precondition(
                 "Ping message had no header"
