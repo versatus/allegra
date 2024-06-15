@@ -195,7 +195,6 @@ async fn main() -> std::io::Result<()> {
     let handle_monitor_events = tokio::spawn(async move {
         handle_events(event_handling_queue.clone()).await;
     });
-    */
 
     log::info!("started monitor event handler thread");
     let directory_to_monitor = std::env::var("LXD_STORAGE_DIR").unwrap_or_else(|_| {
@@ -207,6 +206,7 @@ async fn main() -> std::io::Result<()> {
     let monitor_directory = tokio::spawn(async move {
         watcher::monitor_directory(&directory_to_monitor, queue, stop_rx).await;
     });
+    */
 
     log::info!("started monitor directory thread");
     let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
@@ -258,7 +258,7 @@ async fn main() -> std::io::Result<()> {
     })?;
     // vmm_handle.await?;
     //handle_monitor_events.await;
-    monitor_directory.await;
+    //monitor_directory.await;
 
     Ok(())
 }
