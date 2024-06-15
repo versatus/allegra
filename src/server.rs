@@ -170,31 +170,7 @@ async fn main() -> std::io::Result<()> {
     let next_port = 2222;
     log::info!("established network port");
 */
-    let service = VmmService {
-//        local_peer: local_peer.clone(),
-//        network_state: network_state.clone(),
-//        network: "lxdbr0".to_string(),
-//        port: next_port,
-//        vmm_sender: tx.clone(),
-//        tikv_client,
-//        task_cache,
-//        event_broker: event_broker.clone()
-    };
-    log::info!("created vmm service");
-
-    let vmmserver = VmmServer::new(
-        service
-    );
-    log::info!("created vmm server");
-
-    let addr = "0.0.0.0:50051".parse().map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
-    log::info!("established address to listen on for grpc");
-
+/*
     #[cfg(not(feature="bootstrap"))]
     let guard = network_state.read().await;
     #[cfg(not(feature="bootstrap"))]
@@ -207,7 +183,7 @@ async fn main() -> std::io::Result<()> {
     ); 
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
-
+*/
 /*    
     let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
     log::info!("created channel");
@@ -237,6 +213,32 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("started monitor directory thread");
     */
+
+    let service = VmmService {
+//        local_peer: local_peer.clone(),
+//        network_state: network_state.clone(),
+//        network: "lxdbr0".to_string(),
+//        port: next_port,
+//        vmm_sender: tx.clone(),
+//        tikv_client,
+//        task_cache,
+//        event_broker: event_broker.clone()
+    };
+
+    log::info!("created vmm service");
+
+    let vmmserver = VmmServer::new(
+        service
+    );
+    log::info!("created vmm server");
+
+    let addr = "0.0.0.0:50051".parse().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
+    log::info!("established address to listen on for grpc");
 
     log::info!("running grpc server on {}", &addr);
     let reflection_service = Builder::configure().register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET).build().map_err(|e| {
