@@ -896,9 +896,11 @@ impl Vmm for VmmService {
         request: Request<PingMessage>
     ) -> Result<Response<PongMessage>, Status> {
         log::info!("Received ping message");
+        let peer_id = uuid::Uuid::new_v4().to_string();
+        let peer_address = "127.0.0.1";
         let header = MessageHeader {
-            peer_id: self.local_peer.id().to_string(),
-            peer_address: self.local_peer.address().to_string(),
+            peer_id, 
+            peer_address: peer_address.to_string(),
             message_id: uuid::Uuid::new_v4().to_string()
         };
         log::info!("crafted response header");
