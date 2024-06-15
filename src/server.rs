@@ -11,7 +11,7 @@ use futures::{
 };
 use std::collections::VecDeque;
 
-use allegra::allegra_rpc::{vmm_server::VmmServer};
+use allegra::allegra_rpc::{vmm_server::VmmServer, FILE_DESCRIPTOR_SET};
 use allegra::vmm::VmManager;
 use tokio::sync::RwLock;
 use tonic::{transport::Server};
@@ -19,6 +19,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast::channel};
 use libretto::client::handle_events;
 use libretto::watcher;
+use tonic_reflection::server::Builder;
 
 lazy_static::lazy_static! {
     static ref DEFAULT_LXD_STORAGE_DIR: &'static str = "/home/ans/projects/sandbox/test-dir/";     
@@ -235,11 +236,15 @@ async fn main() -> std::io::Result<()> {
     log::info!("started monitor directory thread");
 
     log::info!("running grpc server");
-    Server::builder().add_service(
-        vmmserver
-    ).serve(
-        addr
-    ).await.map_err(|e| {
+    let reflection_service = Builder::configure().register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET).build().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
+    Server::builder().add_service(vmmserver)
+        .add_service(reflection_service)
+        .serve(addr).await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e

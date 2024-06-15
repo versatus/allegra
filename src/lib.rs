@@ -1,5 +1,6 @@
 pub mod allegra_rpc {
     tonic::include_proto!("allegra_rpc");
+    pub const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("allegra_descriptor");
 }
 
 pub mod payload_impls;
