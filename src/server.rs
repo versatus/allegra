@@ -138,6 +138,7 @@ async fn main() -> std::io::Result<()> {
     let task_cache = vmm.task_cache();
     log::info!("create task cache");
 
+/*
     let vmm_handle = tokio::task::spawn(async move {
         let _ = vmm.run(
             &mut rx,
@@ -145,7 +146,6 @@ async fn main() -> std::io::Result<()> {
         ).await;
     });
     log::info!("setup vmm thread");
-/*
     let mut guard = event_broker.lock().await;
     log::info!("acquired event broker guard");
     let mut network_rx = guard.subscribe("Network".to_string()).await;
@@ -255,7 +255,7 @@ async fn main() -> std::io::Result<()> {
             e
         )
     })?;
-    vmm_handle.await?;
+    // vmm_handle.await?;
     // handle_monitor_events.await;
     // monitor_directory.await;
 
