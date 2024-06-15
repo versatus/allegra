@@ -180,6 +180,7 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
 
+    /*
     let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
     log::info!("created channel");
     let queue = Arc::new(
@@ -189,7 +190,6 @@ async fn main() -> std::io::Result<()> {
     );
     log::info!("created queue");
 
-    /*
     let event_handling_queue = queue.clone();
     log::info!("initiated event handling queue");
     let handle_monitor_events = tokio::spawn(async move {
@@ -256,7 +256,7 @@ async fn main() -> std::io::Result<()> {
             e
         )
     })?;
-    // vmm_handle.await?;
+    //vmm_handle.await?;
     //handle_monitor_events.await;
     //monitor_directory.await;
 
