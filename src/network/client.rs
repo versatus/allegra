@@ -1,11 +1,9 @@
 use crate::{
     allegra_rpc::{
-        MessageHeader, NewPeerMessage, InstanceCreateParams, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams, FileChunk
+        MessageHeader, NewPeerMessage, InstanceCreateParams, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams
     }, event::NetworkEvent, create_allegra_rpc_client_to_addr
 };
-use tokio::io::AsyncReadExt;
 use crate::event::Event;
-use crate::helpers::remove_temp_instance;
 
 #[derive(Debug)]
 pub struct NetworkClient {
@@ -70,42 +68,6 @@ impl NetworkClient {
                             )
                         })?.into_inner();
                     }
-                    NetworkEvent::Sync { 
-                        namespace, path, last_update, target, dst
-                    } => {
-                        let mut file = tokio::fs::File::open(&path).await?;
-                        let mut buffer = Vec::new();
-                        file.read_to_end(&mut buffer).await?;
-
-                        let request_namespace = namespace.clone();
-                        let request = tonic::Request::new(futures::stream::once(async move {
-                            FileChunk {
-                                namespace: request_namespace,
-                                content: buffer,
-                                new_quorum: None
-                            }
-                        }));
-
-                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                        let resp = client.sync(request).await.map_err(|e| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e
-                            )
-                        })?.into_inner();
-
-                        if resp.success {
-                            remove_temp_instance(&namespace, &path).await?;
-                            return Ok(())
-                        } else {
-                            return Err(
-                                std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    format!("{} failed", &resp.message)
-                                )
-                            )
-                        }
-                    }
                     NetworkEvent::NewPeer { 
                         peer_id, peer_address, dst
                     } => {
@@ -128,42 +90,6 @@ impl NetworkClient {
                                 e.to_string()
                             )
                         })?.into_inner();
-                    }
-                    NetworkEvent::Migrate { 
-                        namespace, path, new_quorum, target, last_update, dst 
-                    } => {
-                        let mut file = tokio::fs::File::open(&path).await?;
-                        let mut buffer = Vec::new();
-                        file.read_to_end(&mut buffer).await?;
-
-                        let request_namespace = namespace.clone();
-                        let request = tonic::Request::new(futures::stream::once(async move {
-                            FileChunk {
-                                namespace: request_namespace,
-                                content: buffer,
-                                new_quorum: None,
-                            }
-                        }));
-
-                        let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                        let resp = client.sync(request).await.map_err(|e| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                e
-                            )
-                        })?.into_inner();
-
-                        if resp.success {
-                            remove_temp_instance(&namespace, &path).await?;
-                            return Ok(())
-                        } else {
-                            return Err(
-                                std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    format!("{} failed", &resp.message)
-                                )
-                            )
-                        }
                     }
                     NetworkEvent::ExposeService { 
                         name, sig, recovery_id, port, service_type, dst 

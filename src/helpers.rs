@@ -10,7 +10,6 @@ use crate::{
         ExposedPort,
         Account,
     }, vmm::Instance, params::ServiceType, expose::update_nginx_config,
-    events::event::{Event, NetworkEvent}
 };
 use std::str::FromStr;
 use sha3::{Digest, Sha3_256};
@@ -750,10 +749,11 @@ pub async fn export_temp_instance(
 }
 
 pub async fn transfer_temp_instance(
-    namespace: &str,
-    path: &str,
-    dst: &str
+    _namespace: &str,
+    _path: &str,
+    _dst: &str
 ) -> std::io::Result<()> {
+    /*
     let network_event = NetworkEvent::Sync { 
         namespace: namespace.to_string(), 
         path: path.to_string(),
@@ -763,6 +763,7 @@ pub async fn transfer_temp_instance(
     };
 
     let _event = Event::NetworkEvent(network_event);
+    */
 
     log::info!("NetworkEvent successfully added to event broker");
     Ok(())
