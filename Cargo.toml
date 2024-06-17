@@ -50,11 +50,6 @@ path = "src/broker_service.rs"
 name = "state"
 path = "src/state_service.rs"
 
-
-[[bin]]
-name = "pubsub"
-path = "src/pubsub.rs"
-
 [dependencies]
 tarpc = { version = "0.34.0", features = ["full"] }
 serde = { version = "1.0.199", features = ["derive"] }
@@ -99,6 +94,7 @@ derive_builder = "0.20.0"
 libretto = { git = "https://github.com/versatus/libretto" }
 tonic-reflection = "0.11.0"
 conductor = { git = "https://github.com/versatus/conductor" }
+derive_more = "0.99.18"
 
 [build-dependencies]
 tonic-build = "0.11.0"

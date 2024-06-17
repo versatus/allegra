@@ -21,7 +21,7 @@ pub mod expose;
 pub mod adns;
 pub mod grpc;
 pub mod grpc_light;
-pub mod broker;
+pub mod events;
 pub mod cluster;
 pub mod publish;
 pub mod subscribe;
@@ -29,5 +29,5 @@ pub mod subscribe;
 
 pub use cli::commands::*;
 pub use cli::helpers::*;
-pub use broker::*;
+pub use events::*;
 pub use network::*;

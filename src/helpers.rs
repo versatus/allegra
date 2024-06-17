@@ -10,7 +10,7 @@ use crate::{
         ExposedPort,
         Account,
     }, vmm::Instance, params::ServiceType, expose::update_nginx_config,
-    broker::event::{Event, NetworkEvent}
+    events::event::{Event, NetworkEvent}
 };
 use std::str::FromStr;
 use sha3::{Digest, Sha3_256};

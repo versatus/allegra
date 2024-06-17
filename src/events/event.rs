@@ -2,18 +2,9 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
 use crate::{
-    params::ServiceType,
-    vm_types::VmType,
-    account::Namespace, 
-    allegra_rpc::{
-        InstanceCreateParams, 
-        InstanceStopParams, 
-        InstanceStartParams, 
-        InstanceDeleteParams, 
-        InstanceExposeServiceParams, 
-        InstanceAddPubkeyParams
-    }, dht::Peer, 
-    helpers::{recover_owner_address, recover_namespace}
+    account::{Namespace, TaskId, TaskStatus}, allegra_rpc::{
+        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams
+    }, dht::Peer, helpers::{recover_namespace, recover_owner_address}, params::ServiceType, vm_types::VmType
 };
 use crate::params::Payload;
 
@@ -24,6 +15,20 @@ pub enum Event {
     DnsEvent(DnsEvent),
     StateEvent(StateEvent),
     QuorumEvent(QuorumEvent),
+    TaskStatusEvent(TaskStatusEvent),
+    SyncEvent(SyncEvent),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TaskStatusEvent {
+    Update {
+        id: TaskId,
+        status: TaskStatus
+    },
+    Get { 
+        id: TaskId,
+        resp: String,
+    }, 
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,21 +91,6 @@ pub enum NetworkEvent {
         recovery_id: u8,
         dst: String,
     },
-    Sync {
-        namespace: String,
-        path: String,
-        target: String,
-        last_update: Option<u64>,
-        dst: String,
-    }, //lxc copy --refresh
-    Migrate {
-        namespace: String,
-        path: String,
-        target: String,
-        last_update: Option<u64>,
-        new_quorum: String,
-        dst: String,
-    }, //lxc move
     ExposeService {
         name: String,
         sig: String, 
@@ -145,6 +135,25 @@ pub enum NetworkEvent {
         peer: Peer,
         cert: String, 
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SyncEvent {
+    Sync {
+        namespace: String,
+        path: String,
+        target: String,
+        last_update: Option<u64>,
+        dst: String,
+    }, //lxc copy --refresh
+    Migrate {
+        namespace: String,
+        path: String,
+        target: String,
+        last_update: Option<u64>,
+        new_quorum: String,
+        dst: String,
+    }, //lxc move
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -197,6 +206,8 @@ impl BrokerEvent for NetworkEvent {}
 impl BrokerEvent for DnsEvent {} 
 impl BrokerEvent for StateEvent {} 
 impl BrokerEvent for QuorumEvent {} 
+impl BrokerEvent for SyncEvent {} 
+impl BrokerEvent for TaskStatusEvent {} 
 
 impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
     type Error = std::io::Error;
