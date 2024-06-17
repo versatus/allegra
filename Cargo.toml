@@ -34,9 +34,21 @@ path = "src/client.rs"
 name = "light_server"
 path = "src/light_server.rs"
 
-#[[bin]]
-#name = "service"
-#path = "src/node_service/service.rs"
+[[bin]]
+name = "vmm"
+path = "src/vmm_service.rs"
+
+[[bin]]
+name = "monitor"
+path = "src/fs_monitor_service.rs"
+
+[[bin]]
+name = "broker"
+path = "src/broker_service.rs"
+
+[[bin]]
+name = "pubsub"
+path = "src/pubsub.rs"
 
 [dependencies]
 tarpc = { version = "0.34.0", features = ["full"] }
@@ -81,7 +93,7 @@ serde_yml = "0.0.10"
 derive_builder = "0.20.0" 
 libretto = { git = "https://github.com/versatus/libretto" }
 tonic-reflection = "0.11.0"
-zeromq = "0.4.0"
+conductor = { gitt = "https://github.com/versatus/conductor" }
 
 [build-dependencies]
 tonic-build = "0.11.0"

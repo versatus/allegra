@@ -121,31 +121,6 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
 
-
-
-    let mut vmm = VmManager::new(
-        pd_endpoints,
-        None,
-        2222,
-        event_broker.clone()
-    ).await?;
-    log::info!("created vmm manager");
-
-    let task_cache = vmm.task_cache();
-    log::info!("create task cache");
-
-/*
-    let (_stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1024);
-    log::info!("established channel");
-    log::info!("established channel");
-    let vmm_handle = tokio::task::spawn(async move {
-        let _ = vmm.run(
-            &mut rx,
-            &mut stop_rx
-        ).await;
-    });
-    log::info!("setup vmm thread");
-*/
     let mut guard = event_broker.lock().await;
     log::info!("acquired event broker guard");
     let mut network_rx = guard.subscribe("Network".to_string()).await;

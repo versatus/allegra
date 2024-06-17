@@ -23,6 +23,9 @@ pub mod grpc;
 pub mod grpc_light;
 pub mod broker;
 pub mod cluster;
+pub mod publish;
+pub mod subscribe;
+
 
 pub use cli::commands::*;
 pub use cli::helpers::*;
