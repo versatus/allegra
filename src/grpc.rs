@@ -1,58 +1,21 @@
 use crate::{
-    allegra_rpc::{
-        vmm_server::Vmm,
-        VmResponse,
-        InstanceCreateParams,
-        InstanceStartParams,
-        InstanceStopParams,
-        InstanceDeleteParams,
-        InstanceExposeServiceParams,
-        InstanceAddPubkeyParams, 
-        GetTaskStatusRequest,
-        InstanceGetSshDetails,
-        NewPeerMessage,
-        PingMessage,
-        PongMessage, 
-        Ack, 
-        SshDetails, 
-        ServiceType,
-        GetPortMessage, 
-        PortResponse, 
-        MessageHeader, 
-        TransferStatus
-    }, 
-    vmm::{
-        VmManagerMessage,
-        SUCCESS,
-        Instance, 
-        TEMP_PATH
-    }, 
     account::{
-        TaskId, 
-        //TaskStatus,
-        Account, Namespace
-    }, 
-    params::Payload,
-    helpers::recover_namespace, 
-    dht::{
-        AllegraNetworkState,
-        Peer
-    }, create_allegra_rpc_client_to_addr, 
-        event::Event
+        Account, Namespace, TaskId
+    }, allegra_rpc::{
+        vmm_server::Vmm, Ack, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, PingMessage, PongMessage, PortResponse, ServiceType, SshDetails, TransferStatus, VmResponse
+    }, create_allegra_rpc_client_to_addr, dht::Peer, event::{Event, QuorumEvent}, helpers::recover_namespace, params::Payload, publish::GenericPublisher, vmm::{
+        Instance, VmManagerMessage, SUCCESS, TEMP_PATH
+    }
 };
 
 use tokio::{
-    sync::mpsc::Sender, 
     fs::File, 
     io::AsyncWriteExt
 };
-use tokio::sync::RwLock;
 
 use sha3::{Digest, Sha3_256};
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
-use std::result::Result;
-//use lru::LruCache;
+use std::{result::Result, sync::Arc};
 use rand::Rng;
 use futures::StreamExt;
 
@@ -62,10 +25,7 @@ pub struct VmmService {
     pub network: String,
     pub port: u16,
     pub local_peer: Peer,
-    pub vmm_sender: Sender<VmManagerMessage>,
-    pub tikv_client: tikv_client::RawClient,
-    //pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>, 
-    pub network_state: Arc<RwLock<AllegraNetworkState>>,
+    pub publisher: Arc<GenericPublisher>,
 }
 
 #[tonic::async_trait]
@@ -77,12 +37,17 @@ impl Vmm for VmmService {
         let params = request.into_inner();
         let namespace: Namespace = params.clone().try_into()?;
         let task_id = generate_task_id(params.clone())?;
-
         let inner_task_id = task_id.clone();
-        let inner_vmm_sender = self.vmm_sender.clone();
-        let inner_network_state = self.network_state.clone();
         let inner_local_peer = self.local_peer.clone();
 
+        // Check if part of the quorum responsible for event 
+        // if so, send to vmm, if not, forward to network
+
+        let quorum_event = QuorumEvent::CheckResponsibility {
+            namespace,
+            task_id,
+            event_id,
+        };
         tokio::spawn(async move {
             let guard = inner_network_state.read().await;
             let instance_quorum_id = guard.get_instance_quorum_membership(&namespace).ok_or(

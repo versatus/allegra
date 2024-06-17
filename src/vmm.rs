@@ -2,24 +2,12 @@
 use std::{num::NonZeroUsize, collections::HashMap};
 use crate::{
     account::{
-        TaskId,
-        Namespace, 
-        TaskStatus
-    }, vm_info::{VmList, VmInfo},
-    params::{Payload, ServiceType},
-    helpers::{
-        update_task_status,
-        recover_owner_address,
-        recover_namespace,
-        verify_ownership,
-        update_iptables,
-        update_account, 
-        update_instance, 
-        remove_temp_instance
-    }, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}, event::{Event, NetworkEvent}
+        Namespace, TaskId, TaskStatus
+    }, event::{Event, NetworkEvent}, helpers::{
+        recover_namespace, recover_owner_address, remove_temp_instance, update_account, update_instance, update_iptables, update_task_status, verify_ownership
+    }, params::{Payload, ServiceType}, publish::GenericPublisher, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}, subscribe::{QuorumSubscriber, StateSubscriber, SyncSubscriber, VmmSubscriber}, vm_info::{VmInfo, VmList}
 };
 
-#[cfg(feature="grpc")]
 use crate::allegra_rpc::{
     InstanceCreateParams,
     InstanceStopParams,
@@ -107,36 +95,30 @@ impl Instance {
 #[derive(Debug)]
 pub enum VmManagerMessage {
     NewInstance {
-        #[cfg(feature="grpc")]
         params: InstanceCreateParams,
         task_id: TaskId 
     },
     StopInstance {
-        #[cfg(feature="grpc")]
         params: InstanceStopParams,
         sig: String,
         task_id: TaskId
     },
     DeleteInstance {
-        #[cfg(feature="grpc")]
         params: InstanceDeleteParams,
         sig: String,
         task_id: TaskId 
     },
     InjectAuth {
-        #[cfg(feature="grpc")]
         params: InstanceAddPubkeyParams,
         sig: String,
         task_id: TaskId 
     },
     StartInstance {
-        #[cfg(feature="grpc")]
         params: InstanceStartParams,
         sig: String,
         task_id: TaskId 
     },
     ExposeService {
-        #[cfg(feature="grpc")]
         params: InstanceExposeServiceParams,
         sig: String,
         task_id: TaskId,
@@ -158,14 +140,8 @@ pub struct VmManager {
     handles: FuturesUnordered<JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>>>,
     sync_futures: FuturesUnordered<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>,
     vmlist: VmList,
-    state_client: tikv_client::RawClient,
-    task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>,
-}
-
-impl VmManager {
-    pub fn task_cache(&self) -> Arc<RwLock<LruCache<TaskId, TaskStatus>>> {
-        self.task_cache.clone()
-    } 
+    publisher: Arc<GenericPublisher>,
+    vm_subscriber: Arc<VmmSubscriber>,
 }
 
 impl VmManager {
@@ -1379,4 +1355,3 @@ impl VmManager {
         )
     }
 }
-

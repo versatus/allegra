@@ -1,8 +1,17 @@
-use std::{any::Any};
+use std::any::Any;
 use clap::ValueEnum;
 use serde::{Serialize, Deserialize};
 use crate::vm_types::VmType;
-use crate::allegra_rpc::ServiceType as ProtoServiceType;
+use crate::allegra_rpc::{
+    InstanceStartParams as ProtoStart,
+    InstanceGetSshDetails as ProtoGetSsh,
+    InstanceDeleteParams as ProtoDelete,
+    InstanceStopParams as ProtoStop,
+    InstanceExposeServiceParams as ProtoExpose,
+    InstanceAddPubkeyParams as ProtoAddPubkey,
+    InstanceCreateParams as ProtoCreate,
+    ServiceType as ProtoServiceType
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 pub enum ServiceType {
@@ -82,6 +91,146 @@ impl ServiceType {
             ServiceType::Custom => None,
         }
     }
+}
+
+impl TryFrom<ProtoStart> for InstanceStartParams {
+    type Error = std::io::Error;
+    fn try_from(value: ProtoStart) -> Result<Self, Self::Error> {
+        Ok(InstanceStartParams {
+            name: value.name,
+            console: value.console,
+            stateless: value.stateless,
+            sig: value.sig,
+            recovery_id: value.recovery_id.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        })
+    }
+}
+
+impl TryFrom<ProtoCreate> for InstanceCreateParams {
+    type Error = std::io::Error;
+    fn try_from(value: ProtoCreate) -> Result<Self, Self::Error> {
+        Ok(InstanceCreateParams {
+            name: value.name,
+            distro: value.distro,
+            version: value.version,
+            vmtype: serde_json::from_str(&value.vmtype).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?,
+            sig: value.sig,
+            recovery_id: value.recovery_id.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        })
+    }
+}
+
+impl TryFrom<ProtoStop> for InstanceStopParams {
+    type Error = std::io::Error;
+    fn try_from(value: ProtoStop) -> Result<Self, Self::Error> {
+        Ok(InstanceStopParams { 
+            name: value.name,
+            sig: value.sig,
+            recovery_id: value.recovery_id.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        })
+    }
+}
+
+impl TryFrom<ProtoDelete> for InstanceDeleteParams {
+    type Error = std::io::Error;
+    fn try_from(value: ProtoDelete) -> Result<Self, Self::Error> {
+        Ok(InstanceDeleteParams { 
+            name: value.name, 
+            force: value.force, 
+            interactive: value.interactive, 
+            sig: value.sig, 
+            recovery_id: value.recovery_id.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        })
+    }
+}
+
+impl TryFrom<ProtoExpose> for InstanceExposeServiceParams {
+    type Error = std::io::Error;
+    fn try_from(value: ProtoExpose) -> Result<Self, Self::Error> {
+        Ok(InstanceExposeServiceParams { 
+            name: value.name, 
+            port: value.port.iter().filter_map(|n| {
+                let n = *n;
+                n.try_into().ok()
+            }).collect(), 
+            service_type: value.service_type.iter().map(|s| {
+                let s = *s;
+                s.into()
+            }).collect(), 
+            sig: value.sig, 
+            recovery_id: value.recovery_id.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        })
+    }
+}
+
+impl TryFrom<ProtoGetSsh> for InstanceGetSshDetails {
+    type Error = std::io::Error;
+    fn try_from(value: ProtoGetSsh) -> Result<Self, Self::Error> {
+        Ok(InstanceGetSshDetails { 
+            owner: value.owner, 
+            name: value.name, 
+            keypath: value.keypath, 
+            username: value.username, 
+        })
+    }
+}
+
+impl TryFrom<ProtoAddPubkey> for InstanceAddPubkeyParams {
+    type Error = std::io::Error;
+    fn try_from(value: ProtoAddPubkey) -> Result<Self, Self::Error> {
+        Ok(InstanceAddPubkeyParams { 
+            name: value.name, 
+            pubkey: value.pubkey, 
+            sig: value.sig, 
+            recovery_id: value.recovery_id.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Params {
+    Create(InstanceCreateParams),
+    Start(InstanceStartParams),
+    Stop(InstanceStopParams),
+    AddPubkey(InstanceAddPubkeyParams),
+    Delete(InstanceDeleteParams),
+    ExposeService(InstanceExposeServiceParams),
+    GetSshDetails(InstanceGetSshDetails)
 }
 
 

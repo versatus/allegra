@@ -4,9 +4,124 @@ use sha3::{Digest, Sha3_256};
 use crate::{
     account::{Namespace, TaskId, TaskStatus}, allegra_rpc::{
         InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams
-    }, dht::Peer, helpers::{recover_namespace, recover_owner_address}, params::ServiceType, vm_types::VmType
+    }, dht::Peer, helpers::{recover_namespace, recover_owner_address}, params::{Params, ServiceType}, vm_types::VmType
 };
 use crate::params::Payload;
+
+macro_rules! impl_into_event {
+    ($($t:ty => $variant:ident),*) => {
+        $(
+            impl IntoEvent for $t {
+                fn into_event(&self) -> Event {
+                    Event::$variant(self.clone())
+                }
+                fn to_inner(self: Box<Self>) -> Event {
+                    Event::$variant(*self)
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_send {
+    ($($t:ty),*) => {
+        $(
+            unsafe impl Send for $t {}
+        )*
+    };
+}
+
+impl_into_event!(
+    VmmEvent => VmmEvent,
+    NetworkEvent => NetworkEvent,
+    DnsEvent => DnsEvent,
+    StateEvent => StateEvent,
+    QuorumEvent => QuorumEvent,
+    TaskStatusEvent => TaskStatusEvent,
+    SyncEvent => SyncEvent
+);
+
+impl_send!(
+    VmmEvent,
+    NetworkEvent,
+    DnsEvent,
+    StateEvent,
+    QuorumEvent,
+    TaskStatusEvent,
+    SyncEvent
+);
+
+pub trait IntoEvent {
+    fn into_event(&self) -> Event;
+    fn to_inner(self: Box<Self>) -> Event;
+}
+
+pub trait SerializeIntoInner: Serialize {
+    fn inner_to_string(&self) -> std::io::Result<String>;
+}
+
+impl SerializeIntoInner for Event {
+    fn inner_to_string(&self) -> std::io::Result<String> {
+        match self {
+            Self::VmmEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+            Self::NetworkEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+            Self::DnsEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+            Self::StateEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+            Self::QuorumEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+            Self::TaskStatusEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+            Self::SyncEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {
@@ -194,7 +309,13 @@ pub enum QuorumEvent {
         address: String
     },
     Consolidate(String),
-    RequestSshDetails(Namespace) 
+    RequestSshDetails(Namespace),
+    CheckResponsibility {
+        namespace: Namespace,
+        task_id: TaskId,
+        payload: Params,
+        event_id: String,
+    },
 }
 
 
