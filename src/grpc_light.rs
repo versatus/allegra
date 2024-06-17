@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::{
     allegra_rpc::{
         vmm_server::Vmm,

@@ -10,6 +10,7 @@ use crate::{
         ExposedPort,
         Account,
     }, vmm::Instance, params::ServiceType, expose::update_nginx_config,
+    broker::event::{Event, NetworkEvent}
 };
 use std::str::FromStr;
 use sha3::{Digest, Sha3_256};
@@ -637,4 +638,161 @@ pub async fn get_instance(
                 e.to_string()
             )
         })
+}
+
+
+pub async fn copy_instance(
+    _namespace: String,
+    _target: String,
+    _path: String,
+) -> std::io::Result<()> {
+    Ok(())
+}
+
+pub async fn migrate_instance(
+    _vmlist: VmList,
+    _namespace: String,
+    _target: String,
+    _path: String, 
+    _new_quorum: Option<String>,
+) -> std::io::Result<()> {
+    Ok(())
+}
+
+pub async fn create_temp_instance(
+    namespace: &str
+) -> std::io::Result<()> {
+    let output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("copy")
+        .arg(&namespace)
+        .arg(&format!("{namespace}-temp"))
+        .output()?;
+
+    if output.status.success() {
+        log::info!("temporary instance succesfully created");
+        return Ok(())
+    } else {
+        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                stderr
+            )
+        )
+    }
+}
+
+pub async fn stop_temp_instance(namespace: &str) -> std::io::Result<()> {
+    let output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("stop")
+        .arg(&namespace)
+        .arg(&format!("{namespace}-temp"))
+        .output()?;
+
+    if output.status.success() {
+        log::info!("temporary instance succesfully stopped");
+        return Ok(())
+    } else {
+        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                stderr
+            )
+        )
+    }
+}
+
+pub async fn export_temp_instance(
+    namespace: &str,
+    path: &str
+) -> std::io::Result<String> {
+    let fqp = format!("{path}/{namespace}-temp.tar.gz");
+    let output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("export")
+        .arg(&format!("{namespace}-temp"))
+        .arg(&fqp)
+        .output()?;
+
+    if output.status.success() {
+        log::info!("temporary instance succesfully exported");
+        return Ok(fqp)
+    } else {
+        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        return Err(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                stderr
+            )
+        )
+    }
+}
+
+pub async fn transfer_temp_instance(
+    namespace: &str,
+    path: &str,
+    dst: &str
+) -> std::io::Result<()> {
+    let network_event = NetworkEvent::Sync { 
+        namespace: namespace.to_string(), 
+        path: path.to_string(),
+        target: dst.to_string(),
+        last_update: None,
+        dst: dst.to_string(),
+    };
+
+    let _event = Event::NetworkEvent(network_event);
+
+    log::info!("NetworkEvent successfully added to event broker");
+    Ok(())
+}
+
+pub async fn remove_temp_instance(
+    namespace: &str,
+    path: &str
+) -> std::io::Result<()> {
+    let delete_output = std::process::Command::new("sudo")
+        .arg("lxc")
+        .arg("delete")
+        .arg(&format!("{}-temp", namespace))
+        .output()?;
+
+    let rm_output = std::process::Command::new("sudo")
+        .arg("rm")
+        .arg("-rf")
+        .arg(path)
+        .output()?;
+
+    if delete_output.status.success() && rm_output.status.success() {
+        log::info!("Successfully deleted temporary instance and removed backup tarball");
+        return Ok(())
+    }
+
+    return Err(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Unable to delete or remove temporary instance from local fs"
+        )
+    )
 }

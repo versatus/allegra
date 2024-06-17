@@ -1,6 +1,6 @@
-use allegra::allegra_rpc::{InstanceStopParams, MessageHeader};
+use allegra::allegra_rpc::MessageHeader;
 use allegra::helpers::get_public_ip;
-use allegra::{vm_types::VmType, allegra_rpc::PingMessage};
+use allegra::allegra_rpc::PingMessage;
 use allegra::allegra_rpc::vmm_client::VmmClient;
 
 

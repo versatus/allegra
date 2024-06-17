@@ -13,8 +13,10 @@ use crate::{
         recover_namespace,
         verify_ownership,
         update_iptables,
-        update_account, update_instance
-    }, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}, event::{Event, NetworkEvent}, broker::broker::EventBroker
+        update_account, 
+        update_instance, 
+        remove_temp_instance
+    }, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}, event::{Event, NetworkEvent}
 };
 
 #[cfg(feature="grpc")]
@@ -28,15 +30,6 @@ use crate::allegra_rpc::{
     InstanceGetSshDetails
 };
 
-#[cfg(feature="tarpc")]
-use crate::params::{
-    InstanceCreateParams,
-    InstanceStartParams,
-    InstanceStopParams,
-    InstanceDeleteParams,
-    InstanceAddPubkeyParams,
-    InstanceExposeServiceParams, Payload, ServiceType
-};
 use futures::{stream::{FuturesUnordered, StreamExt}, Future};
 use lazy_static::lazy_static;
 use tokio::{task::JoinHandle, sync::{RwLock, Mutex}};
@@ -116,14 +109,10 @@ pub enum VmManagerMessage {
     NewInstance {
         #[cfg(feature="grpc")]
         params: InstanceCreateParams,
-        #[cfg(feature="tarpc")]
-        params: InstanceCreateParams,
         task_id: TaskId 
     },
     StopInstance {
         #[cfg(feature="grpc")]
-        params: InstanceStopParams,
-        #[cfg(feature="tarpc")]
         params: InstanceStopParams,
         sig: String,
         task_id: TaskId
@@ -131,15 +120,11 @@ pub enum VmManagerMessage {
     DeleteInstance {
         #[cfg(feature="grpc")]
         params: InstanceDeleteParams,
-        #[cfg(feature="tarpc")]
-        params: InstanceDeleteParams,
         sig: String,
         task_id: TaskId 
     },
     InjectAuth {
         #[cfg(feature="grpc")]
-        params: InstanceAddPubkeyParams,
-        #[cfg(feature="tarpc")]
         params: InstanceAddPubkeyParams,
         sig: String,
         task_id: TaskId 
@@ -147,15 +132,11 @@ pub enum VmManagerMessage {
     StartInstance {
         #[cfg(feature="grpc")]
         params: InstanceStartParams,
-        #[cfg(feature="tarpc")]
-        params: InstanceStartParams,
         sig: String,
         task_id: TaskId 
     },
     ExposeService {
         #[cfg(feature="grpc")]
-        params: InstanceExposeServiceParams,
-        #[cfg(feature="tarpc")]
         params: InstanceExposeServiceParams,
         sig: String,
         task_id: TaskId,
@@ -179,7 +160,6 @@ pub struct VmManager {
     vmlist: VmList,
     state_client: tikv_client::RawClient,
     task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>,
-    event_broker: Arc<Mutex<EventBroker>>
 }
 
 impl VmManager {
@@ -193,7 +173,6 @@ impl VmManager {
         pd_endpoints: Vec<S>,
         config: Option<tikv_client::Config>,
         next_port: u16,
-        event_broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>
     ) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
         let handles = FuturesUnordered::new();
@@ -283,7 +262,6 @@ impl VmManager {
             state_client,
             task_cache,
             sync_futures,
-            event_broker
         })
     }
 
@@ -1402,187 +1380,3 @@ impl VmManager {
     }
 }
 
-pub async fn copy_instance(
-    namespace: String,
-    target: String,
-    path: String,
-    event_broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>
-) -> std::io::Result<()> {
-    log::info!("creating temporary instance");
-    create_temp_instance(&namespace).await?;
-    log::info!("stopping temporary instance");
-    stop_temp_instance(&namespace).await?;
-    log::info!("exporting temporary instance");
-    let fqp = export_temp_instance(&namespace, &path).await?;
-    log::info!("transferring temporary instance");
-    transfer_temp_instance(event_broker, &namespace, &fqp, &target).await?;
-    log::info!("removing temporary instance");
-    remove_temp_instance(&namespace, &path).await?;
-
-    Ok(())
-}
-
-pub async fn migrate_instance(
-    vmlist: VmList,
-    namespace: String,
-    target: String,
-    path: String, 
-    new_quorum: Option<String>,
-    event_broker: std::sync::Arc<tokio::sync::Mutex<EventBroker>>
-) -> std::io::Result<()> {
-    log::info!("creating temporary instance");
-    create_temp_instance(&namespace).await?;
-    log::info!("stopping temporary instance");
-    stop_temp_instance(&namespace).await?;
-    log::info!("exporting temporary instance");
-    let fqp = export_temp_instance(&namespace, &path).await?;
-    log::info!("exporting temporary instance");
-    transfer_temp_instance(event_broker, &namespace, &path, &target).await?;
-    log::info!("removing temporary instance");
-    remove_temp_instance(&namespace, &path).await?;
-
-    Ok(())
-}
-
-pub async fn create_temp_instance(
-    namespace: &str
-) -> std::io::Result<()> {
-    let output = std::process::Command::new("sudo")
-        .arg("lxc")
-        .arg("copy")
-        .arg(&namespace)
-        .arg(&format!("{namespace}-temp"))
-        .output()?;
-
-    if output.status.success() {
-        log::info!("temporary instance succesfully created");
-        return Ok(())
-    } else {
-        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                stderr
-            )
-        )
-    }
-}
-
-pub async fn stop_temp_instance(namespace: &str) -> std::io::Result<()> {
-    let output = std::process::Command::new("sudo")
-        .arg("lxc")
-        .arg("stop")
-        .arg(&namespace)
-        .arg(&format!("{namespace}-temp"))
-        .output()?;
-
-    if output.status.success() {
-        log::info!("temporary instance succesfully stopped");
-        return Ok(())
-    } else {
-        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                stderr
-            )
-        )
-    }
-}
-
-pub async fn export_temp_instance(
-    namespace: &str,
-    path: &str
-) -> std::io::Result<String> {
-    let fqp = format!("{path}/{namespace}-temp.tar.gz");
-    let output = std::process::Command::new("sudo")
-        .arg("lxc")
-        .arg("export")
-        .arg(&format!("{namespace}-temp"))
-        .arg(&fqp)
-        .output()?;
-
-    if output.status.success() {
-        log::info!("temporary instance succesfully exported");
-        return Ok(fqp)
-    } else {
-        let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                stderr
-            )
-        )
-    }
-}
-
-pub async fn transfer_temp_instance(
-    broker: Arc<Mutex<EventBroker>>,
-    namespace: &str,
-    path: &str,
-    dst: &str
-) -> std::io::Result<()> {
-    let network_event = NetworkEvent::Sync { 
-        namespace: namespace.to_string(), 
-        path: path.to_string(),
-        target: dst.to_string(),
-        last_update: None,
-        dst: dst.to_string(),
-    };
-
-    let event = Event::NetworkEvent(network_event);
-
-    let mut guard = broker.lock().await;
-    guard.publish("Network".to_string(), event).await;
-    drop(guard);
-
-    log::info!("NetworkEvent successfully added to event broker");
-    Ok(())
-}
-
-pub async fn remove_temp_instance(
-    namespace: &str,
-    path: &str
-) -> std::io::Result<()> {
-    let delete_output = std::process::Command::new("sudo")
-        .arg("lxc")
-        .arg("delete")
-        .arg(&format!("{}-temp", namespace))
-        .output()?;
-
-    let rm_output = std::process::Command::new("sudo")
-        .arg("rm")
-        .arg("-rf")
-        .arg(path)
-        .output()?;
-
-    if delete_output.status.success() && rm_output.status.success() {
-        log::info!("Successfully deleted temporary instance and removed backup tarball");
-        return Ok(())
-    }
-
-    return Err(
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Unable to delete or remove temporary instance from local fs"
-        )
-    )
-}

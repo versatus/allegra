@@ -29,29 +29,20 @@ use crate::{
     }, 
     account::{
         TaskId, 
-        TaskStatus,
+        //TaskStatus,
         Account, Namespace
     }, 
     params::Payload,
-    helpers::{
-        recover_namespace,
-        recover_owner_address
-    }, dht::{
+    helpers::recover_namespace, 
+    dht::{
         AllegraNetworkState,
         Peer
     }, create_allegra_rpc_client_to_addr, 
-        broker::broker::EventBroker, 
-        event::{
-            NetworkEvent, 
-            Event
-        }
+        event::Event
 };
 
 use tokio::{
-    sync::{
-        mpsc::Sender, 
-        Mutex
-    }, 
+    sync::mpsc::Sender, 
     fs::File, 
     io::AsyncWriteExt
 };
@@ -61,7 +52,7 @@ use sha3::{Digest, Sha3_256};
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use std::result::Result;
-use lru::LruCache;
+//use lru::LruCache;
 use rand::Rng;
 use futures::StreamExt;
 
@@ -73,9 +64,8 @@ pub struct VmmService {
     pub local_peer: Peer,
     pub vmm_sender: Sender<VmManagerMessage>,
     pub tikv_client: tikv_client::RawClient,
-    pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>, 
+    //pub task_cache: Arc<RwLock<LruCache<TaskId, TaskStatus>>>, 
     pub network_state: Arc<RwLock<AllegraNetworkState>>,
-    pub event_broker: Arc<Mutex<EventBroker>>
 }
 
 #[tonic::async_trait]
@@ -92,7 +82,6 @@ impl Vmm for VmmService {
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
         let inner_local_peer = self.local_peer.clone();
-        let inner_event_broker = self.event_broker.clone();
 
         tokio::spawn(async move {
             let guard = inner_network_state.read().await;
@@ -122,18 +111,20 @@ impl Vmm for VmmService {
 
                         drop(guard);
 
-                        let mut guard = inner_event_broker.lock().await;
+                        //TODO(asmith): Replace with publisher
+                        //let mut guard = inner_event_broker.lock().await;
                         for peer in quorum_members.peers() {
-                            let event = Event::NetworkEvent(
+                            let _event = Event::NetworkEvent(
                                 (peer.clone(), params.clone()).try_into().map_err(|e| {
                                     Status::from_error(Box::new(e))
                                 })?
                             ); 
 
-                            guard.publish("Network".to_string(), event).await;
+                            //TODO(asmith): Replace with publisher
+                            //guard.publish("Network".to_string(), event).await;
                         }
 
-                        drop(guard);
+                        //drop(guard);
                     },
                     _ => log::error!("Error sending vm manager message to vm manager")
                 }
@@ -146,17 +137,19 @@ impl Vmm for VmmService {
 
                 drop(guard);
 
-                let mut guard = inner_event_broker.lock().await;
+                //TODO(asmith): Replace with publisher
+                //let mut guard = inner_event_broker.lock().await;
                 for peer in quorum_members.peers() {
-                    let event = Event::NetworkEvent(
+                    let _event = Event::NetworkEvent(
                         (peer.clone(), params.clone()).try_into().map_err(|e| {
                             Status::from_error(Box::new(e))
                         })?
                     ); 
 
-                    guard.publish("Network".to_string(), event).await;
+                    //TODO(asmith): Replace with publisher
+                    //guard.publish("Network".to_string(), event).await;
                 }
-                drop(guard);
+                //drop(guard);
             }
 
             return Ok::<(), Status>(())
@@ -183,7 +176,8 @@ impl Vmm for VmmService {
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
         let inner_local_peer = self.local_peer.clone();
-        let inner_event_broker = self.event_broker.clone();
+        //TODO(asmith): Replace with publisher
+        //let inner_event_broker = self.event_broker.clone();
 
         tokio::spawn(async move {
             let guard = inner_network_state.read().await;
@@ -216,17 +210,19 @@ impl Vmm for VmmService {
 
                         drop(guard);
 
-                        let mut guard = inner_event_broker.lock().await;
+                        //TODO(asmith): Replace with publisher
+                        //let mut guard = inner_event_broker.lock().await;
 
                         for peer in quorum_members.peers() {
                             if peer.id() != inner_local_peer.id() {
-                                let event = Event::NetworkEvent(
+                                let _event = Event::NetworkEvent(
                                     (peer.clone(), params.clone()).try_into().map_err(|e| {
                                         Status::from_error(Box::new(e))
                                     })?
                                 ); 
 
-                                guard.publish("Network".to_string(), event).await;
+                                //TODO(asmith): Replace with publisher
+                                //guard.publish("Network".to_string(), event).await;
                             }
                         }
                     },
@@ -241,16 +237,18 @@ impl Vmm for VmmService {
 
                 drop(guard);
 
-                let mut guard = inner_event_broker.lock().await;
+                //TODO(asmith): Replace with publisher
+                //let mut guard = inner_event_broker.lock().await;
 
                 for peer in quorum_members.peers() {
-                    let event = Event::NetworkEvent(
+                    let _event = Event::NetworkEvent(
                         (peer.clone(), params.clone()).try_into().map_err(|e| {
                             Status::from_error(Box::new(e))
                         })?
                     ); 
 
-                    guard.publish("Network".to_string(), event).await;
+                    //TODO(asmith): Replace with publisher
+                    //guard.publish("Network".to_string(), event).await;
                 }
             }
 
@@ -274,7 +272,8 @@ impl Vmm for VmmService {
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
         let inner_local_peer = self.local_peer.clone();
-        let inner_event_broker = self.event_broker.clone();
+        //TODO(asmith): Replace with publisher
+        //let inner_event_broker = self.event_broker.clone();
 
 
         tokio::spawn(async move {
@@ -309,20 +308,22 @@ impl Vmm for VmmService {
 
                         drop(guard);
 
-                        let mut guard = inner_event_broker.lock().await;
+                        //TODO(asmith): Replace with publisher
+                        //let mut guard = inner_event_broker.lock().await;
 
                         for peer in quorum_members.peers() {
-                            let event = Event::NetworkEvent(
+                            let _event = Event::NetworkEvent(
                                 (peer.clone(), params.clone()).try_into().map_err(|e| {
                                     Status::from_error(Box::new(e))
                                 })?
                             ); 
 
-                            guard.publish("Network".to_string(), event).await;
+                            //TODO(asmith): Replace with publisher
+                            //guard.publish("Network".to_string(), event).await;
 
                         }
                     },
-                    Err(e) => {},
+                    Err(e) => log::error!("{e}"),
                 }
             } else {
                 let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
@@ -333,16 +334,18 @@ impl Vmm for VmmService {
 
                 drop(guard);
 
-                let mut guard = inner_event_broker.lock().await;
+                //TODO(asmith): Replace with publisher
+                //let mut guard = inner_event_broker.lock().await;
 
                 for peer in quorum_members.peers() {
-                    let event = Event::NetworkEvent(
+                    let _event = Event::NetworkEvent(
                         (peer.clone(), params.clone()).try_into().map_err(|e| {
                             Status::from_error(Box::new(e))
                         })?
                     ); 
 
-                    guard.publish("Network".to_string(), event).await;
+                    //TODO(asmith): Replace with publisher
+                    //guard.publish("Network".to_string(), event).await;
 
                 }
             }
@@ -367,7 +370,8 @@ impl Vmm for VmmService {
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
         let inner_local_peer = self.local_peer.clone();
-        let inner_event_broker = self.event_broker.clone();
+        //TODO(asmith): Replace with publisher
+        //let inner_event_broker = self.event_broker.clone();
 
         tokio::spawn(async move {
             let guard = inner_network_state.read().await;
@@ -401,20 +405,22 @@ impl Vmm for VmmService {
 
                         drop(guard);
 
-                        let mut guard = inner_event_broker.lock().await;
+                        //TODO(asmith): Replace with publisher
+                        //let mut guard = inner_event_broker.lock().await;
 
                         for peer in quorum_members.peers() {
-                            let event = Event::NetworkEvent(
+                            let _event = Event::NetworkEvent(
                                 (peer.clone(), params.clone()).try_into().map_err(|e| {
                                     Status::from_error(Box::new(e))
                                 })?
                             ); 
 
-                            guard.publish("Network".to_string(), event).await;
+                            //TODO(asmith): Replace with publisher
+                            //guard.publish("Network".to_string(), event).await;
 
                         }
                     }
-                    Err(e) => {},
+                    Err(e) => log::error!("{e}"),
                 }
             } else {
                 let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
@@ -425,16 +431,18 @@ impl Vmm for VmmService {
 
                 drop(guard);
 
-                let mut guard = inner_event_broker.lock().await;
+                //TODO(asmith): Replace with publisher
+                //let mut guard = inner_event_broker.lock().await;
 
                 for peer in quorum_members.peers() {
-                    let event = Event::NetworkEvent(
+                    let _event = Event::NetworkEvent(
                         (peer.clone(), params.clone()).try_into().map_err(|e| {
                             Status::from_error(Box::new(e))
                         })?
                     ); 
 
-                    guard.publish("Network".to_string(), event).await;
+                    //TODO(asmith): Replace with publisher
+                    //guard.publish("Network".to_string(), event).await;
 
                 }
             }
@@ -460,7 +468,8 @@ impl Vmm for VmmService {
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
         let inner_local_peer = self.local_peer.clone();
-        let inner_event_broker = self.event_broker.clone();
+        //TODO(asmith): Replace with publisher
+        //let inner_event_broker = self.event_broker.clone();
 
         tokio::spawn(async move {
             let guard = inner_network_state.read().await;
@@ -494,21 +503,22 @@ impl Vmm for VmmService {
 
                         drop(guard);
 
-                        let mut guard = inner_event_broker.lock().await;
+                        //TODO(asmith): Replace with publisher
+                        //let mut guard = inner_event_broker.lock().await;
 
                         for peer in quorum_members.peers() {
-                            let event = Event::NetworkEvent(
+                            let _event = Event::NetworkEvent(
                                 (peer.clone(), params.clone()).try_into().map_err(|e| {
                                     Status::from_error(Box::new(e))
                                 })?
                             ); 
 
-                            guard.publish("Network".to_string(), event).await;
+                            //guard.publish("Network".to_string(), event).await;
 
                         }
 
                     }
-                    Err(e) => {},
+                    Err(e) => log::error!("{e}"),
                 }
             } else {
                 let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
@@ -519,15 +529,17 @@ impl Vmm for VmmService {
 
                 drop(guard);
 
-                let mut guard = inner_event_broker.lock().await;
+                //TODO(asmith): Replace with publisher
+                //let mut guard = inner_event_broker.lock().await;
 
                 for peer in quorum_members.peers() {
-                    let event = Event::NetworkEvent(
+                    let _event = Event::NetworkEvent(
                         (peer.clone(), params.clone()).try_into().map_err(|e| {
                             Status::from_error(Box::new(e))
                         })?
                     ); 
-                    guard.publish("Network".to_string(), event).await;
+                    //TODO(asmith): Replace with publisher
+                    //guard.publish("Network".to_string(), event).await;
                 }
             }
 
@@ -552,7 +564,8 @@ impl Vmm for VmmService {
         let inner_vmm_sender = self.vmm_sender.clone();
         let inner_network_state = self.network_state.clone();
         let inner_local_peer = self.local_peer.clone();
-        let inner_event_broker = self.event_broker.clone();
+        //TODO(asmith): Replace with publisher
+        //let inner_event_broker = self.event_broker.clone();
 
         tokio::spawn(async move {
             let guard = inner_network_state.read().await;
@@ -585,18 +598,20 @@ impl Vmm for VmmService {
 
                         drop(guard);
 
-                        let mut guard = inner_event_broker.lock().await;
+                        //TODO(asmith): Replace with publisher
+                        //let mut guard = inner_event_broker.lock().await;
 
                         for peer in quorum_members.peers() {
-                            let event = Event::NetworkEvent(
+                            let _event = Event::NetworkEvent(
                                 (peer.clone(), params.clone()).try_into().map_err(|e| {
                                     Status::from_error(Box::new(e))
                                 })?
                             ); 
-                            guard.publish("Network".to_string(), event).await;
+                            //TODO(asmith): Replace with publisher
+                            //guard.publish("Network".to_string(), event).await;
                         }
                     }
-                    Err(e) => {},
+                    Err(e) => log::error!("{e}"),
                 }
             } else {
                 let quorum_members = guard.get_quorum_by_id(&instance_quorum_id).ok_or(
@@ -607,15 +622,17 @@ impl Vmm for VmmService {
 
                 drop(guard);
 
-                let mut guard = inner_event_broker.lock().await;
+                //TODO(asmith): Replace with publisher
+                //let mut guard = inner_event_broker.lock().await;
 
                 for peer in quorum_members.peers() {
-                    let event = Event::NetworkEvent(
+                    let _event = Event::NetworkEvent(
                         (peer.clone(), params.clone()).try_into().map_err(|e| {
                             Status::from_error(Box::new(e))
                         })?
                     ); 
-                    guard.publish("Network".to_string(), event).await;
+                    //TODO(asmith): Replace with publisher
+                    //guard.publish("Network".to_string(), event).await;
                 }
             }
 
@@ -640,6 +657,7 @@ impl Vmm for VmmService {
             hex::decode(&params.owner).map_err(|e| Status::internal(e.to_string()))?
         };
 
+        /*
         let mut guard = self.task_cache.write().await; 
         if let Some(task_status) = guard.get(&TaskId::new(params.id.clone())) {
             return Ok(
@@ -652,7 +670,7 @@ impl Vmm for VmmService {
                 )
             );
         }
-
+        */
         match self.tikv_client.get(address_bytes.to_vec()).await {
             Ok(Some(account_bytes)) => {
                 match serde_json::from_slice::<Account>(&account_bytes) {

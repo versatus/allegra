@@ -1,40 +1,21 @@
-use std::collections::{VecDeque, HashMap};
-
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
-use tokio::sync::broadcast::{Sender, Receiver};
-use crate::{params::ServiceType, vm_types::VmType, account::Namespace, allegra_rpc::{SshDetails, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceAddPubkeyParams}, dht::Peer, grpc::generate_task_id, helpers::{recover_owner_address, recover_namespace}};
+use crate::{
+    params::ServiceType,
+    vm_types::VmType,
+    account::Namespace, 
+    allegra_rpc::{
+        InstanceCreateParams, 
+        InstanceStopParams, 
+        InstanceStartParams, 
+        InstanceDeleteParams, 
+        InstanceExposeServiceParams, 
+        InstanceAddPubkeyParams
+    }, dht::Peer, 
+    helpers::{recover_owner_address, recover_namespace}
+};
 use crate::params::Payload;
-
-#[derive(Clone, Debug)]
-pub struct Topic {
-    name: String,
-    queue: VecDeque<Event>,
-    subscribers: Sender<Event>
-}
-
-impl Topic {
-    pub fn new(name: String, subscribers: Sender<Event>) -> Self {
-        Self {
-            name,
-            queue: VecDeque::new(),
-            subscribers
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn publish(&mut self, event: Event) {
-        self.queue.push_back(event.clone());
-        let _ = self.subscribers.send(event.clone());
-    }
-
-    pub fn subscribe(&mut self) -> Receiver<Event> {
-        self.subscribers.subscribe()
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Event {

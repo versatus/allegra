@@ -2,7 +2,7 @@ use ractor::{ActorCell, ActorRef};
 use tokio::task::JoinHandle;
 use ractor_cluster::RactorMessage;
 
-pub struct NodeId(String);
+pub struct NodeId(pub String);
 
 pub struct ActorSpawn<M: Sized> {
     pub actor: (ActorRef<M>, JoinHandle<()>)

@@ -1,23 +1,12 @@
 use crate::allegra_rpc::{InstanceGetSshDetails, InstanceExposeServiceParams, InstanceAddPubkeyParams, InstanceDeleteParams, InstanceStopParams, InstanceStartParams, InstanceCreateParams};
 use crate::cli::commands::AllegraCommands;
 use crate::params::Payload;
-#[cfg(feature="tarpc")]
-use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposeServiceParams};
-#[cfg(feature="tarpc")]
-use crate::rpc::VmmClient;
 use crate::allegra_rpc::vmm_client::VmmClient;
 use std::io::Read;
-use std::net::SocketAddr;
-#[cfg(feature="tarpc")]
-use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::io::Write;
 use ethers_core::k256::elliptic_curve::SecretKey;
 use sha3::{Digest, Sha3_256};
-#[cfg(feature="tarpc")]
-use tarpc::client;
-#[cfg(feature="tarpc")]
-use tarpc::tokio_serde::formats::Json;
 use ethers_core::{
     k256::ecdsa::{
         Signature, RecoveryId, SigningKey

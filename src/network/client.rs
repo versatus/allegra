@@ -3,26 +3,30 @@ use crate::{
         MessageHeader, NewPeerMessage, InstanceCreateParams, InstanceExposeServiceParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceAddPubkeyParams, FileChunk
     }, event::NetworkEvent, create_allegra_rpc_client_to_addr
 };
-use tokio::{sync::broadcast::{Receiver, error::RecvError}, io::AsyncReadExt};
+use tokio::io::AsyncReadExt;
 use crate::event::Event;
+use crate::helpers::remove_temp_instance;
 
 #[derive(Debug)]
 pub struct NetworkClient {
     local_peer_id: String,
     local_peer_address: String,
-    events: Receiver<Event>,
+    //TODO(asmith): Replace with subscriber
+    //events: Receiver<Event>,
 }
 
 impl NetworkClient {
     pub async fn new(
-        events: Receiver<Event>,
+        //TODO(asmith): Replace with subscriber
+        //events: Receiver<Event>,
         local_peer_id: String,
         local_peer_address: String
     ) -> std::io::Result<Self> {
-        Ok(Self { local_peer_id, local_peer_address, events })
+        Ok(Self { local_peer_id, local_peer_address, /*events*/ })
     }
 
     pub async fn run(&mut self) -> std::io::Result<()> {
+        /*
         loop {
             match self.events.recv().await {
                 Ok(event) => {
@@ -39,6 +43,7 @@ impl NetworkClient {
                 }
             }
         }
+        */
 
         Ok(())
     }
@@ -90,7 +95,7 @@ impl NetworkClient {
                         })?.into_inner();
 
                         if resp.success {
-                            crate::vmm::remove_temp_instance(&namespace, &path).await?;
+                            remove_temp_instance(&namespace, &path).await?;
                             return Ok(())
                         } else {
                             return Err(
@@ -149,7 +154,7 @@ impl NetworkClient {
                         })?.into_inner();
 
                         if resp.success {
-                            crate::vmm::remove_temp_instance(&namespace, &path).await?;
+                            remove_temp_instance(&namespace, &path).await?;
                             return Ok(())
                         } else {
                             return Err(

@@ -1,10 +1,9 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, sync::Arc};
-use tokio::sync::Mutex;
+use std::{collections::{HashMap, HashSet}, hash::RandomState};
 use uuid::Uuid;
 use anchorhash::AnchorHash;
 use serde::{Serialize, Deserialize};
 
-use crate::{account::Namespace, broker::broker::EventBroker, event::{Event, NetworkEvent}};
+use crate::{account::Namespace, event::{Event, NetworkEvent}};
 
 lazy_static::lazy_static! {
     pub static ref BOOTSTRAP_QUORUM: Quorum = Quorum::new(); 
@@ -72,12 +71,11 @@ pub struct AllegraNetworkState {
     quorums: HashMap<Uuid, Quorum>,
     peer_hashring: AnchorHash<Uuid, Quorum, RandomState>,
     instance_hashring: AnchorHash<Namespace, Quorum, RandomState>,
-    event_broker: Arc<Mutex<EventBroker>>
 }
 
 
 impl AllegraNetworkState {
-    pub fn new(event_broker: Arc<Mutex<EventBroker>>) -> Self {
+    pub fn new() -> Self {
         let peer_hashring = anchorhash::Builder::default()
             .with_resources(
                 vec![BOOTSTRAP_QUORUM.clone()]
@@ -97,7 +95,6 @@ impl AllegraNetworkState {
             quorums,
             peer_hashring,
             instance_hashring,
-            event_broker,
         }
     }
 
@@ -192,16 +189,13 @@ impl AllegraNetworkState {
                 )
             };
 
-            let event = Event::NetworkEvent(
+            //TODO(asmith): Replace with publisher 
+            let _event = Event::NetworkEvent(
                 NetworkEvent::ShareCert { 
                     peer: peer.clone(), 
                     cert 
                 }
             );
-
-            let mut guard = self.event_broker.lock().await;
-            guard.publish("Network".to_string(), event).await;
-            drop(guard);
 
         } else {
             let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -279,7 +273,7 @@ impl AllegraNetworkState {
             self.peers.insert(peer.id, peer.clone());
             for (_, dst_peer) in &self.peers {
                 if dst_peer != peer {
-                    let dst_event = Event::NetworkEvent(
+                    let _dst_event = Event::NetworkEvent(
                         NetworkEvent::NewPeer { 
                             peer_id: peer.id().to_string(), 
                             peer_address: peer.address().to_string(), 
@@ -287,7 +281,7 @@ impl AllegraNetworkState {
                         }
                     );
 
-                    let new_peer_event = Event::NetworkEvent(
+                    let _new_peer_event = Event::NetworkEvent(
                         NetworkEvent::NewPeer { 
                             peer_id: dst_peer.id().to_string(), 
                             peer_address: dst_peer.address().to_string(), 
@@ -295,9 +289,10 @@ impl AllegraNetworkState {
                         }
                     );
 
-                    let mut guard = self.event_broker.lock().await;
-                    guard.publish("Network".to_string(), dst_event).await;
-                    guard.publish("Network".to_string(), new_peer_event).await;
+                    //TODO(asmith): replace with publisher
+                    //let mut guard = self.event_broker.lock().await;
+                    //guard.publish("Network".to_string(), dst_event).await;
+                    //guard.publish("Network".to_string(), new_peer_event).await;
                 }
             }
         } 

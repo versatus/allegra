@@ -60,6 +60,7 @@ dependencies = [
  "base64 0.22.1",
  "bip39",
  "clap",
+ "conductor",
  "derive_builder",
  "ethers-core",
  "futures",
@@ -800,6 +801,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
+]
+
+[[package]]
+name = "conductor"
+version = "0.1.0"
+source = "git+https://github.com/versatus/conductor#54bfc32f798d569de36b75841b1b721bdf2c190a"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

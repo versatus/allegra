@@ -8,7 +8,7 @@ use std::{
 use tokio::sync::Mutex;
 use lazy_static::lazy_static;
 
-use crate::{dht::Peer, broker::broker::EventBroker, event::{Event, NetworkEvent}};
+use crate::{dht::Peer, event::{Event, NetworkEvent}};
 use serde::{Serialize, Deserialize};
 use derive_builder::Builder;
 
@@ -108,7 +108,8 @@ pub struct Cluster {
     peers: Arc<Mutex<Vec<Peer>>>,
     cluster_leader: Peer,
     election: Vec<Ballot>,
-    event_broker: Arc<Mutex<EventBroker>>,
+    //TODO(asmith): Replace with publisher
+    //event_broker: Arc<Mutex<EventBroker>>,
     local_join_token: Option<String>,
     join_tokens: Vec<String>
 }
@@ -119,14 +120,16 @@ impl Cluster {
         cluster_leader: Peer, 
         peers: Arc<Mutex<Vec<Peer>>>, 
         election: Vec<Ballot>,
-        event_broker: Arc<Mutex<EventBroker>>,
+        //TODO(asmith): Replace with publisher
+        //event_broker: Arc<Mutex<EventBroker>>,
     ) -> Self {
         Self { 
             local_peer, 
             peers, 
             cluster_leader, 
             election, 
-            event_broker, 
+            //TODO(asmith): Replace with publisher
+            //event_broker, 
             local_join_token: None, 
             join_tokens: Vec::new() 
         } 
@@ -207,7 +210,7 @@ impl Cluster {
             let config = ClusterConfigBuilder::default()
                 .config(
                     ConfigBuilder::default()
-                        .core_https_address(self.local_peer.address().clone())
+                        .core_https_address(self.local_peer.address())
                         .images_auto_update_interval(Some(15))
                         .build()?
                 )
