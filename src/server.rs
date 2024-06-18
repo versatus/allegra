@@ -1,23 +1,15 @@
-#![allow(unused)]
-//TODO(asmith): Replace with publisher
-//use allegra::broker::broker::EventBroker;
-use allegra::client::NetworkClient;
-use allegra::dht::{Peer, AllegraNetworkState};
-use allegra::event::{Event, NetworkEvent};
+use allegra::dht::Peer;
 use allegra::grpc::VmmService;
 
 use allegra::helpers::get_public_ip;
+use allegra::publish::GenericPublisher;
+use allegra::subscribe::RpcResponseSubscriber;
 use futures::prelude::*;
-use std::collections::VecDeque;
 
 use allegra::allegra_rpc::{vmm_server::VmmServer, FILE_DESCRIPTOR_SET};
-use allegra::vmm::VmManager;
-use tokio::sync::RwLock;
-use tonic::{transport::Server};
+use tonic::transport::Server;
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast::channel};
-use libretto::client::handle_events;
-use libretto::watcher;
+use tokio::sync::Mutex;
 use tonic_reflection::server::Builder;
 
 lazy_static::lazy_static! {
@@ -39,53 +31,17 @@ async fn main() -> std::io::Result<()> {
         })?;
 
     log::info!("logger set up");
-    let pd_endpoints = vec!["127.0.0.1:2379"];
-    log::info!("created pd endpoints");
 
-    let tikv_client = tikv_client::RawClient::new(
-        pd_endpoints
-    ).await.map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e.to_string()
-        )
-    })?;
     let local_peer_id = uuid::Uuid::new_v4();
     log::info!("local_peer_id = {}", &local_peer_id.to_string());
     let local_peer_address = get_public_ip().await?; 
     log::info!("local_peer_address: {}", &local_peer_address);
-
     let local_peer = Peer::new(local_peer_id, local_peer_address);
     log::info!("local peer created");
 
-    let pd_endpoints = vec!["127.0.0.1:2379"];
-    log::info!("set pd endpoints");
 
     /*
-     * TODO: replace with publisher 
-    let event_broker = Arc::new(
-        Mutex::new(
-            EventBroker::new()
-        )
-    );
-    */
-    log::info!("set up event broker");
-
-    /*
-     * TODO: replace with publisher 
-    let event_broker = Arc::new(
-    let mut guard = event_broker.lock().await;
-    log::info!("acquired event broker guard");
-    guard.get_or_create_topic("Network".to_string());
-    log::info!("created network topic");
-    guard.get_or_create_topic("Vmm".to_string());
-    log::info!("created vmm topic");
-    guard.get_or_create_topic("Dht".to_string());
-    log::info!("created dht topic");
-    drop(guard);
-    log::info!("dropped event broker guard");
-    */
-
+     * TODO(asmith): Replace with publish event to Quorum topic
     let mut network_state = Arc::new(RwLock::new(AllegraNetworkState::new()));
     log::info!("created network state");
 
@@ -93,28 +49,30 @@ async fn main() -> std::io::Result<()> {
     log::info!("acquired network state guard");
     guard.add_peer(&local_peer).await?;
     log::info!("added self to network state");
+    */
 
     #[cfg(not(feature="bootstrap"))]
-    let bootstrap_addr = std::env::var(
-        "BOOTSTRAP_ADDR"
-    ).expect(
-        "If not configured as bootsrap node, bootstrap node is required"
-    );
-    #[cfg(not(feature="bootstrap"))]
-    let bootstrap_id = std::env::var(
-        "BOOTSTRAP_ID"
-    ).expect(
-        "If not configured as boostrap node, bootstrap node is required"
-    ); 
-    #[cfg(not(feature="bootstrap"))]
-    let bootstrap_peer = Peer::new(
-        uuid::Uuid::parse_str(
-            &bootstrap_id
+    {
+        let bootstrap_addr = std::env::var(
+            "BOOTSTRAP_ADDR"
         ).expect(
-            "bootstrap_id must be valid uuid v4"
-        ), bootstrap_addr
-    );
-
+            "If not configured as bootsrap node, bootstrap node is required"
+        );
+        let bootstrap_id = std::env::var(
+            "BOOTSTRAP_ID"
+        ).expect(
+            "If not configured as boostrap node, bootstrap node is required"
+        ); 
+        let _bootstrap_peer = Peer::new(
+            uuid::Uuid::parse_str(
+                &bootstrap_id
+            ).expect(
+                "bootstrap_id must be valid uuid v4"
+            ), bootstrap_addr
+        );
+    }
+/*
+ * TODO: Replace with publishing events to Quorum & Network topic
     #[cfg(not(feature="bootstrap"))]
     guard.add_peer(&bootstrap_peer).await?;
 
@@ -156,59 +114,31 @@ async fn main() -> std::io::Result<()> {
     #[cfg(not(feature="bootstrap"))]
     drop(guard);
 
-    /*
-    let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
-    log::info!("created channel");
-    let queue = Arc::new(
-        RwLock::new(
-            VecDeque::new()
-        )
-    );
-    log::info!("created queue");
-
-    let event_handling_queue = queue.clone();
-    log::info!("initiated event handling queue");
-    let handle_monitor_events = tokio::spawn(async move {
-        handle_events(event_handling_queue.clone()).await;
-    });
-
-    log::info!("started monitor event handler thread");
-    let directory_to_monitor = std::env::var("LXD_STORAGE_DIR").unwrap_or_else(|_| {
-        DEFAULT_LXD_STORAGE_DIR.to_string()
-    });
-
-    log::info!("acquired directory to monitor");
-
-    let monitor_directory = tokio::spawn(async move {
-        watcher::monitor_directory(&directory_to_monitor, queue, stop_rx).await;
-    });
-    */
-
     log::info!("started monitor directory thread");
     let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+
+    */
 
     let next_port = 2222;
     log::info!("established network port");
     
+    let vmm_publisher = Arc::new(
+        Mutex::new(
+            GenericPublisher::new("127.0.0.1:5555").await?
+        )
+    );
+
     let service = VmmService {
         local_peer: local_peer.clone(),
-        network_state: network_state.clone(),
         network: "lxdbr0".to_string(),
         port: next_port,
-        vmm_sender: tx.clone(),
-        tikv_client,
-        //TODO(asmith): replace with publisher/subscriber;
-        //task_cache,
-        //TODO(asmith): replace with publisher/subscriber;
-        //event_broker: event_broker.clone()
+        publisher: vmm_publisher,
+        subscriber: RpcResponseSubscriber::new("127.0.0.1:5556").await?
     };
-
-    log::info!("created vmm service");
 
     let vmmserver = VmmServer::new(
         service
     );
-
     log::info!("created vmm server");
 
     let addr = "0.0.0.0:50051".parse().map_err(|e| {
@@ -217,15 +147,20 @@ async fn main() -> std::io::Result<()> {
             e
         )
     })?;
-    log::info!("established address to listen on for grpc");
+    log::info!("established address to listen on for grpc...");
 
     log::info!("running grpc server on {}", &addr);
-    let reflection_service = Builder::configure().register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET).build().map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
+    let reflection_service = Builder::configure()
+        .register_encoded_file_descriptor_set(
+            FILE_DESCRIPTOR_SET
+        ).build().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        }
+    )?;
+    log::info!("set up reflection service for grpc server...");
     Server::builder().add_service(vmmserver)
         .add_service(reflection_service)
         .serve(addr).await.map_err(|e| {
@@ -234,9 +169,6 @@ async fn main() -> std::io::Result<()> {
             e
         )
     })?;
-    //vmm_handle.await?;
-    //handle_monitor_events.await;
-    //monitor_directory.await;
 
     Ok(())
 }

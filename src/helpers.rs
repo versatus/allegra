@@ -1,17 +1,19 @@
 use crate::{
+    account::{
+        Account, ExposedPort, Namespace, TaskId, TaskStatus
+    }, allegra_rpc::{GetPortMessage, SshDetails, PortResponse, VmResponse}, 
+    dht::{AllegraNetworkState, Peer},
+    event::{StateEvent, TaskStatusEvent}, 
+    expose::update_nginx_config, 
+    params::{Payload, ServiceType}, 
+    publish::{GenericPublisher, StateTopic, TaskStatusTopic}, 
     vm_info::{
-        VmInfo, 
-        VmList, 
-        VmAddress
-    }, account::{
-        Namespace, 
-        TaskId,
-        TaskStatus,
-        ExposedPort,
-        Account,
-    }, vmm::Instance, params::ServiceType, expose::update_nginx_config,
+        VmAddress, VmInfo, VmList
+    }, vmm::{Instance, SUCCESS},
+    create_allegra_rpc_client_to_addr
 };
 use std::str::FromStr;
+use conductor::publisher::PubStream;
 use sha3::{Digest, Sha3_256};
 use ethers_core::{
     utils::public_key_to_address,
@@ -21,9 +23,13 @@ use ethers_core::{
         RecoveryId
     }
 };
-use lru::LruCache;
+use tonic::{Response, Status, Request};
 use std::sync::Arc;
+use std::collections::HashSet;
 use tokio::sync::RwLock;
+use std::net::SocketAddr;
+use geolocation::Locator;
+use rand::Rng;
 
 pub fn handle_get_instance_ip_output_success(
     output: &std::process::Output,
@@ -156,7 +162,7 @@ pub fn handle_update_iptables_output(
 }
 
 pub async fn update_iptables(
-    state_client: tikv_client::RawClient,
+    uri: &str,
     vmlist: VmList,
     owner: [u8; 20],
     namespace: Namespace,
@@ -165,6 +171,7 @@ pub async fn update_iptables(
     task_id: TaskId,
     internal_port: u16
 ) -> std::io::Result<([u8; 20], TaskId, TaskStatus)> {
+    let mut publisher = GenericPublisher::new(uri).await?;
     let instance_ip = get_instance_ip(&namespace.inner())?;
     log::info!("acquired instance IP: {instance_ip}...");
     let prerouting = std::process::Command::new("sudo")
@@ -210,16 +217,23 @@ pub async fn update_iptables(
         )
     ];
 
-    update_account(
-        state_client.clone(),
-        vmlist.clone(),
+    let event_id = uuid::Uuid::new_v4();
+    let event = StateEvent::PutAccount { 
+        event_id: event_id.to_string(),
+        task_id: task_id.clone(),
+        task_status: TaskStatus::Success,
         owner,
-        namespace.clone(),
-        task_id.clone(),
-        TaskStatus::Success,
-        exposed_ports
+        vmlist: vmlist.clone(),
+        namespace: namespace.clone(),
+        exposed_ports: Some(exposed_ports.clone()) 
+    };
+
+    publisher.publish(
+        Box::new(StateTopic), 
+        Box::new(event)
     ).await?;
-    log::info!("updated owner account...");
+
+    log::info!("published event {} to topic {}", event_id.to_string(), StateTopic);
 
     let port_map = vec![(internal_port, (next_port, service_type))];
     let vminfo = vmlist.get(&namespace.inner()).ok_or(
@@ -248,13 +262,21 @@ pub async fn update_iptables(
 
     log::info!("updated nginx config...");
 
-    update_instance(
-        namespace, 
-        vminfo, 
-        port_map, 
-        state_client
+    let event_id = uuid::Uuid::new_v4();
+    let event = StateEvent::PutInstance { 
+        event_id: event_id.to_string(), 
+        task_id: task_id.clone(), 
+        task_status: TaskStatus::Success, 
+        namespace: namespace.clone(), 
+        vm_info: vminfo, 
+        port_map: port_map.into_iter().collect() 
+    };
+    publisher.publish(
+        Box::new(StateTopic), 
+        Box::new(event)
     ).await?;
-    log::info!("updated instance entry in state...");
+
+    log::info!("published event {} to topic {}", event_id.to_string(), StateTopic);
 
     Ok((owner, task_id, TaskStatus::Success))
 }
@@ -471,64 +493,24 @@ pub async fn verify_ownership(
 }
 
 pub async fn update_task_status(
-    state_client: tikv_client::RawClient,
+    publisher: &mut GenericPublisher,
     owner: [u8; 20],
     task_id: TaskId,
     task_status: TaskStatus,
-    cache: &mut Arc<RwLock<LruCache<TaskId, TaskStatus>>>
 ) -> std::io::Result<()> {
-    log::info!("attempting to update task status...");
-    let mut account = serde_json::from_slice::<Account>(
-        &state_client.get(
-            owner.to_vec()
-        ).await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?.ok_or(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Unable to find account for owner: {}", hex::encode(owner))
-            )
-        )?).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        }
-    )?;
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let task_status_event = TaskStatusEvent::Update { 
+        owner,
+        task_id: task_id.clone(),
+        task_status, 
+        event_id
+    };
 
-    log::info!("attempting to update task status in cache...");
-    let mut guard = cache.write().await;
-
-    log::info!("acquired cache guard...");
-    guard.put(task_id.clone(), task_status.clone());
-
-    log::info!("updated task status in LRU cache...");
-    account.update_task_status(&task_id.clone(), task_status.clone());
-    log::info!("updated task status in Account...");
-
-    drop(guard);
-
-    log::info!("writing updated account to state...");
-    state_client.put(
-        owner.to_vec(),
-        serde_json::to_vec(
-            &account
-        ).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?).await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other, 
-                e.to_string()
-            )
-    })?;
-
-    log::info!("succesfully updated task status in account state...");
+    publisher.publish(
+        Box::new(TaskStatusTopic),
+        Box::new(task_status_event)
+    ).await?;
+    log::info!("Published TaskStatusEvent {:?} to Topic {}", task_id, TaskStatusTopic.to_string());
     Ok(())
 }
 
@@ -796,4 +778,185 @@ pub async fn remove_temp_instance(
             "Unable to delete or remove temporary instance from local fs"
         )
     )
+}
+
+
+pub fn generate_task_id(params: impl Payload) -> Result<TaskId, Status> {
+    let bytes = serde_json::to_vec(&params.into_payload()).map_err(|e| {
+        Status::new(tonic::Code::FailedPrecondition, e.to_string())
+    })?;
+    let mut hasher = Sha3_256::new();
+    hasher.update(bytes);
+    let result = hasher.finalize();
+    Ok(TaskId::new(
+        hex::encode(&result[..])
+    ))
+}
+
+pub async fn get_port(
+    namespace: String,
+    ip: &str,
+    service_type: ServiceType
+) -> Result<Response<PortResponse>, Status> {
+    let mut client = create_allegra_rpc_client_to_addr(&format!("http://{}:50051", ip)).await.map_err(|e| {
+        Status::from_error(Box::new(e))
+    })?;
+
+    let get_port_message = GetPortMessage {
+        namespace, service_type: service_type.into()
+    };
+
+    client.get_port(Request::new(get_port_message)).await
+}
+
+pub async fn get_ssh_details(
+    network_state: Arc<RwLock<AllegraNetworkState>>,
+    namespace: Namespace,
+    remote_addr: Option<SocketAddr>,
+) -> Result<Response<VmResponse>, Status> {
+    let peers = get_quorum_peers(network_state.clone(), namespace.clone()).await?;
+    let socket_addr = remote_addr.ok_or(
+        Status::failed_precondition(
+            "Unable to acquire requestor addr"
+        )
+    )?;
+    let location = geolocation::find(&socket_addr.ip().to_string()).ok();
+    if let Some(location) = location {
+        let latitude = location.latitude.parse::<f64>().ok();
+        let longitude = location.longitude.parse::<f64>().ok();
+        if let (Some(lat), Some(long)) = (latitude, longitude) {
+            let peer_locations = get_peer_locations(peers.clone());
+            let distances = get_peer_distances(lat, long, peer_locations);
+            let closest = get_closest_peer(distances);
+            if let Some((addr, _)) = closest {
+                let port = get_port(namespace.inner().clone(), &addr, ServiceType::Ssh).await;
+                match port {
+                    Ok(resp) => {
+                        return Ok(
+                            Response::new(
+                                VmResponse {
+                                    status: SUCCESS.to_string(),
+                                    details: "Successfully acquired geographically closest node".to_string(),
+                                    ssh_details: Some(SshDetails {
+                                        ip: addr,
+                                        port: resp.into_inner().port
+                                    })
+                                }
+                            )
+                        )
+                    }
+                    _ => {}
+                }
+            } 
+        } 
+    } 
+
+    get_random_ip(peers, namespace.clone()).await
+}
+
+pub async fn get_quorum_peers(
+    network_state: Arc<RwLock<AllegraNetworkState>>,
+    namespace: Namespace,
+) -> Result<HashSet<Peer>, Status>{
+    let guard = network_state.read().await;
+    let id = guard.get_instance_quorum_membership(&namespace).ok_or(
+        Status::not_found(
+            format!(
+                "Unable to find quorum responsible for instance: {}", 
+                &namespace
+            )
+        )
+    )?.clone();
+
+    let quorum = guard.get_quorum_by_id(&id).ok_or(
+        Status::not_found(
+            format!("Unable to find quorum responsible for instance: {}", &namespace)
+        )
+    )?.clone();
+    let peers = quorum.peers();
+    Ok(peers.clone())
+}
+
+pub fn get_peer_locations(peers: impl IntoIterator<Item = Peer>) -> Vec<Locator> {
+    peers.into_iter().filter_map(|p| {
+        geolocation::find(p.address()).ok()
+    }).collect()
+}
+
+pub fn get_peer_distances(request_latitude: f64, request_longitude: f64, peer_locations: Vec<Locator>) -> Vec<(String, f64)> {
+    peer_locations.iter().filter_map(|loc| {
+        let node_latitude = loc.latitude.parse::<f64>().ok();
+        let node_longitude = loc.longitude.parse::<f64>().ok();
+
+        match (node_latitude, node_longitude) {
+            (Some(x), Some(y)) => {
+                let requestor_location = haversine::Location {
+                    latitude: request_latitude, longitude: request_longitude
+                };
+
+                let node_location = haversine::Location {
+                    latitude: x, longitude: y
+                };
+
+                let distance = haversine::distance(
+                    requestor_location, 
+                    node_location, 
+                    haversine::Units::Kilometers
+                );
+                
+                Some((loc.ip.clone(), distance))
+            }
+            _ => None
+        }
+    }).collect()
+}
+
+pub fn get_closest_peer(distances: Vec<(String, f64)>) -> Option<(String, f64)> {
+    distances.into_iter().min_by(|a, b| {
+        match a.1.partial_cmp(&b.1) {
+            Some(order) => order,
+            None => std::cmp::Ordering::Equal
+        }
+    }) 
+}
+
+pub async fn get_random_ip(
+    peers: HashSet<Peer>,
+    namespace: Namespace
+) -> Result<Response<VmResponse>, Status> {
+    let random_ip = {
+        let mut rng = rand::thread_rng();
+        let len = peers.len();
+        let random_choice = rng.gen_range(0..len);
+        let peers_to_choose: Vec<&Peer> = peers.iter().collect();
+        peers_to_choose[random_choice].address().to_string()
+    };
+
+    if let Ok(resp) = get_port(namespace.inner().clone(), &random_ip, ServiceType::Ssh).await {
+        return Ok(
+            Response::new(
+                VmResponse {
+                    status: SUCCESS.to_string(),
+                    details: "Successfully acquired random node, unable to acquire geographically closest".to_string(),
+                    ssh_details: Some(
+                        SshDetails {
+                            ip: random_ip.to_string(),
+                            port: resp.into_inner().port
+                        }
+                    )
+                }
+            )
+        )
+    } else {
+        return Err(Status::failed_precondition(
+            "Unable to acquire lock on network state"
+            )
+        )
+    }
+}
+
+pub fn get_payload_hash(payload_bytes: &[u8]) -> Vec<u8> {
+    let mut hasher = Sha3_256::new();
+    hasher.update(payload_bytes);
+    hasher.finalize().to_vec()
 }

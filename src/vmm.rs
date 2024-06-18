@@ -1,11 +1,32 @@
-#![allow(unused)]
-use std::{num::NonZeroUsize, collections::HashMap};
+use std::collections::HashMap;
 use crate::{
     account::{
-        Namespace, TaskId, TaskStatus
-    }, event::{Event, NetworkEvent}, helpers::{
-        recover_namespace, recover_owner_address, remove_temp_instance, update_account, update_instance, update_iptables, update_task_status, verify_ownership
-    }, params::{Payload, ServiceType}, publish::GenericPublisher, startup::{self, PUBKEY_AUTH_STARTUP_SCRIPT}, subscribe::{QuorumSubscriber, StateSubscriber, SyncSubscriber, VmmSubscriber}, vm_info::{VmInfo, VmList}
+        Namespace, 
+        TaskId, 
+        TaskStatus
+    }, event::StateEvent,
+    helpers::{
+        recover_namespace, 
+        recover_owner_address, 
+        remove_temp_instance, 
+        update_iptables, 
+        update_task_status
+    }, params::{
+        Payload,
+        ServiceType
+    }, 
+    publish::{
+        GenericPublisher,
+        StateTopic
+    }, 
+    startup::{
+        self, 
+        PUBKEY_AUTH_STARTUP_SCRIPT
+    }, subscribe::VmmSubscriber, 
+    vm_info::{
+        VmInfo, 
+        VmList
+    }
 };
 
 use crate::allegra_rpc::{
@@ -15,15 +36,13 @@ use crate::allegra_rpc::{
     InstanceAddPubkeyParams,
     InstanceExposeServiceParams,
     InstanceDeleteParams,
-    InstanceGetSshDetails
 };
 
+use conductor::publisher::PubStream;
 use futures::{stream::{FuturesUnordered, StreamExt}, Future};
 use lazy_static::lazy_static;
-use tokio::{task::JoinHandle, sync::{RwLock, Mutex}};
-use lru::LruCache;
+use tokio::task::JoinHandle;
 use sha3::{Digest, Sha3_256};
-use std::sync::Arc;
 use serde::{Serialize, Deserialize};
 use std::pin::Pin;
 
@@ -74,7 +93,10 @@ impl Instance {
         &self.port_map
     }
 
-    pub fn extend_port_mapping(&mut self, extend: impl Iterator<Item = (u16, (u16, ServiceType))>) {
+    pub fn extend_port_mapping(
+        &mut self,
+        extend: impl Iterator<Item = (u16, (u16, ServiceType))>
+    ) {
         log::info!("extending port mapping");
         self.port_map.extend(extend);
     }
@@ -83,11 +105,18 @@ impl Instance {
         self.vminfo = vminfo
     }
 
-    pub fn insert_port_mapping(&mut self, ext: u16, dest: u16, service_type: ServiceType) {
+    pub fn insert_port_mapping(
+        &mut self,
+        ext: u16,
+        dest: u16, 
+        service_type: ServiceType
+    ) {
         self.port_map.insert(ext, (dest, service_type));
     }
 
-    pub fn port_mapping_mut(&mut self) -> &mut HashMap<u16, (u16, ServiceType)> {
+    pub fn port_mapping_mut(
+        &mut self
+    ) -> &mut HashMap<u16, (u16, ServiceType)> {
         &mut self.port_map
     }
 }
@@ -140,16 +169,12 @@ pub struct VmManager {
     handles: FuturesUnordered<JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>>>,
     sync_futures: FuturesUnordered<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>,
     vmlist: VmList,
-    publisher: Arc<GenericPublisher>,
-    vm_subscriber: Arc<VmmSubscriber>,
+    publisher: GenericPublisher,
+    pub subscriber: VmmSubscriber,
 }
 
 impl VmManager {
-    pub async fn new<S: Into<String>>(
-        pd_endpoints: Vec<S>,
-        config: Option<tikv_client::Config>,
-        next_port: u16,
-    ) -> std::io::Result<Self> {
+    pub async fn new(next_port: u16) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
         let handles = FuturesUnordered::new();
         let vmlist = match std::process::Command::new("lxc")
@@ -193,51 +218,18 @@ impl VmManager {
             Err(e) => return Err(e)
         };
 
-
-        let state_client = if let Some(conf) = config {
-            tikv_client::RawClient::new_with_config(
-                pd_endpoints,
-                conf
-            ).await.map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string()
-                )
-            })?
-        } else {
-            tikv_client::RawClient::new(
-                pd_endpoints
-            ).await.map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string()
-                )
-            })?
-        };
-
-        let task_cache = Arc::new(
-            RwLock::new(
-                LruCache::new(
-                    NonZeroUsize::new(250).ok_or(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other, 
-                            "Unable to generate NonZeroUsize"
-                        )
-                    )?
-                )
-            )
-        );
-        
         let sync_futures = FuturesUnordered::new();
+        let subscriber = VmmSubscriber::new("127.0.0.1:5556").await?; 
+        let publisher = GenericPublisher::new("127.0.0.1:5555").await?;
 
         Ok(Self {
             network: network.to_string(),
             next_port,
             handles,
             vmlist,
-            state_client,
-            task_cache,
             sync_futures,
+            subscriber,
+            publisher
         })
     }
 
@@ -270,11 +262,10 @@ impl VmManager {
                         Some(Ok(Ok((owner, task_id, task_status)))) => {
                             log::info!("future completed");
                             match update_task_status(
-                                self.state_client.clone(),
+                                &mut self.publisher,
                                 owner,
                                 task_id,
                                 task_status,
-                                &mut self.task_cache
                             ).await {
                                 Err(e) => log::error!("Error in updating task status {e}"),
                                 _ => {} 
@@ -446,11 +437,10 @@ impl VmManager {
         task_id: TaskId
     ) -> std::io::Result<()> {
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id,
             TaskStatus::Success,
-            &mut self.task_cache
         ).await
     }
 
@@ -469,13 +459,12 @@ impl VmManager {
             )
         })?;
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id,
             TaskStatus::Failure(
                 err_string.to_string()
             ),
-            &mut self.task_cache
         ).await
     }
 
@@ -528,50 +517,36 @@ impl VmManager {
             &params.name
         );
 
-        if let Ok(()) = verify_ownership(
-            self.state_client.clone(),
-            owner,
-            namespace
-        ).await {
-            let mut command = std::process::Command::new("lxc");
-            command.arg("start").arg(&params.name);
+        let mut command = std::process::Command::new("lxc");
+        command.arg("start").arg(&namespace.inner());
 
-            if params.console {
-                command.arg("--console");
-            }
+        if params.console {
+            command.arg("--console");
+        }
 
-            if params.stateless {
-                command.arg("--stateless");
-            }
+        if params.stateless {
+            command.arg("--stateless");
+        }
 
-            match command.output() {
-                Ok(o) => {
-                    self.handle_start_output(
-                        o,
-                        owner,
-                        task_id
-                    ).await?
-                },
-                Err(e) => {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string(),
-                        )
+        match command.output() {
+            Ok(o) => {
+                self.handle_start_output(
+                    o,
+                    owner,
+                    task_id
+                ).await?
+            },
+            Err(e) => {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
                     )
-                }
-            };
+                )
+            }
+        }
 
-            return Ok(())
-        } 
-
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Unable to verify ownership of instance"
-            )
-        )
-
+        return Ok(())
     }
 
     async fn handle_inject_authorization_output_success(
@@ -580,11 +555,10 @@ impl VmManager {
         task_id: TaskId
     ) -> std::io::Result<()> {
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id,
             TaskStatus::Success,
-            &mut self.task_cache
         ).await
     }
 
@@ -604,13 +578,12 @@ impl VmManager {
         })?.to_string();
         log::error!("{err_str}");
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id,
             TaskStatus::Failure(
                 err_str
             ),
-            &mut self.task_cache
         ).await
     }
 
@@ -658,43 +631,26 @@ impl VmManager {
         let namespace = recover_namespace(owner, &params.name);
         log::info!("Recovered Instance Namespace");
 
-        match verify_ownership(
-            self.state_client.clone(),
+        let echo = format!(
+            r#"echo '{}' >> /root/.ssh/authorized_keys"#,
+            params.pubkey
+        );
+        let output = std::process::Command::new("lxc")
+            .arg("exec")
+            .arg(&namespace.inner())
+            .arg("--")
+            .arg("bash")
+            .arg("-c")
+            .arg(&echo)
+            .output()?;
+        
+        log::info!("Executed Auth Injection");
+
+        return self.handle_inject_authorization_output(
+            output,
             owner,
-            namespace.clone()
-        ).await {
-            Ok(()) => {
-                let echo = format!(
-                    r#"echo '{}' >> /root/.ssh/authorized_keys"#,
-                    params.pubkey
-                );
-                let output = std::process::Command::new("lxc")
-                    .arg("exec")
-                    .arg(&namespace.inner())
-                    .arg("--")
-                    .arg("bash")
-                    .arg("-c")
-                    .arg(&echo)
-                    .output()?;
-                
-                log::info!("Executed Auth Injection");
-
-                return self.handle_inject_authorization_output(
-                    output,
-                    owner,
-                    task_id
-                ).await
-            }
-            Err(e) => {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Unable to verify ownership: {e}")
-                    )
-                )
-            }
-        }
-
+            task_id
+        ).await
     }
 
     async fn handle_stop_success(
@@ -703,11 +659,10 @@ impl VmManager {
         task_id: TaskId
     ) -> std::io::Result<()> {
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id,
             TaskStatus::Success,
-            &mut self.task_cache
         ).await?;
         Ok(())
     }
@@ -728,13 +683,12 @@ impl VmManager {
         })?.to_string();
 
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id, 
             TaskStatus::Failure(
                 err_str.clone()
             ),
-            &mut self.task_cache
         ).await?;
         return Err(
             std::io::Error::new(
@@ -807,37 +761,20 @@ impl VmManager {
             &params.name
         );
 
-        match verify_ownership(
-            self.state_client.clone(),
+        println!("attempting to shutdown {}", &params.name);
+        let output = std::process::Command::new("lxc")
+            .args(["stop", &namespace.inner()])
+            .output()?;
+
+        println!("Retrieved output...");
+
+        self.handle_stop_output_and_response(
+            output,
             owner,
-            namespace.clone()
-        ).await {
-            Ok(()) => {
-                println!("attempting to shutdown {}", &params.name);
-                let output = std::process::Command::new("lxc")
-                    .args(["stop", &namespace.inner()])
-                    .output()?;
+            task_id
+        ).await?;
 
-                println!("Retrieved output...");
-
-                self.handle_stop_output_and_response(
-                    output,
-                    owner,
-                    task_id
-                ).await?;
-
-                return Ok(())
-            }
-            Err(e) => {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Unable to verify ownership: {e}")
-                    )
-                )
-            }
-        }
-
+        return Ok(())
     }
 
 
@@ -847,11 +784,10 @@ impl VmManager {
         task_id: TaskId
     ) -> std::io::Result<()> {
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id,
             TaskStatus::Success,
-            &mut self.task_cache
         ).await
     }
 
@@ -871,13 +807,12 @@ impl VmManager {
         })?.to_string();
 
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id,
             TaskStatus::Failure(
                 err_str
             ),
-            &mut self.task_cache
         ).await
     }
 
@@ -982,45 +917,39 @@ impl VmManager {
             &params.name
         );
 
-        if let Ok(()) = verify_ownership(
-            self.state_client.clone(),
-            owner,
-            namespace.clone()
-        ).await {
-            for (port, service) in params.port.into_iter().zip(params.service_type.into_iter()) {
-                let port = port.try_into().map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })?;
-                let state_client = self.state_client.clone();
-                self.refresh_vmlist().await?;
-                let vmlist = self.vmlist.clone();
-                let next_port = self.next_port;
-                let inner_namespace = namespace.clone();
-                let inner_task_id = task_id.clone();
-                let service: ServiceType = service.into();
-                let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
-                    async move {
-                        let (owner, task_id, task_status) = update_iptables(
-                            state_client.clone(),
-                            vmlist.clone(),
-                            owner,
-                            inner_namespace.clone(),
-                            next_port,
-                            service.clone(),
-                            inner_task_id.clone(),
-                            port 
-                        ).await?;
-                        Ok((owner, task_id, task_status))
-                    }
-                );
-                self.next_port += 1;
-                self.handles.push(handle);
-            }
-
+        for (port, service) in params.port.into_iter().zip(params.service_type.into_iter()) {
+            let port = port.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            self.refresh_vmlist().await?;
+            let vmlist = self.vmlist.clone();
+            let next_port = self.next_port;
+            let inner_namespace = namespace.clone();
+            let inner_task_id = task_id.clone();
+            let service: ServiceType = service.into();
+            let publisher_uri = self.publisher.peer_addr()?;
+            let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
+                async move {
+                    let (owner, task_id, task_status) = update_iptables(
+                        &publisher_uri,
+                        vmlist.clone(),
+                        owner,
+                        inner_namespace.clone(),
+                        next_port,
+                        service.clone(),
+                        inner_task_id.clone(),
+                        port 
+                    ).await?;
+                    Ok((owner, task_id, task_status))
+                }
+            );
+            self.next_port += 1;
+            self.handles.push(handle);
         }
+
         Ok(())
     }
 
@@ -1031,17 +960,17 @@ impl VmManager {
         namespace: Namespace,
     ) -> std::io::Result<()> {
         let next_port = self.next_port;
-        let state_client = self.state_client.clone();
         self.refresh_vmlist().await?;
         let vm_list = self.vmlist.clone();
 
+        let publisher_uri = self.publisher.peer_addr()?;
         let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
             async move {
                 log::warn!("sleeping for 2 minutes to allow instance to fully launch...");
                 tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
                 log::info!("updating iptables...");
                 let (owner, task_id, task_status) = update_iptables(
-                    state_client,
+                    &publisher_uri,
                     vm_list,
                     owner,
                     namespace,
@@ -1076,11 +1005,10 @@ impl VmManager {
         })?.to_string();
         log::error!("Error from failed launch: {err_str}");
         update_task_status(
-            self.state_client.clone(),
+            &mut self.publisher,
             owner,
             task_id.clone(), 
             TaskStatus::Failure(err_str.clone()),
-            &mut self.task_cache
         ).await?;
         log::info!("Updated task status from PENDING to FAILURE for task {task_id}");
 
@@ -1192,17 +1120,23 @@ impl VmManager {
         let _output = startup::run_script(namespace.clone(), PUBKEY_AUTH_STARTUP_SCRIPT)?;
         log::info!("ran pubkey auth startup script...");
 
-        update_account(
-            self.state_client.clone(),
-            self.vmlist.clone(),
+        let event_id = uuid::Uuid::new_v4();
+        let state_event = StateEvent::PutAccount { 
+            event_id: event_id.to_string(),
+            task_id: task_id.clone(),
+            task_status: TaskStatus::Pending,
             owner,
-            namespace.clone(),
-            task_id.clone(),
-            TaskStatus::Pending,
-            vec![]
+            vmlist: self.vmlist.clone(),
+            namespace: namespace.clone(),
+            exposed_ports: None 
+        };
+
+        self.publisher.publish(
+            Box::new(StateTopic), 
+            Box::new(state_event)
         ).await?;
 
-        log::info!("successfully updated account...");
+        log::info!("published {} to topic {}", event_id.to_string(), StateTopic);
 
         let vminfo = self.vmlist.get(&namespace.inner()).ok_or(
             std::io::Error::new(
@@ -1210,15 +1144,24 @@ impl VmManager {
                 "unable to find instance namespace in VM list"
             )
         )?;
-
         log::info!("acquired vminfo...");
-        update_instance(
-            namespace.clone(),
-            vminfo,
-            vec![(22, (self.next_port, ServiceType::Ssh))],
-            self.state_client.clone()
+
+        let event_id = uuid::Uuid::new_v4();
+        let state_event = StateEvent::PutInstance { 
+            event_id: event_id.to_string(), 
+            task_id: task_id.clone(), 
+            task_status: TaskStatus::Pending, 
+            namespace: namespace.clone(), 
+            vm_info: vminfo, 
+            port_map: vec![(22u16, (self.next_port, ServiceType::Ssh))].into_iter().collect() 
+        };
+
+        self.publisher.publish(
+            Box::new(StateTopic),
+            Box::new(state_event)
         ).await?;
-        log::info!("updated instance entry in state...");
+
+        log::info!("published event {} to topic {}", event_id.to_string(), StateTopic);
 
         Ok(())
     }
@@ -1238,7 +1181,7 @@ impl VmManager {
 
         if import_output.status.success() {
             log::info!("Successfully imported temporary instance {namespace}");
-            if let Some(vm) = vmlist.get(&namespace) {
+            if let Some(_vm) = vmlist.get(&namespace) {
                 let copy_output = std::process::Command::new("sudo")
                     .arg("lxc")
                     .arg("copy")
@@ -1296,7 +1239,7 @@ impl VmManager {
         vmlist: VmList,
         namespace: String,
         path: String,
-        new_quorum: Option<String>,
+        _new_quorum: Option<String>,
     ) -> std::io::Result<()> {
         let import_output = std::process::Command::new("sudo")
             .arg("lxc")
@@ -1306,7 +1249,7 @@ impl VmManager {
             .output()?;
 
         if import_output.status.success() {
-            if let Some(vm) = vmlist.get(&namespace) {
+            if let Some(_vm) = vmlist.get(&namespace) {
                 let copy_output = std::process::Command::new("sudo")
                     .arg("lxc")
                     .arg("copy")

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
 use crate::{
-    account::{Namespace, TaskId, TaskStatus}, allegra_rpc::{
-        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams
-    }, dht::Peer, helpers::{recover_namespace, recover_owner_address}, params::{Params, ServiceType}, vm_types::VmType
+    account::{ExposedPort, Namespace, TaskId, TaskStatus}, allegra_rpc::{
+        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
+    }, dht::Peer, helpers::{recover_namespace, recover_owner_address}, params::{HasOwner, Params, ServiceType}, vm_info::{VmInfo, VmList}, vm_types::VmType
 };
 use crate::params::Payload;
 
@@ -38,7 +38,9 @@ impl_into_event!(
     StateEvent => StateEvent,
     QuorumEvent => QuorumEvent,
     TaskStatusEvent => TaskStatusEvent,
-    SyncEvent => SyncEvent
+    SyncEvent => SyncEvent,
+    RpcResponseEvent => RpcResponseEvent,
+    GeneralResponseEvent => GeneralResponseEvent
 );
 
 impl_send!(
@@ -48,7 +50,9 @@ impl_send!(
     StateEvent,
     QuorumEvent,
     TaskStatusEvent,
-    SyncEvent
+    SyncEvent,
+    RpcResponseEvent,
+    GeneralResponseEvent
 );
 
 pub trait IntoEvent {
@@ -119,6 +123,22 @@ impl SerializeIntoInner for Event {
                     )
                 })
             }
+            Self::RpcResponseEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
+            Self::GeneralResponseEvent(event) => {
+                serde_json::to_string(&event).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })
+            }
         }
     }
 }
@@ -132,17 +152,23 @@ pub enum Event {
     QuorumEvent(QuorumEvent),
     TaskStatusEvent(TaskStatusEvent),
     SyncEvent(SyncEvent),
+    RpcResponseEvent(RpcResponseEvent),
+    GeneralResponseEvent(GeneralResponseEvent)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TaskStatusEvent {
     Update {
-        id: TaskId,
-        status: TaskStatus
+        owner: [u8; 20],
+        task_id: TaskId,
+        task_status: TaskStatus,
+        event_id: String,
     },
     Get { 
-        id: TaskId,
-        resp: String,
+        owner: [u8; 20],
+        task_id: TaskId,
+        event_id: String,
+        response_topics: Vec<String>
     }, 
 }
 
@@ -291,15 +317,97 @@ pub enum DnsEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum StateEvent {
     Put {
+        event_id: String,
+        task_id: TaskId,
         key: Vec<u8>,
         value: Vec<u8> 
     },
-    Get(Vec<u8>),
+    Get{
+        event_id: String,
+        task_id: TaskId,
+        key: Vec<u8>,
+    },
     Post {
+        event_id: String,
+        task_id: TaskId,
         key: Vec<u8>,
         value: Vec<u8>
     },
-    Delete(Vec<u8>),
+    Delete {
+        event_id: String,
+        task_id: TaskId,
+        key: Vec<u8>,
+    },
+    PutAccount {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+        owner: [u8; 20],
+        vmlist: VmList,
+        namespace: Namespace,
+        exposed_ports: Option<Vec<ExposedPort>>,
+    },
+    PutInstance {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+        namespace: Namespace,
+        vm_info: VmInfo,
+        port_map: HashMap<u16, (u16, ServiceType)>,
+    },
+    GetAccount {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+        owner: [u8; 20]
+    },
+    GetInstance {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+        owner: [u8; 20]
+    },
+    PostAccount {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+        owner: [u8; 20],
+        vmlist: VmList,
+        namespace: Namespace,
+        exposed_ports: Vec<ExposedPort>,
+    },
+    PostInstance {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+        namespace: Namespace,
+        vm_info: VmInfo,
+        port_map: HashMap<u16, (u16, ServiceType)>,
+    },
+    DeleteInstance {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+        namespace: Namespace
+    },
+    PutTaskStatus {
+        event_id: String,
+        task_id: TaskId,
+        task_status: TaskStatus,
+    },
+    PostTaskStatus {
+        event_id: String,
+        task_id: TaskId, 
+        task_status: TaskStatus,
+    },
+    GetTaskStatus {
+        event_id: String,
+        task_id: TaskId,
+    },
+    DeleteTaskStatus {
+        event_id: String,
+        task_id: TaskId,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -318,6 +426,19 @@ pub enum QuorumEvent {
     },
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneralResponseEvent {
+    event_id: String,
+    original_event_id: String,
+    response: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RpcResponseEvent {
+    original_event_id: String,
+    event_id: String,
+    response: String, 
+}
 
 pub trait BrokerEvent {}
 
@@ -329,6 +450,8 @@ impl BrokerEvent for StateEvent {}
 impl BrokerEvent for QuorumEvent {} 
 impl BrokerEvent for SyncEvent {} 
 impl BrokerEvent for TaskStatusEvent {} 
+impl BrokerEvent for RpcResponseEvent {} 
+impl BrokerEvent for GeneralResponseEvent {} 
 
 impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
     type Error = std::io::Error;
@@ -614,6 +737,17 @@ impl TryFrom<InstanceAddPubkeyParams> for Namespace {
         let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
         let namespace = recover_namespace(owner, &params.name);
 
+        Ok(namespace)
+    }
+}
+
+
+impl TryFrom<InstanceGetSshDetails> for Namespace {
+    type Error = std::io::Error;
+
+    fn try_from(params: InstanceGetSshDetails) -> Result<Self, Self::Error> {
+        let owner = params.owner()?; 
+        let namespace = recover_namespace(owner, &params.name);
         Ok(namespace)
     }
 }

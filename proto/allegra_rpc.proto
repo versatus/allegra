@@ -162,7 +162,7 @@ service Vmm {
   rpc GetSshDetails(InstanceGetSshDetails) returns (VmResponse);
   rpc Register(NewPeerMessage) returns (Ack);
   rpc Ping(PingMessage) returns (PongMessage);
-  rpc Sync(stream FileChunk) returns (TransferStatus);
-  rpc Migrate(stream FileChunk) returns (TransferStatus);
+  rpc Sync(stream SyncMessage) returns (TransferStatus);
+  rpc Migrate(stream MigrateMessage) returns (TransferStatus);
   rpc GetPort(GetPortMessage) returns (PortResponse);
 }

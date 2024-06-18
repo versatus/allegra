@@ -18,6 +18,8 @@ use crate::{
         GetPortMessage, 
         PortResponse, 
         MessageHeader, 
+        SyncMessage,
+        MigrateMessage
     },
     account::{
         TaskId,
@@ -182,14 +184,14 @@ impl Vmm for LightVmmService {
 
     async fn sync(
         &self,
-        request: Request<tonic::Streaming<crate::allegra_rpc::FileChunk>>
+        request: Request<tonic::Streaming<SyncMessage>>
     ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
         todo!()
     }
     
     async fn migrate(
         &self,
-        request: Request<tonic::Streaming<crate::allegra_rpc::FileChunk>>
+        request: Request<tonic::Streaming<MigrateMessage>>
     ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
         todo!()
     }
