@@ -50,6 +50,14 @@ path = "src/broker_service.rs"
 name = "state"
 path = "src/state_service.rs"
 
+[[bin]]
+name = "quorum"
+path = "src/quorum_service.rs"
+
+[[bin]]
+name = "network"
+path = "src/network_service.rs"
+
 [dependencies]
 tarpc = { version = "0.34.0", features = ["full"] }
 serde = { version = "1.0.199", features = ["derive"] }
