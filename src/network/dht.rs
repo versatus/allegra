@@ -1,15 +1,24 @@
 use std::{collections::{HashMap, HashSet}, hash::RandomState};
+use futures::stream::FuturesUnordered;
+use sha3::{Sha3_256, Digest};
 use uuid::Uuid;
 use anchorhash::AnchorHash;
 use serde::{Serialize, Deserialize};
 
-use crate::{account::Namespace, event::{Event, NetworkEvent}};
+use crate::{account::{Namespace, TaskId}, event::{Event, NetworkEvent}, publish::GenericPublisher, subscribe::QuorumSubscriber};
+use conductor::subscriber::SubStream;
+use conductor::publisher::PubStream;
+use tokio::task::JoinHandle;
+use tokio::sync::mpsc::Receiver;
+use tokio::time::{interval, Duration};
+use futures::StreamExt;
+use getset::{Getters, MutGetters};
 
 lazy_static::lazy_static! {
     pub static ref BOOTSTRAP_QUORUM: Quorum = Quorum::new(); 
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Getters, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Peer {
     id: Uuid,
     address: String
@@ -27,11 +36,26 @@ impl Peer {
     pub fn address(&self) -> &str {
         &self.address
     }
+
+    pub fn id_hash(&self) -> [u8; 32] {
+        let mut hasher = Sha3_256::new();
+        hasher.update(self.id.as_bytes());
+        let hash_vec = hasher.finalize().to_vec();
+        let mut hash_bytes = [0u8; 32];
+        hash_bytes.copy_from_slice(&hash_vec[..]);
+        hash_bytes
+    }
+
+    pub fn id_hex(&self) -> String {
+        hex::encode(&self.id_hash())
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq)]
 pub struct Quorum {
+    #[getset(get_copy="pub", get="pub", get_mut)]
     id: Uuid,
+    #[getset(get_copy="pub", get="pub", get_mut)]
     peers: HashSet<Peer>,
 }
 
@@ -41,14 +65,6 @@ impl Quorum {
         Self { id, peers: HashSet::new() }
     }
 
-    pub fn id(&self) -> &Uuid {
-        &self.id
-    }
-
-    pub fn peers(&self) -> &HashSet<Peer> {
-        &self.peers
-    }
-    
     pub fn add_peer(&mut self, peer: &Peer) -> bool {
         if !self.peers.contains(peer) {
             self.peers.insert(peer.clone());
@@ -63,19 +79,30 @@ impl Quorum {
     }
 }
 
+pub enum QuorumResult {
+    Unit(()),
+    Other(String),
+}
 
-#[derive(Clone, Debug)]
-pub struct AllegraNetworkState {
+#[derive(Getters, MutGetters)]
+#[getset(get = "pub", get_copy = "pub", get_mut)]
+pub struct QuorumManager {
     peers: HashMap<Uuid, Peer>,
     instances: HashMap<Namespace, Quorum>,
     quorums: HashMap<Uuid, Quorum>,
     peer_hashring: AnchorHash<Uuid, Quorum, RandomState>,
     instance_hashring: AnchorHash<Namespace, Quorum, RandomState>,
+    subscriber: QuorumSubscriber,
+    publisher: GenericPublisher,
+    futures: FuturesUnordered<JoinHandle<std::io::Result<QuorumResult>>>
 }
 
 
-impl AllegraNetworkState {
-    pub fn new() -> Self {
+impl QuorumManager {
+    pub async fn new(
+        subscriber_uri: &str, 
+        publisher_uri: &str
+    ) -> std::io::Result<Self> {
         let peer_hashring = anchorhash::Builder::default()
             .with_resources(
                 vec![BOOTSTRAP_QUORUM.clone()]
@@ -88,14 +115,49 @@ impl AllegraNetworkState {
 
         let mut quorums = HashMap::new();
         quorums.insert(BOOTSTRAP_QUORUM.id().clone(), BOOTSTRAP_QUORUM.clone());
+        let publisher = GenericPublisher::new(publisher_uri).await?;
+        let subscriber = QuorumSubscriber::new(subscriber_uri).await?;
         
-        Self {
+        Ok(Self {
             peers: HashMap::new(),
             instances: HashMap::new(),
             quorums,
             peer_hashring,
             instance_hashring,
+            publisher,
+            subscriber,
+            futures: FuturesUnordered::new()
+        })
+    }
+
+    pub async fn run(
+        &mut self,
+        mut stop_rx: Receiver<()>
+    ) -> std::io::Result<()> {
+        let mut interval = interval(Duration::from_secs(21600));
+        loop {
+            tokio::select! {
+                result = self.subscriber.receive() => {
+                    match result {
+                        Ok(messages) => {
+                            todo!()
+                        }
+                        Err(e) => log::error!("{e}")
+                    }
+                },
+                quorum_result = self.futures.next() => {
+                    todo!()
+                },
+                leader_election = interval.tick() => {
+                    todo!()
+                },
+                stop = stop_rx.recv() => {
+                    break;
+                }
+            }
         }
+
+        Ok(())
     }
 
     #[async_recursion::async_recursion]
@@ -190,13 +252,16 @@ impl AllegraNetworkState {
             };
 
             //TODO(asmith): Replace with publisher 
+            let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
+            let event_id = uuid::Uuid::new_v4().to_string();
             let _event = Event::NetworkEvent(
                 NetworkEvent::ShareCert { 
                     peer: peer.clone(), 
-                    cert 
+                    cert,
+                    task_id,
+                    event_id
                 }
             );
-
         } else {
             let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
                 std::io::Error::new(
@@ -221,7 +286,7 @@ impl AllegraNetworkState {
         peer: &Peer,
         cert: &str
     ) -> std::io::Result<()> {
-        //TODO: We will want to check against their stake to verify membership
+        //TODO(asmith): We will want to check against their stake to verify membership
 
         let output = std::process::Command::new("sudo")
             .arg("lxc")
@@ -273,19 +338,31 @@ impl AllegraNetworkState {
             self.peers.insert(peer.id, peer.clone());
             for (_, dst_peer) in &self.peers {
                 if dst_peer != peer {
+                    let task_id = TaskId::new(
+                        uuid::Uuid::new_v4().to_string()
+                    );
+                    let event_id = uuid::Uuid::new_v4().to_string();
                     let _dst_event = Event::NetworkEvent(
                         NetworkEvent::NewPeer { 
                             peer_id: peer.id().to_string(), 
                             peer_address: peer.address().to_string(), 
-                            dst: dst_peer.address().to_string() 
+                            dst: dst_peer.address().to_string(),
+                            task_id,
+                            event_id,
                         }
                     );
 
+                    let task_id = TaskId::new(
+                        uuid::Uuid::new_v4().to_string()
+                    );
+                    let event_id = uuid::Uuid::new_v4().to_string();
                     let _new_peer_event = Event::NetworkEvent(
                         NetworkEvent::NewPeer { 
                             peer_id: dst_peer.id().to_string(), 
                             peer_address: dst_peer.address().to_string(), 
-                            dst: dst_peer.address().to_string() 
+                            dst: dst_peer.address().to_string(),
+                            task_id,
+                            event_id
                         }
                     );
 
@@ -356,9 +433,5 @@ impl AllegraNetworkState {
         self.instances.insert(namespace.clone(), quorum.clone());
 
         Ok(())
-    }
-
-    pub fn peers(&self) -> &HashMap<Uuid, Peer> {
-        &self.peers
     }
 }

@@ -1,3 +1,4 @@
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use tokio::net::TcpStream;
 use conductor::subscriber::SubStream;
 use tokio::io::AsyncReadExt;
@@ -168,7 +169,7 @@ impl SubStream for NetworkSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -217,7 +218,7 @@ impl SubStream for QuorumSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -266,7 +267,7 @@ impl SubStream for StateSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -315,7 +316,7 @@ impl SubStream for VmmSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -364,7 +365,7 @@ impl SubStream for DnsSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -413,7 +414,7 @@ impl SubStream for SyncSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -462,7 +463,7 @@ impl SubStream for TaskStatusSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -511,7 +512,7 @@ impl SubStream for RpcResponseSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()
@@ -560,7 +561,7 @@ impl SubStream for GeneralResponseSubscriber {
             }
         }
 
-        let msg_results = results.iter().filter_map(|m| {
+        let msg_results = results.par_iter().filter_map(|m| {
             serde_json::from_slice(
                 &m
             ).ok()

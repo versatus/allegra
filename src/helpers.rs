@@ -2,7 +2,7 @@ use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
     }, allegra_rpc::{GetPortMessage, SshDetails, PortResponse, VmResponse}, 
-    dht::{AllegraNetworkState, Peer},
+    dht::{QuorumManager, Peer},
     event::{StateEvent, TaskStatusEvent}, 
     expose::update_nginx_config, 
     params::{Payload, ServiceType}, 
@@ -23,6 +23,7 @@ use ethers_core::{
         RecoveryId
     }
 };
+use rayon::prelude::*;
 use tonic::{Response, Status, Request};
 use std::sync::Arc;
 use std::collections::HashSet;
@@ -110,7 +111,7 @@ pub fn get_instance_ip(name: &str) -> std::io::Result<String> {
 
     let addresses = interface.addresses();
 
-    let addr = addresses.iter().filter(|addr| {
+    let addr = addresses.par_iter().filter(|addr| {
         addr.family() == "inet"
     }).collect::<Vec<&VmAddress>>().pop().ok_or(
         std::io::Error::new(
@@ -269,7 +270,7 @@ pub async fn update_iptables(
         task_status: TaskStatus::Success, 
         namespace: namespace.clone(), 
         vm_info: vminfo, 
-        port_map: port_map.into_iter().collect() 
+        port_map: port_map.into_par_iter().collect() 
     };
     publisher.publish(
         Box::new(StateTopic), 
@@ -284,7 +285,7 @@ pub async fn update_iptables(
 pub async fn update_instance(
     namespace: Namespace,
     vm_info: VmInfo,
-    port_map: impl IntoIterator<Item = (u16, (u16, ServiceType))>,
+    port_map: impl IntoParallelIterator<Item = (u16, (u16, ServiceType))>,
     state_client: tikv_client::RawClient,
 ) -> std::io::Result<()> {
     log::info!("checking if instance has entry in state...");
@@ -302,7 +303,7 @@ pub async fn update_instance(
         log::info!("successfully acquired existing instance: {} from local state", namespace.inner());
         instance.update_vminfo(vm_info);
         log::info!("updated vminfo...");
-        instance.extend_port_mapping(port_map.into_iter());
+        instance.extend_port_mapping(port_map.into_par_iter());
         log::info!("extended portt mapping...");
         instance
     } else {
@@ -493,7 +494,7 @@ pub async fn verify_ownership(
 }
 
 pub async fn update_task_status(
-    publisher: &mut GenericPublisher,
+    uri: String,
     owner: [u8; 20],
     task_id: TaskId,
     task_status: TaskStatus,
@@ -506,6 +507,7 @@ pub async fn update_task_status(
         event_id
     };
 
+    let mut publisher = GenericPublisher::new(&uri).await?;
     publisher.publish(
         Box::new(TaskStatusTopic),
         Box::new(task_status_event)
@@ -810,7 +812,7 @@ pub async fn get_port(
 }
 
 pub async fn get_ssh_details(
-    network_state: Arc<RwLock<AllegraNetworkState>>,
+    network_state: Arc<RwLock<QuorumManager>>,
     namespace: Namespace,
     remote_addr: Option<SocketAddr>,
 ) -> Result<Response<VmResponse>, Status> {
@@ -855,7 +857,7 @@ pub async fn get_ssh_details(
 }
 
 pub async fn get_quorum_peers(
-    network_state: Arc<RwLock<AllegraNetworkState>>,
+    network_state: Arc<RwLock<QuorumManager>>,
     namespace: Namespace,
 ) -> Result<HashSet<Peer>, Status>{
     let guard = network_state.read().await;
@@ -877,14 +879,14 @@ pub async fn get_quorum_peers(
     Ok(peers.clone())
 }
 
-pub fn get_peer_locations(peers: impl IntoIterator<Item = Peer>) -> Vec<Locator> {
-    peers.into_iter().filter_map(|p| {
+pub fn get_peer_locations(peers: impl IntoParallelIterator<Item = Peer>) -> Vec<Locator> {
+    peers.into_par_iter().filter_map(|p| {
         geolocation::find(p.address()).ok()
     }).collect()
 }
 
 pub fn get_peer_distances(request_latitude: f64, request_longitude: f64, peer_locations: Vec<Locator>) -> Vec<(String, f64)> {
-    peer_locations.iter().filter_map(|loc| {
+    peer_locations.par_iter().filter_map(|loc| {
         let node_latitude = loc.latitude.parse::<f64>().ok();
         let node_longitude = loc.longitude.parse::<f64>().ok();
 
@@ -912,7 +914,7 @@ pub fn get_peer_distances(request_latitude: f64, request_longitude: f64, peer_lo
 }
 
 pub fn get_closest_peer(distances: Vec<(String, f64)>) -> Option<(String, f64)> {
-    distances.into_iter().min_by(|a, b| {
+    distances.into_par_iter().min_by(|a, b| {
         match a.1.partial_cmp(&b.1) {
             Some(order) => order,
             None => std::cmp::Ordering::Equal
@@ -928,7 +930,7 @@ pub async fn get_random_ip(
         let mut rng = rand::thread_rng();
         let len = peers.len();
         let random_choice = rng.gen_range(0..len);
-        let peers_to_choose: Vec<&Peer> = peers.iter().collect();
+        let peers_to_choose: Vec<&Peer> = peers.par_iter().collect();
         peers_to_choose[random_choice].address().to_string()
     };
 

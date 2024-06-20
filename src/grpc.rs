@@ -54,31 +54,41 @@ pub struct VmmService {
 }
 
 impl VmmService {
-    async fn check_responsibility<P: TryInto<Params> + TryInto<Namespace> + Clone>(
+    async fn check_responsibility<P>(
         &self,
         params: P,
         task_id: TaskId
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<()> 
+    where 
+        P: TryInto<Params, Error = std::io::Error> + 
+        TryInto<Namespace, Error = std::io::Error> + 
+        Clone
+    {
         let event_id = uuid::Uuid::new_v4().to_string();
+        log::info!("created event id {} for CheckResponsibility event...", &event_id);
         let quorum_event = QuorumEvent::CheckResponsibility {
-            namespace: params.clone().try_into().map_err(|_| {
+            namespace: params.clone().try_into().map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    "unable to convert params to namespace"
+                    format!("unable to convert params to namespace: {e}")
                 )
             })?,
-            payload: params.try_into().map_err(|_| {
+            payload: params.try_into().map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    "unable to convert params to Params enum"
+                    format!("unable to convert params to Params enum: {e}") 
                 )
             })?,
             task_id,
             event_id
         };
+        log::info!("created CheckResponsibility event");
         let mut guard = self.publisher.lock().await;
+        log::info!("acquired publisher guard...");
         guard.publish(Box::new(QuorumTopic), Box::new(quorum_event)).await?;
+        log::info!("published CheckResponsibility event to topic {}...", QuorumTopic);
         drop(guard);
+        log::info!("dropped publisher guard...");
         Ok(())
     }
 
@@ -129,7 +139,9 @@ impl Vmm for VmmService {
         let recovery_id = params.recovery_id.try_into().map_err(|e| {
             Status::from_error(Box::new(e))
         })?;
-        let payload_hash = get_payload_hash(params.into_payload().as_bytes());
+        let payload_hash = get_payload_hash(
+            params.into_payload().as_bytes()
+        );
         let owner = recover_owner_address(payload_hash, params.sig, recovery_id)?;
 
         self.update_task_status(task_id.clone(), owner).await?;

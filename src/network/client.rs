@@ -51,7 +51,7 @@ impl NetworkClient {
         match event {
             Event::NetworkEvent(ne) => {
                 match ne {
-                    NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst } => {
+                    NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, .. } => {
                         let create_instance_message = InstanceCreateParams {
                             name, distro, version, vmtype, sig, recovery_id: recovery_id.into()
                         };
@@ -69,7 +69,7 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::NewPeer { 
-                        peer_id, peer_address, dst
+                        peer_id, peer_address, dst, ..
                     } => {
                         let header = MessageHeader {
                             peer_id: self.local_peer_id.clone(),
@@ -92,7 +92,7 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::ExposeService { 
-                        name, sig, recovery_id, port, service_type, dst 
+                        name, sig, recovery_id, port, service_type, dst, ..
                     } => {
                         let port: Vec<u32> = port.iter().map(|n| *n as u32).collect();
                         let service_type: Vec<i32> = service_type.iter().map(|s| s.clone().into()).collect();
@@ -114,7 +114,7 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Stop { 
-                        name, sig, recovery_id, dst 
+                        name, sig, recovery_id, dst, ..
                     } => {
                         let stop_message = InstanceStopParams { name, sig, recovery_id: recovery_id as u32 };
                         
@@ -131,7 +131,7 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Start { 
-                        name, sig, recovery_id, console, stateless, dst 
+                        name, sig, recovery_id, console, stateless, dst, ..
                     } => {
                         let start_message = InstanceStartParams { name, sig, recovery_id: recovery_id as u32, console, stateless };
 
@@ -148,7 +148,7 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::Delete { 
-                        name, force, interactive, sig, recovery_id, dst 
+                        name, force, interactive, sig, recovery_id, dst, ..
                     }=> {
                         let delete_message = InstanceDeleteParams { name, force, interactive, sig, recovery_id: recovery_id as u32 };
 
@@ -165,7 +165,7 @@ impl NetworkClient {
                         })?.into_inner();
                     }
                     NetworkEvent::AddPubkey { 
-                        name, sig, recovery_id, pubkey, dst 
+                        name, sig, recovery_id, pubkey, dst, ..
                     } => {
                         let add_pubkey_message = InstanceAddPubkeyParams { name, sig, recovery_id: recovery_id as u32, pubkey };
 
@@ -181,10 +181,10 @@ impl NetworkClient {
                             )
                         })?.into_inner();
                     }
-                    NetworkEvent::DistributeCerts { certs } => {
+                    NetworkEvent::DistributeCerts { certs, .. } => {
                         todo!()
                     }
-                    NetworkEvent::ShareCert { peer, cert } => {
+                    NetworkEvent::ShareCert { peer, cert, .. } => {
                         todo!()
                     }
                 }

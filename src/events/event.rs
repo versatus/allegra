@@ -1,10 +1,34 @@
 use std::collections::HashMap;
+use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
 use crate::{
-    account::{ExposedPort, Namespace, TaskId, TaskStatus}, allegra_rpc::{
-        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
-    }, dht::Peer, helpers::{recover_namespace, recover_owner_address}, params::{HasOwner, Params, ServiceType}, vm_info::{VmInfo, VmList}, vm_types::VmType
+    account::{
+        ExposedPort,
+        Namespace,
+        TaskId,
+        TaskStatus
+    }, allegra_rpc::{
+        InstanceAddPubkeyParams, 
+        InstanceCreateParams, 
+        InstanceDeleteParams, 
+        InstanceExposeServiceParams, 
+        InstanceGetSshDetails, 
+        InstanceStartParams, 
+        InstanceStopParams
+    }, dht::Peer, 
+        grpc_light::generate_task_id, 
+        helpers::{
+            recover_namespace, 
+            recover_owner_address
+        }, params::{
+            HasOwner, 
+            Params, 
+            ServiceType
+        }, vm_info::{
+            VmInfo, 
+            VmList
+        }, vm_types::VmType
 };
 use crate::params::Payload;
 
@@ -175,6 +199,8 @@ pub enum TaskStatusEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum VmmEvent {
     Create {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         distro: String,
         version: String,
@@ -183,6 +209,8 @@ pub enum VmmEvent {
         recovery_id: u8,
     },
     Start {
+        event_id: String,
+        task_id: TaskId,
         name: String, 
         console: bool, 
         stateless: bool,
@@ -190,11 +218,15 @@ pub enum VmmEvent {
         recovery_id: u8
     },
     Stop {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8
     },
     Delete {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8,
@@ -202,6 +234,8 @@ pub enum VmmEvent {
         interactive: bool,
     },
     ExposeService {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8,
@@ -209,6 +243,8 @@ pub enum VmmEvent {
         service_type: Vec<ServiceType>
     },
     AddPubkey {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8,
@@ -219,11 +255,15 @@ pub enum VmmEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum NetworkEvent {
     NewPeer {
+        event_id: String,
+        task_id: TaskId,
         peer_id: String,
         peer_address: String,
         dst: String,
     },
     Create {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         distro: String,
         version: String,
@@ -233,6 +273,8 @@ pub enum NetworkEvent {
         dst: String,
     },
     ExposeService {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String, 
         recovery_id: u8,
@@ -241,6 +283,8 @@ pub enum NetworkEvent {
         dst: String,
     },
     Start {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8,
@@ -249,12 +293,16 @@ pub enum NetworkEvent {
         dst: String,
     },
     Stop {
+        event_id: String,
+        task_id: TaskId,
         name: String, 
         sig: String,
         recovery_id: u8,
         dst: String,
     },
     Delete {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         force: bool,
         interactive: bool,
@@ -263,6 +311,8 @@ pub enum NetworkEvent {
         dst: String,
     },
     AddPubkey {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8,
@@ -270,17 +320,23 @@ pub enum NetworkEvent {
         dst: String,
     },
     DistributeCerts {
+        event_id: String,
+        task_id: TaskId,
         certs: HashMap<Peer, String>,
     },
     ShareCert {
+        event_id: String,
+        task_id: TaskId,
         peer: Peer,
-        cert: String, 
+        cert: String,
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SyncEvent {
     Sync {
+        event_id: String,
+        task_id: TaskId,
         namespace: String,
         path: String,
         target: String,
@@ -288,6 +344,8 @@ pub enum SyncEvent {
         dst: String,
     }, //lxc copy --refresh
     Migrate {
+        event_id: String,
+        task_id: TaskId,
         namespace: String,
         path: String,
         target: String,
@@ -300,6 +358,8 @@ pub enum SyncEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DnsEvent {
     Register { 
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8,
@@ -307,6 +367,8 @@ pub enum DnsEvent {
         // Add proof mechanism
     },
     Deregister {
+        event_id: String,
+        task_id: TaskId,
         name: String,
         sig: String,
         recovery_id: u8,
@@ -413,16 +475,27 @@ pub enum StateEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum QuorumEvent {
     Expand {
-        id: String,
+        event_id: String,
+        task_id: TaskId,
+        quorum_id: String,
         address: String
     },
-    Consolidate(String),
-    RequestSshDetails(Namespace),
-    CheckResponsibility {
-        namespace: Namespace,
-        task_id: TaskId,
-        payload: Params,
+    Consolidate{
         event_id: String,
+        task_id: TaskId,
+        quorum_id: String,
+    },
+    RequestSshDetails {
+        event_id: String,
+        task_id: TaskId,
+        quorum_id: String,
+        namespace: Namespace
+    },
+    CheckResponsibility {
+        event_id: String,
+        task_id: TaskId,
+        namespace: Namespace,
+        payload: Params,
     },
 }
 
@@ -462,6 +535,13 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
                 e
             )
         })?;
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
         Ok(NetworkEvent::Create { 
             name: value.1.name.clone(), 
             distro: value.1.distro.clone(), 
@@ -469,7 +549,9 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             vmtype: value.1.vmtype.clone(), 
             sig: value.1.sig.clone(), 
             recovery_id,
-            dst: value.0.address().to_string()
+            dst: value.0.address().to_string(),
+            event_id,
+            task_id
         })
     }
 }
@@ -484,11 +566,20 @@ impl TryFrom<(Peer, InstanceStopParams)> for NetworkEvent {
                 e
             )
         })?;
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
         Ok(NetworkEvent::Stop { 
             name: value.1.name,
             sig: value.1.sig,
             recovery_id, 
-            dst: value.0.address().to_string() 
+            dst: value.0.address().to_string(), 
+            event_id,
+            task_id
         })
     }
 }
@@ -502,6 +593,13 @@ impl TryFrom<(Peer, InstanceStartParams)> for NetworkEvent {
                 e
             )
         })?;
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
         Ok(NetworkEvent::Start { 
             name: value.1.name.clone(), 
             sig: value.1.sig.clone(), 
@@ -509,6 +607,8 @@ impl TryFrom<(Peer, InstanceStartParams)> for NetworkEvent {
             console: value.1.console, 
             stateless: value.1.stateless, 
             dst: value.0.address().to_string(), 
+            event_id,
+            task_id
         })
     }
 }
@@ -522,12 +622,21 @@ impl TryFrom<(Peer, InstanceAddPubkeyParams)> for NetworkEvent {
                 e
             )
         })?;
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
         Ok(NetworkEvent::AddPubkey { 
             name: value.1.name.clone(), 
             sig: value.1.sig.clone(), 
             recovery_id, 
             pubkey: value.1.pubkey, 
-            dst: value.0.address().to_string() 
+            dst: value.0.address().to_string(), 
+            event_id,
+            task_id
         })  
     }
 }
@@ -541,13 +650,22 @@ impl TryFrom<(Peer, InstanceDeleteParams)> for NetworkEvent {
                 e
             )
         })?;
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
         Ok(NetworkEvent::Delete { 
             name: value.1.name.clone(), 
             force: value.1.force, 
             interactive: value.1.interactive, 
             sig: value.1.sig, 
             recovery_id, 
-            dst: value.0.address().to_string() 
+            dst: value.0.address().to_string(), 
+            event_id,
+            task_id
         }) 
     }
 }
@@ -561,17 +679,26 @@ impl TryFrom<(Peer, InstanceExposeServiceParams)> for NetworkEvent {
                 e
             )
         })?;
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )
+        })?;
         Ok(NetworkEvent::ExposeService { 
             name: value.1.name.clone(), 
             sig: value.1.sig.clone(), 
             recovery_id, 
-            port: value.1.port.iter().filter_map(|p| {
+            port: value.1.port.par_iter().filter_map(|p| {
                 p.to_owned().try_into().ok()
             }).collect::<Vec<u16>>().clone(), 
-            service_type: value.1.service_type.iter().map(|st| {
+            service_type: value.1.service_type.par_iter().map(|st| {
                 st.to_owned().into()
             }).collect::<Vec<ServiceType>>().clone(), 
-            dst: value.0.address().to_string() 
+            dst: value.0.address().to_string(),
+            event_id,
+            task_id
         }) 
     }
 }

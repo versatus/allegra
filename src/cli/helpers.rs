@@ -6,6 +6,7 @@ use std::io::Read;
 use std::collections::HashMap;
 use std::io::Write;
 use ethers_core::k256::elliptic_curve::SecretKey;
+use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use sha3::{Digest, Sha3_256};
 use ethers_core::{
     k256::ecdsa::{
@@ -131,11 +132,11 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
             )
         }
         AllegraCommands::ExposeService { ref name, ref port, ref service_type, .. } => {
-            let port: Vec<u32> = port.iter().map(|n| {
+            let port: Vec<u32> = port.par_iter().map(|n| {
                 *n as u32
             }).collect();
 
-            let service_type: Vec<i32> = service_type.iter().filter_map(|service| {
+            let service_type: Vec<i32> = service_type.par_iter().filter_map(|service| {
                 service.clone().try_into().map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -311,7 +312,7 @@ pub async fn create_allegra_rpc_client_to_addr(dst: &str) -> std::io::Result<Vmm
 }
 
 pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient<Channel>> {
-    let vmclient = VmmClient::connect("http://[::1]:50051").await.map_err(|e| {
+    let vmclient = VmmClient::connect("http://127.0.0.1:50051").await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e

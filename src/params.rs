@@ -1,5 +1,6 @@
 use std::any::Any;
 use clap::ValueEnum;
+use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use crate::vm_types::VmType;
 use crate::allegra_rpc::{
@@ -167,11 +168,11 @@ impl TryFrom<ProtoExpose> for InstanceExposeServiceParams {
     fn try_from(value: ProtoExpose) -> Result<Self, Self::Error> {
         Ok(InstanceExposeServiceParams { 
             name: value.name, 
-            port: value.port.iter().filter_map(|n| {
+            port: value.port.par_iter().filter_map(|n| {
                 let n = *n;
                 n.try_into().ok()
             }).collect(), 
-            service_type: value.service_type.iter().map(|s| {
+            service_type: value.service_type.par_iter().map(|s| {
                 let s = *s;
                 s.into()
             }).collect(), 
@@ -297,11 +298,11 @@ impl TryFrom<ProtoExpose> for Params {
     fn try_from(value: ProtoExpose) -> Result<Self, Self::Error> {
         Ok(Params::ExposeService(InstanceExposeServiceParams { 
             name: value.name, 
-            port: value.port.iter().filter_map(|n| {
+            port: value.port.par_iter().filter_map(|n| {
                 let n = *n;
                 n.try_into().ok()
             }).collect(), 
-            service_type: value.service_type.iter().map(|s| {
+            service_type: value.service_type.par_iter().map(|s| {
                 let s = *s;
                 s.into()
             }).collect(), 

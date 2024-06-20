@@ -103,6 +103,9 @@ libretto = { git = "https://github.com/versatus/libretto" }
 tonic-reflection = "0.11.0"
 conductor = { git = "https://github.com/versatus/conductor" }
 derive_more = "0.99.18"
+rayon = "1.10.0"
+tokio-rayon = "2.1.0"
+getset = "0.1.2"
 
 [build-dependencies]
 tonic-build = "0.11.0"

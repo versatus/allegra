@@ -42,11 +42,11 @@ async fn main() -> std::io::Result<()> {
 
     /*
      * TODO(asmith): Replace with publish event to Quorum topic
-    let mut network_state = Arc::new(RwLock::new(AllegraNetworkState::new()));
-    log::info!("created network state");
+    let mut quorum_manager = Arc::new(RwLock::new(QuorumManager::new()));
+    log::info!("created quorum_manager");
 
-    let mut guard = network_state.write().await; 
-    log::info!("acquired network state guard");
+    let mut guard = quorum_manager.write().await; 
+    log::info!("acquired quorum_manager guard");
     guard.add_peer(&local_peer).await?;
     log::info!("added self to network state");
     */

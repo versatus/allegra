@@ -1,3 +1,4 @@
+use rayon::iter::{ParallelIterator, IntoParallelIterator};
 use serde::{Serialize, Deserialize};
 
 /*
@@ -549,7 +550,7 @@ impl VmList {
     }
 
     pub fn get(&self, name: &str) -> Option<VmInfo> {
-        let mut info_list = self.vms.clone().into_iter().filter(|info| {
+        let mut info_list = self.vms.clone().into_par_iter().filter(|info| {
             info.name() == name
         }).collect::<Vec<VmInfo>>();
         info_list.pop()

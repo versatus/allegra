@@ -4,26 +4,24 @@ use crate::{
         Namespace, 
         TaskId, 
         TaskStatus
-    }, event::StateEvent,
-    helpers::{
+    }, event::{
+        StateEvent, 
+        VmmEvent
+    }, helpers::{
+        get_payload_hash, 
         recover_namespace, 
         recover_owner_address, 
-        remove_temp_instance, 
         update_iptables, 
         update_task_status
     }, params::{
-        Payload,
-        ServiceType
-    }, 
-    publish::{
+        Payload, ServiceType
+    }, publish::{
         GenericPublisher,
         StateTopic
-    }, 
-    startup::{
+    }, startup::{
         self, 
         PUBKEY_AUTH_STARTUP_SCRIPT
-    }, subscribe::VmmSubscriber, 
-    vm_info::{
+    }, subscribe::VmmSubscriber, vm_info::{
         VmInfo, 
         VmList
     }
@@ -38,11 +36,26 @@ use crate::allegra_rpc::{
     InstanceDeleteParams,
 };
 
-use conductor::publisher::PubStream;
-use futures::{stream::{FuturesUnordered, StreamExt}, Future};
+use conductor::{
+    publisher::PubStream, 
+    subscriber::SubStream
+};
+use futures::{
+    stream::{
+        FuturesUnordered, 
+        StreamExt
+    }, 
+    Future
+};
 use lazy_static::lazy_static;
+use rayon::iter::{
+    IndexedParallelIterator, 
+    IntoParallelIterator, 
+    IntoParallelRefIterator, 
+    ParallelExtend, 
+    ParallelIterator
+};
 use tokio::task::JoinHandle;
-use sha3::{Digest, Sha3_256};
 use serde::{Serialize, Deserialize};
 use std::pin::Pin;
 
@@ -70,13 +83,13 @@ impl Instance {
     pub fn new(
         namespace: Namespace,
         vminfo: VmInfo,
-        port_map: impl IntoIterator<Item = (u16, (u16, ServiceType))>,
+        port_map: impl IntoParallelIterator<Item = (u16, (u16, ServiceType))>,
         last_snapshot: Option<u64>
     ) -> Self {
         Self {
             namespace,
             vminfo,
-            port_map: port_map.into_iter().collect(),
+            port_map: port_map.into_par_iter().collect(),
             last_snapshot
         }
     }
@@ -95,10 +108,10 @@ impl Instance {
 
     pub fn extend_port_mapping(
         &mut self,
-        extend: impl Iterator<Item = (u16, (u16, ServiceType))>
+        extend: impl ParallelIterator<Item = (u16, (u16, ServiceType))>
     ) {
         log::info!("extending port mapping");
-        self.port_map.extend(extend);
+        self.port_map.par_extend(extend);
     }
 
     pub fn update_vminfo(&mut self, vminfo: VmInfo) {
@@ -121,52 +134,213 @@ impl Instance {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum VmmResult {
+    UpdateIptables {
+        owner: [u8; 20],
+        task_id: TaskId,
+        task_status: TaskStatus
+    },
+    Unit(()),
+    Other(String)
+}
+
 #[derive(Debug)]
 pub enum VmManagerMessage {
     NewInstance {
+        event_id: String,
         params: InstanceCreateParams,
         task_id: TaskId 
     },
     StopInstance {
+        event_id: String,
         params: InstanceStopParams,
         sig: String,
         task_id: TaskId
     },
     DeleteInstance {
+        event_id: String,
         params: InstanceDeleteParams,
         sig: String,
         task_id: TaskId 
     },
     InjectAuth {
+        event_id: String,
         params: InstanceAddPubkeyParams,
         sig: String,
         task_id: TaskId 
     },
     StartInstance {
+        event_id: String,
         params: InstanceStartParams,
         sig: String,
         task_id: TaskId 
     },
     ExposeService {
+        event_id: String,
         params: InstanceExposeServiceParams,
         sig: String,
         task_id: TaskId,
     },
     SyncInstance {
+        event_id: String,
         namespace: String,
         path: String,
     },
     MigrateInstance {
+        event_id: String,
         namespace: String,
         path: String,
         new_quorum: Option<String>,
     }
 }
 
+impl From<VmmEvent> for VmManagerMessage {
+    fn from(value: VmmEvent) -> Self {
+        match value {
+            VmmEvent::Create { 
+                event_id,
+                task_id,
+                name,
+                distro,
+                version,
+                vmtype,
+                sig,
+                recovery_id
+            } => {
+                let params = InstanceCreateParams {
+                    name, 
+                    distro, 
+                    version, 
+                    vmtype: vmtype.to_string(),
+                    sig, 
+                    recovery_id: recovery_id.into()
+                };
+                VmManagerMessage::NewInstance { 
+                    params,
+                    task_id, 
+                    event_id 
+                }
+            }
+            VmmEvent::Start { 
+                event_id, 
+                task_id, 
+                name, 
+                console, 
+                stateless, 
+                sig, 
+                recovery_id 
+            } => {
+                let params = InstanceStartParams {
+                    name, 
+                    console, 
+                    stateless, 
+                    sig: sig.clone(), 
+                    recovery_id: recovery_id.into()
+                };
+                VmManagerMessage::StartInstance { 
+                    event_id, 
+                    params, 
+                    sig, 
+                    task_id 
+                }
+            }
+            VmmEvent::Stop { event_id, task_id, name, sig, recovery_id } => {
+                let params = InstanceStopParams {
+                    name,
+                    sig: sig.clone(),
+                    recovery_id: recovery_id.into()
+                };
+                VmManagerMessage::StopInstance { 
+                    event_id, 
+                    params, 
+                    sig, 
+                    task_id
+                }
+            }
+            VmmEvent::Delete { 
+                event_id,
+                task_id, 
+                name, 
+                sig, 
+                recovery_id, 
+                force, 
+                interactive 
+            } => {
+                let params = InstanceDeleteParams {
+                    name,
+                    sig: sig.clone(),
+                    force,
+                    interactive,
+                    recovery_id: recovery_id.into()
+                };
+
+                VmManagerMessage::DeleteInstance { 
+                    event_id, 
+                    params, 
+                    sig, 
+                    task_id
+                } 
+            }
+            VmmEvent::AddPubkey { 
+                event_id,
+                task_id,
+                name,
+                sig, 
+                recovery_id,
+                pubkey 
+            } => {
+                let params = InstanceAddPubkeyParams {
+                    name,
+                    pubkey: pubkey.clone(),
+                    sig: sig.clone(),
+                    recovery_id: recovery_id.into()
+                };
+                VmManagerMessage::InjectAuth { 
+                    event_id,
+                    params, 
+                    sig,
+                    task_id
+                }
+            }
+            VmmEvent::ExposeService { 
+                event_id, 
+                task_id, 
+                name, 
+                sig, 
+                recovery_id, 
+                port, 
+                service_type 
+            } => {
+                let params = InstanceExposeServiceParams {
+                    name,
+                    port: port.par_iter().map(|n| {
+                        let n = *n;
+                        n.into()
+                    }).collect(),
+                    service_type: service_type.par_iter().map(|s| {
+                        let s = s.clone();
+                        s.into()
+                    }).collect(),
+                    sig: sig.clone(),
+                    recovery_id: recovery_id.into()
+                };
+
+                VmManagerMessage::ExposeService { 
+                    event_id, 
+                    params, 
+                    sig, 
+                    task_id 
+                }
+            }
+        }
+    }
+}
+
 pub struct VmManager {
     network: String,
     next_port: u16,
-    handles: FuturesUnordered<JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>>>,
+    handles: FuturesUnordered<JoinHandle<std::io::Result<VmmResult>>>,
     sync_futures: FuturesUnordered<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>,
     vmlist: VmList,
     publisher: GenericPublisher,
@@ -176,7 +350,9 @@ pub struct VmManager {
 impl VmManager {
     pub async fn new(next_port: u16) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
+        log::info!("set lxd network interface to {}", &network);
         let handles = FuturesUnordered::new();
+        log::info!("established FuturesUnordered handler");
         let vmlist = match std::process::Command::new("lxc")
             .args(["list", "--format", "json"])
             .output() {
@@ -217,11 +393,15 @@ impl VmManager {
             },
             Err(e) => return Err(e)
         };
+        log::info!("acquired vm list");
 
         let sync_futures = FuturesUnordered::new();
+        log::info!("established syncing handler");
         let subscriber = VmmSubscriber::new("127.0.0.1:5556").await?; 
+        log::info!("instantiated VmmSubscriber, listening on 127.0.0.1:5556");
         let publisher = GenericPublisher::new("127.0.0.1:5555").await?;
-
+        log::info!("instantiated GenericPublisher publishing to 127.0.0.1:5555");
+        log::info!("Returning VmManager");
         Ok(Self {
             network: network.to_string(),
             next_port,
@@ -235,19 +415,23 @@ impl VmManager {
 
     pub async fn run(
         &mut self,
-        message_rx: &mut tokio::sync::mpsc::Receiver<VmManagerMessage>,
         stop_rx: &mut tokio::sync::mpsc::Receiver<()>
     ) -> std::io::Result<()> {
+        log::info!("Starting VmManager");
         loop {
             tokio::select! {
-                message = message_rx.recv() => {
-                    if let Some(m) = message {
+                messages = self.subscriber.receive() => {
+                    if let Ok(m) = messages {
                         log::info!("message received");
-                        match self.handle_vmm_message(m).await {
-                            Err(e) => {
-                                log::error!("Error in message handler: {e}");
+                        for msg in m {
+                            match self.handle_vmm_message(
+                                msg.into()
+                            ).await {
+                                Err(e) => {
+                                    log::error!("Error in message handler: {e}");
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                 },
@@ -257,18 +441,29 @@ impl VmManager {
                         break
                     }
                 },
-                status = self.handles.next() => {
-                    match status {
-                        Some(Ok(Ok((owner, task_id, task_status)))) => {
-                            log::info!("future completed");
-                            match update_task_status(
-                                &mut self.publisher,
-                                owner,
-                                task_id,
-                                task_status,
-                            ).await {
-                                Err(e) => log::error!("Error in updating task status {e}"),
-                                _ => {} 
+                vmm_result = self.handles.next() => {
+                    match vmm_result {
+                        Some(Ok(Ok(res))) => {
+                            match res {
+                                VmmResult::UpdateIptables {
+                                    owner, task_id, task_status
+                                } => {
+                                    log::info!("future completed");
+                                    if let Ok(uri) = self.publisher.peer_addr() {
+                                        match update_task_status(
+                                            uri,
+                                            owner,
+                                            task_id,
+                                            task_status,
+                                        ).await {
+                                            Err(e) => log::error!(
+                                                "Error in updating task status {e}"
+                                            ),
+                                            _ => {} 
+                                        }
+                                    }
+                                }
+                                _ => { todo!() }
                             }
                         }
                         Some(Err(e)) => {
@@ -361,13 +556,17 @@ impl VmManager {
         Ok(())
     }
 
+}
 
+// Core Handlers
+impl VmManager {
     async fn handle_vmm_message(
         &mut self,
         message: VmManagerMessage
     ) -> std::io::Result<()> {
         match message {
             VmManagerMessage::NewInstance { 
+                event_id,
                 params, 
                 task_id 
             } => {
@@ -375,6 +574,7 @@ impl VmManager {
                 return self.launch_instance(params, task_id).await
             }
             VmManagerMessage::StartInstance { 
+                event_id,
                 params, 
                 sig, 
                 task_id 
@@ -383,6 +583,7 @@ impl VmManager {
                 return self.start_instance(params, sig, task_id).await
             }
             VmManagerMessage::InjectAuth { 
+                event_id,
                 params, 
                 sig, 
                 task_id 
@@ -391,6 +592,7 @@ impl VmManager {
                 return self.inject_authorization(params, sig, task_id).await
             }
             VmManagerMessage::StopInstance { 
+                event_id,
                 params, 
                 sig, 
                 task_id 
@@ -399,6 +601,7 @@ impl VmManager {
                 return self.stop_instance(params, sig, task_id).await
             }
             VmManagerMessage::DeleteInstance { 
+                event_id,
                 params, 
                 sig, 
                 task_id 
@@ -407,6 +610,7 @@ impl VmManager {
                 return self.delete_instance(params, sig, task_id).await
             }
             VmManagerMessage::ExposeService { 
+                event_id,
                 params, 
                 sig, 
                 task_id 
@@ -414,14 +618,14 @@ impl VmManager {
                 log::info!("received ExposeService message, attempting to expose service on instance.");
                 return self.expose_service(params, sig, task_id).await
             }
-            VmManagerMessage::SyncInstance { namespace, path } => {
+            VmManagerMessage::SyncInstance { event_id, namespace, path } => {
                 log::info!("received SyncInstance message, attempting to sync instance");
                 let vmlist = self.vmlist.clone();
                 let future = Box::pin(Self::sync_instance(vmlist, namespace, path));
                 self.sync_futures.push(future);
                 return Ok(())
             }
-            VmManagerMessage::MigrateInstance { namespace, new_quorum, path } => {
+            VmManagerMessage::MigrateInstance { event_id, namespace, new_quorum, path } => {
                 log::info!("received MigrateInstance message, attempting to migrate instance");
                 let vmlist = self.vmlist.clone();
                 let future = Box::pin(Self::move_instance(vmlist, namespace, path, new_quorum));
@@ -431,91 +635,20 @@ impl VmManager {
         }
     }
 
-    async fn handle_start_output_success(
-        &mut self,
-        owner: [u8; 20],
-        task_id: TaskId
-    ) -> std::io::Result<()> {
-        update_task_status(
-            &mut self.publisher,
-            owner,
-            task_id,
-            TaskStatus::Success,
-        ).await
-    }
-
-    async fn handle_start_output_failure(
-        &mut self,
-        output: std::process::Output,
-        owner: [u8; 20],
-        task_id: TaskId
-    ) -> std::io::Result<()> {
-        let err_string = std::str::from_utf8(
-            &output.stderr
-        ).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
-        update_task_status(
-            &mut self.publisher,
-            owner,
-            task_id,
-            TaskStatus::Failure(
-                err_string.to_string()
-            ),
-        ).await
-    }
-
-    async fn handle_start_output(
-        &mut self,
-        output: std::process::Output,
-        owner: [u8; 20],
-        task_id: TaskId
-    ) -> std::io::Result<()> {
-        if output.status.success() {
-            self.handle_start_output_success(
-                owner,
-                task_id
-            ).await
-        } else {
-            self.handle_start_output_failure(
-                output,
-                owner, 
-                task_id
-            ).await
-        }
-    }
-
     async fn start_instance(
         &mut self,
         params: InstanceStartParams,
         sig: String,
         task_id: TaskId
     ) -> std::io::Result<()> {
-        let payload = params.into_payload();
-
-        let mut hasher = sha3::Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
-        let hash = hasher.finalize().to_vec();
+        let hash = get_payload_hash(params.into_payload().as_bytes());
         let owner = recover_owner_address(
             hash,
             sig,
-            params.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
+            params.recovery_id.to_be_bytes()[3]
         )?;
 
-        let namespace = recover_namespace(
-            owner,
-            &params.name
-        );
+        let namespace = recover_namespace(owner, &params.name);
 
         let mut command = std::process::Command::new("lxc");
         command.arg("start").arg(&namespace.inner());
@@ -530,10 +663,12 @@ impl VmManager {
 
         match command.output() {
             Ok(o) => {
-                self.handle_start_output(
+                let uri = self.publisher.peer_addr()?;
+                Self::handle_start_output(
                     o,
                     owner,
-                    task_id
+                    task_id,
+                    uri
                 ).await?
             },
             Err(e) => {
@@ -552,10 +687,11 @@ impl VmManager {
     async fn handle_inject_authorization_output_success(
         &mut self,
         owner: [u8; 20],
-        task_id: TaskId
+        task_id: TaskId,
+        uri: String
     ) -> std::io::Result<()> {
         update_task_status(
-            &mut self.publisher,
+            uri,
             owner,
             task_id,
             TaskStatus::Success,
@@ -577,8 +713,9 @@ impl VmManager {
             )
         })?.to_string();
         log::error!("{err_str}");
+        let uri = self.publisher.peer_addr()?;
         update_task_status(
-            &mut self.publisher,
+            uri,
             owner,
             task_id,
             TaskStatus::Failure(
@@ -591,13 +728,15 @@ impl VmManager {
         &mut self,
         output: std::process::Output,
         owner: [u8; 20],
-        task_id: TaskId
+        task_id: TaskId,
+        uri: String
     ) -> std::io::Result<()> {
         if output.status.success() {
             log::info!("Auth Injection was successful");
             self.handle_inject_authorization_output_success(
                 owner,
-                task_id
+                task_id,
+                uri
             ).await
         } else {
             log::info!("Auth Injection was a Failure");
@@ -613,19 +752,10 @@ impl VmManager {
         &mut self,
         params: InstanceAddPubkeyParams,
         sig: String, 
-        task_id: TaskId
+        task_id: TaskId,
     ) -> std::io::Result<()> {
-        let mut hasher = Sha3_256::new();
-        hasher.update(params.into_payload().as_bytes());
-        let hash = hasher.finalize().to_vec();
-
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
+        let hash = get_payload_hash(params.into_payload().as_bytes());
+        let recovery_id = params.recovery_id.to_be_bytes()[3];
         let owner = recover_owner_address(hash, sig, recovery_id)?;
         log::info!("Recovered owner address");
         let namespace = recover_namespace(owner, &params.name);
@@ -646,10 +776,12 @@ impl VmManager {
         
         log::info!("Executed Auth Injection");
 
+        let uri = self.publisher.peer_addr()?;
         return self.handle_inject_authorization_output(
             output,
             owner,
-            task_id
+            task_id,
+            uri
         ).await
     }
 
@@ -658,8 +790,9 @@ impl VmManager {
         owner: [u8; 20],
         task_id: TaskId
     ) -> std::io::Result<()> {
+        let uri = self.publisher.peer_addr()?;
         update_task_status(
-            &mut self.publisher,
+            uri,
             owner,
             task_id,
             TaskStatus::Success,
@@ -682,8 +815,9 @@ impl VmManager {
             )
         })?.to_string();
 
+        let uri = self.publisher.peer_addr()?;
         update_task_status(
-            &mut self.publisher,
+            uri,
             owner,
             task_id, 
             TaskStatus::Failure(
@@ -732,47 +866,14 @@ impl VmManager {
         sig: String,
         task_id: TaskId
     ) -> std::io::Result<()> {
-        let payload = serde_json::json!({
-            "command": "stop",
-            "name": &params.name, 
-        }).to_string();
-
-        let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
-        let hash = hasher.finalize().to_vec();
-
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        let owner = recover_owner_address(
-            hash,
-            sig,
-            recovery_id
-        )?;
-
-        let namespace = recover_namespace(
-            owner,
-            &params.name
-        );
-
-        println!("attempting to shutdown {}", &params.name);
+        let hash = get_payload_hash(params.into_payload().as_bytes());
+        let recovery_id = params.recovery_id.to_be_bytes()[3];
+        let owner = recover_owner_address(hash, sig, recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
         let output = std::process::Command::new("lxc")
             .args(["stop", &namespace.inner()])
             .output()?;
-
-        println!("Retrieved output...");
-
-        self.handle_stop_output_and_response(
-            output,
-            owner,
-            task_id
-        ).await?;
+        self.handle_stop_output_and_response(output, owner, task_id).await?;
 
         return Ok(())
     }
@@ -783,8 +884,9 @@ impl VmManager {
         owner: [u8; 20],
         task_id: TaskId
     ) -> std::io::Result<()> {
+        let uri = self.publisher.peer_addr()?;
         update_task_status(
-            &mut self.publisher,
+            uri,
             owner,
             task_id,
             TaskStatus::Success,
@@ -806,8 +908,9 @@ impl VmManager {
             )
         })?.to_string();
 
+        let uri = self.publisher.peer_addr()?;
         update_task_status(
-            &mut self.publisher,
+            uri,
             owner,
             task_id,
             TaskStatus::Failure(
@@ -842,42 +945,15 @@ impl VmManager {
         sig: String,
         task_id: TaskId
     ) -> std::io::Result<()> {
-        let payload = serde_json::json!({
-            "command": "delete",
-            "name": params.name
-        }).to_string();
-
-        let mut hasher = Sha3_256::new();
-        hasher.update(payload.as_bytes());
-        let hash = hasher.finalize().to_vec();
-
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        let owner = recover_owner_address(
-            hash,
-            sig, 
-            recovery_id
-        )?;
+        let hash = get_payload_hash(params.into_payload().as_bytes());
+        let recovery_id = params.recovery_id.to_be_bytes()[3];
+        let owner = recover_owner_address(hash, sig, recovery_id)?;
         let namespace = recover_namespace(owner, &params.name.clone());
         let mut command = std::process::Command::new("lxc");
         command.arg("delete").arg(&namespace.inner());
-
-        if params.interactive {
-            command.arg("--interactive");
-        }
-
-        if params.force {
-            command.arg("--force");
-        }
-
+        if params.interactive { command.arg("--interactive"); }
+        if params.force { command.arg("--force"); }
         let output = command.output()?;
-
-
         self.handle_delete_instance_output(
             output,
             owner,
@@ -889,53 +965,36 @@ impl VmManager {
         &mut self,
         params: InstanceExposeServiceParams,
         sig: String,
-        task_id: TaskId
+        task_id: TaskId,
     ) -> std::io::Result<()> {
+        let hash = get_payload_hash(params.into_payload().as_bytes());
+        let recovery_id = params.recovery_id.to_be_bytes()[3];
+        let owner = recover_owner_address(hash, sig, recovery_id)?;
+        let namespace = recover_namespace(owner, &params.name);
 
-        let payload = params.into_payload();
-
-        let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
-        let hash = hasher.finalize().to_vec();
-
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-        let owner = recover_owner_address(
-            hash,
-            sig,
-            recovery_id
-        )?;
-
-        let namespace = recover_namespace(
-            owner,
-            &params.name
-        );
-
-        for (port, service) in params.port.into_iter().zip(params.service_type.into_iter()) {
+        self.refresh_vmlist().await?;
+        let vmlist = self.vmlist.clone();
+        let new_next_port = params.port.into_par_iter()
+            .zip(
+                params.service_type.into_par_iter()
+            ).map(|(port, service)| {
             let port = port.try_into().map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     e
                 )
             })?;
-            self.refresh_vmlist().await?;
-            let vmlist = self.vmlist.clone();
-            let next_port = self.next_port;
+            let mut next_port = self.next_port;
             let inner_namespace = namespace.clone();
             let inner_task_id = task_id.clone();
             let service: ServiceType = service.into();
             let publisher_uri = self.publisher.peer_addr()?;
-            let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
+            let inner_vmlist = vmlist.clone();
+            let handle: JoinHandle<std::io::Result<VmmResult>> = tokio::spawn(
                 async move {
                     let (owner, task_id, task_status) = update_iptables(
                         &publisher_uri,
-                        vmlist.clone(),
+                        inner_vmlist,
                         owner,
                         inner_namespace.clone(),
                         next_port,
@@ -943,147 +1002,46 @@ impl VmManager {
                         inner_task_id.clone(),
                         port 
                     ).await?;
-                    Ok((owner, task_id, task_status))
+                    Ok(VmmResult::UpdateIptables { owner, task_id, task_status })
                 }
             );
-            self.next_port += 1;
+            next_port += 1;
             self.handles.push(handle);
-        }
+            Ok::<u16, std::io::Error>(next_port)
+        }).filter_map(|res| {
+            match res {
+                Ok(n) => Some(n),
+                _ => None
+            }
+        }).max().ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "all iterations failed"
+            )
+        )?;
 
+        self.next_port = new_next_port;
         Ok(())
     }
 
-    async fn handle_create_output_success(
-        &mut self,
-        task_id: TaskId,
-        owner: [u8; 20],
-        namespace: Namespace,
-    ) -> std::io::Result<()> {
-        let next_port = self.next_port;
-        self.refresh_vmlist().await?;
-        let vm_list = self.vmlist.clone();
 
-        let publisher_uri = self.publisher.peer_addr()?;
-        let handle: JoinHandle<std::io::Result<([u8; 20], TaskId, TaskStatus)>> = tokio::spawn(
-            async move {
-                log::warn!("sleeping for 2 minutes to allow instance to fully launch...");
-                tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
-                log::info!("updating iptables...");
-                let (owner, task_id, task_status) = update_iptables(
-                    &publisher_uri,
-                    vm_list,
-                    owner,
-                    namespace,
-                    next_port, 
-                    ServiceType::Ssh,
-                    task_id.clone(),
-                    22
-                ).await?;
-                Ok((owner, task_id, task_status))
-        });
-
-        self.handles.push(handle);
-        log::info!("added update_iptables handle to self.handles, returning...");
-
-        return Ok(())
-    }
-
-    async fn handle_create_output_failure_and_response(
-        &mut self,
-        output: &std::process::Output,
-        owner: [u8; 20],
-        task_id: TaskId
-    ) -> std::io::Result<()> {
-        log::error!("Launch instance failed");
-        let err_str = std::str::from_utf8(
-            &output.stderr
-        ).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?.to_string();
-        log::error!("Error from failed launch: {err_str}");
-        update_task_status(
-            &mut self.publisher,
-            owner,
-            task_id.clone(), 
-            TaskStatus::Failure(err_str.clone()),
-        ).await?;
-        log::info!("Updated task status from PENDING to FAILURE for task {task_id}");
-
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                err_str
-            )
-        )
-    }
-
-    async fn handle_create_output_and_response(
-        &mut self,
-        output: std::process::Output,
-        task_id: TaskId,
-        owner: [u8; 20],
-        namespace: Namespace,
-    ) -> std::io::Result<()> {
-        if output.status.success() {
-            log::info!("successfully created instance, handling output...");
-            self.handle_create_output_success(
-                task_id,
-                owner,
-                namespace,
-            ).await
-        } else {
-            log::error!("unable to create instance, handling output...");
-            self.handle_create_output_failure_and_response(
-                &output,
-                owner,
-                task_id
-            ).await
-        }
-    }
     pub async fn launch_instance(
         &mut self,
         params: InstanceCreateParams,
         task_id: TaskId
     ) -> std::io::Result<()> {
-        log::info!("Attempting to start instance...");
 
+        log::info!("Attempting to start instance...");
         let payload = params.into_payload(); 
         log::info!("converted params into payload...");
-
-        let mut hasher = Sha3_256::new();
-
-        hasher.update(
-            payload.as_bytes()
-        );
-
-        let hash = hasher.finalize().to_vec();
-
+        let hash = get_payload_hash(payload.as_bytes());
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = params.recovery_id.to_be_bytes()[3];
         log::info!("converted recovery_id into u32...");
-
-        let owner = recover_owner_address(
-            hash,
-            params.sig.clone(),
-            recovery_id
-        )?;
-
+        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
         log::info!("recovered owner from signature...");
-        let namespace = recover_namespace(
-            owner,
-            &params.name
-        );
-
+        let namespace = recover_namespace(owner, &params.name);
         log::info!("recovered namespace from name and owner...");
-
         let output = std::process::Command::new("lxc")
             .arg("launch")
             .arg(
@@ -1116,10 +1074,8 @@ impl VmManager {
 
         self.refresh_vmlist().await?;
         log::info!("refreshed vm list...");
-
         let _output = startup::run_script(namespace.clone(), PUBKEY_AUTH_STARTUP_SCRIPT)?;
         log::info!("ran pubkey auth startup script...");
-
         let event_id = uuid::Uuid::new_v4();
         let state_event = StateEvent::PutAccount { 
             event_id: event_id.to_string(),
@@ -1137,7 +1093,6 @@ impl VmManager {
         ).await?;
 
         log::info!("published {} to topic {}", event_id.to_string(), StateTopic);
-
         let vminfo = self.vmlist.get(&namespace.inner()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1145,7 +1100,6 @@ impl VmManager {
             )
         )?;
         log::info!("acquired vminfo...");
-
         let event_id = uuid::Uuid::new_v4();
         let state_event = StateEvent::PutInstance { 
             event_id: event_id.to_string(), 
@@ -1172,67 +1126,7 @@ impl VmManager {
         path: String 
     ) -> std::io::Result<()> {
         log::info!("Attempting to sync instance {namespace}");
-        let import_output = std::process::Command::new("sudo")
-            .arg("lxc")
-            .arg("import")
-            .arg(&path)
-            .arg(&format!("{}-temp", namespace))
-            .output()?;
-
-        if import_output.status.success() {
-            log::info!("Successfully imported temporary instance {namespace}");
-            if let Some(_vm) = vmlist.get(&namespace) {
-                let copy_output = std::process::Command::new("sudo")
-                    .arg("lxc")
-                    .arg("copy")
-                    .arg(&format!("{}-temp", namespace))
-                    .arg(&namespace)
-                    .arg("--refresh")
-                    .output()?;
-
-                if copy_output.status.success() {
-                    log::info!("Successfully copied temporary instance to permanent instance {namespace}");
-                    remove_temp_instance(&namespace, &path).await?;
-                    log::info!("Successfully removed temporary instance {namespace}");
-                    return Ok(())
-                } else {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Unable to sync existing instance with temp instance"
-                        )
-                    )
-                }
-            }
-        } else {
-            log::info!("Instance does not exist, moving from temp to permanent {namespace}");
-            let rename_output = std::process::Command::new("sudo")
-                .arg("move")
-                .arg(&format!("{}-temp", namespace))
-                .arg(&namespace)
-                .output()?;
-
-            if rename_output.status.success() {
-                log::info!("Successfully moved temporary instance to permanent {namespace}");
-                remove_temp_instance(&namespace, &path).await?;
-                log::info!("Successfully removed temporary instance {namespace}");
-                return Ok(())
-            } else {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Unable to rename instance to permanent name"
-                    )
-                )
-            }
-        }
-
-        return Err(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Unable to import instance from tarball"
-            )
-        )
+        todo!()
     }
 
     pub async fn move_instance(
@@ -1241,60 +1135,237 @@ impl VmManager {
         path: String,
         _new_quorum: Option<String>,
     ) -> std::io::Result<()> {
-        let import_output = std::process::Command::new("sudo")
-            .arg("lxc")
-            .arg("import")
-            .arg(&path)
-            .arg(&format!("{}-temp", namespace))
-            .output()?;
+        todo!()
+    }
+}
 
-        if import_output.status.success() {
-            if let Some(_vm) = vmlist.get(&namespace) {
-                let copy_output = std::process::Command::new("sudo")
-                    .arg("lxc")
-                    .arg("copy")
-                    .arg(&format!("{}-temp", namespace))
-                    .arg(&namespace)
-                    .arg("--refresh")
-                    .output()?;
-
-                if copy_output.status.success() {
-                    remove_temp_instance(&namespace, &path).await?;
-                    return Ok(())
-                } else {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Unable to sync existing instance with temp instance"
-                        )
-                    )
-                }
-            }
+//OUTPUT HANDLERS
+impl VmManager {
+    async fn handle_create_output_and_response(
+        &mut self,
+        output: std::process::Output,
+        task_id: TaskId,
+        owner: [u8; 20],
+        namespace: Namespace,
+    ) -> std::io::Result<()> {
+        self.refresh_vmlist().await?;
+        let uri = self.publisher.peer_addr()?;
+        let vmlist = self.vmlist.clone();
+        let next_port = self.next_port;
+        if output.status.success() {
+            log::info!("successfully created instance, handling output...");
+            let update_iptables_handle = Self::handle_create_output_success(
+                task_id,
+                owner,
+                namespace,
+                vmlist,
+                next_port,
+                uri
+            ).await?;
+            self.handles.push(update_iptables_handle);
+            return Ok(())
         } else {
-            let rename_output = std::process::Command::new("sudo")
-                .arg("move")
-                .arg(&format!("{}-temp", namespace))
-                .arg(&namespace)
-                .output()?;
-
-            if rename_output.status.success() {
-                remove_temp_instance(&namespace, &path).await?;
-                return Ok(())
-            } else {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Unable to rename instance to permanent name"
-                    )
-                )
-            }
+            log::error!("unable to create instance, handling output...");
+            let launch_failure_handle = Self::handle_create_output_failure_and_response(
+                output,
+                owner,
+                task_id,
+                uri
+            ).await?;
+            self.handles.push(launch_failure_handle);
         }
 
-        return Err(
+        Ok(())
+    }
+
+    async fn handle_create_output_success(
+        task_id: TaskId,
+        owner: [u8; 20],
+        namespace: Namespace,
+        vmlist: VmList,
+        next_port: u16,
+        uri: String
+    ) -> std::io::Result<JoinHandle<std::io::Result<VmmResult>>> {
+        let handle = Self::handle_create_iptables_update(
+            uri,
+            vmlist,
+            owner,
+            namespace,
+            next_port,
+            task_id,
+        ).await;
+
+        return Ok(handle)
+    }
+
+    async fn handle_create_output_failure_and_response(
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId,
+        uri: String
+    ) -> std::io::Result<JoinHandle<std::io::Result<VmmResult>>> {
+        let handle = tokio::spawn(async move {
+            log::error!("Launch instance failed");
+            let err_str = std::str::from_utf8(
+                &output.stderr
+            ).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string()
+                )
+            })?.to_string();
+            log::error!("Error from failed launch: {err_str}");
+            update_task_status(
+                uri,
+                owner,
+                task_id.clone(), 
+                TaskStatus::Failure(err_str.clone()),
+            ).await?;
+            log::info!("Updated task status from PENDING to FAILURE for task {task_id}");
+
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err_str
+                )
+            )
+        });
+
+        return Ok(handle)
+    }
+
+
+    async fn handle_start_output(
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId,
+        uri: String,
+    ) -> std::io::Result<()> {
+        if output.status.success() {
+            Self::handle_start_output_success(
+                owner,
+                task_id,
+                uri
+            ).await
+        } else {
+            Self::handle_start_output_failure(
+                output,
+                owner, 
+                task_id,
+                uri
+            ).await
+        }
+    }
+
+    async fn handle_start_output_success(
+        owner: [u8; 20],
+        task_id: TaskId,
+        uri: String
+    ) -> std::io::Result<()> {
+        update_task_status(
+            uri,
+            owner,
+            task_id,
+            TaskStatus::Success,
+        ).await
+    }
+
+    async fn handle_start_output_failure(
+        output: std::process::Output,
+        owner: [u8; 20],
+        task_id: TaskId,
+        uri: String,
+    ) -> std::io::Result<()> {
+        let err_string = std::str::from_utf8(
+            &output.stderr
+        ).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
-                "Unable to import instance from tarball"
+                e.to_string()
             )
-        )
+        })?;
+        update_task_status(
+            uri,
+            owner,
+            task_id,
+            TaskStatus::Failure(
+                err_string.to_string()
+            ),
+        ).await
+    }
+
+
+    async fn handle_expose_service_iptable_updates(
+        &mut self,
+        params: InstanceExposeServiceParams,
+        namespace: Namespace,
+        task_id: TaskId,
+        owner: [u8; 20]
+    ) -> std::io::Result<()> {
+        for (port, service) in params.port.into_iter().zip(params.service_type.into_iter()) {
+            let port = port.try_into().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            self.refresh_vmlist().await?;
+            let vmlist = self.vmlist.clone();
+            let next_port = self.next_port;
+            let inner_namespace = namespace.clone();
+            let inner_task_id = task_id.clone();
+            let service: ServiceType = service.into();
+            let publisher_uri = self.publisher.peer_addr()?;
+            let handle: JoinHandle<std::io::Result<VmmResult>> = tokio::spawn(
+                async move {
+                    let (owner, task_id, task_status) = update_iptables(
+                        &publisher_uri,
+                        vmlist.clone(),
+                        owner,
+                        inner_namespace.clone(),
+                        next_port,
+                        service.clone(),
+                        inner_task_id.clone(),
+                        port 
+                    ).await?;
+                    Ok(VmmResult::UpdateIptables { 
+                        owner,
+                        task_id, 
+                        task_status 
+                    })
+                }
+            );
+            self.next_port += 1;
+            self.handles.push(handle);
+        }
+
+        Ok(())
+    }
+
+    async fn handle_create_iptables_update(
+        publisher_uri: String,
+        vmlist: VmList,
+        owner: [u8; 20],
+        namespace: Namespace,
+        next_port: u16,
+        task_id: TaskId
+    ) -> JoinHandle<std::io::Result<VmmResult>> {
+        tokio::spawn(
+            async move {
+                log::warn!("sleeping for 2 minutes to allow instance to fully launch...");
+                tokio::time::sleep(tokio::time::Duration::from_secs(120)).await;
+                log::info!("updating iptables...");
+                let (owner, task_id, task_status) = update_iptables(
+                    &publisher_uri,
+                    vmlist,
+                    owner,
+                    namespace,
+                    next_port, 
+                    ServiceType::Ssh,
+                    task_id.clone(),
+                    22
+                ).await?;
+                Ok(VmmResult::UpdateIptables { owner, task_id, task_status })
+        })
     }
 }

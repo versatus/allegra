@@ -12,26 +12,13 @@ use allegra::allegra_rpc::{
     GetTaskStatusRequest
 };
 
-#[cfg(feature="tarpc")]
-use allegra::params::{
-    InstanceCreateParams, 
-    InstanceStartParams, 
-    InstanceStopParams, 
-    InstanceAddPubkeyParams, 
-    InstanceDeleteParams, 
-    InstanceExposeServiceParams,
-    InstanceGetSshDetails,
-};
-#[cfg(feature="tarpc")]
-use allegra::rpc::VmmClient;
 use allegra::cli::commands::AllegraCommands;
 use allegra::cli::helpers::{
     create_allegra_rpc_client,
     generate_signature_from_command,
 };
 use clap::Parser;
-#[cfg(feature="tarpc")]
-use tarpc::context;
+use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 
 
 #[derive(Parser)]
@@ -192,8 +179,8 @@ async fn main() -> std::io::Result<()> {
             println!("Exposing ports on an Allegra instance: {:?}", &name);
             let mut vmclient = create_allegra_rpc_client().await?;
 
-            let port: Vec<u32> = port.iter().map(|p| *p as u32).collect();
-            let service_type: Vec<i32> = service_type.iter().map(|s| s.clone().into()).collect();
+            let port: Vec<u32> = port.par_iter().map(|p| *p as u32).collect();
+            let service_type: Vec<i32> = service_type.par_iter().map(|s| s.clone().into()).collect();
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
             let params = InstanceExposeServiceParams {

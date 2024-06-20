@@ -1,6 +1,8 @@
 use std::{collections::HashMap, fmt::Display};
+use rayon::iter::{IntoParallelIterator, ParallelExtend, ParallelIterator};
 use serde::{Serialize, Deserialize};
 use crate::{vm_info::VmInfo, params::ServiceType};
+use uuid::Uuid;
 
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -26,8 +28,8 @@ impl Display for Namespace {
 pub struct TaskId(String);
 
 impl TaskId {
-    pub fn new(taskid: String) -> Self {
-        Self(taskid)
+    pub fn new(id: String) -> Self {
+        Self(id)
     }
     
     pub fn task_id(&self) -> String {
@@ -81,13 +83,13 @@ pub struct Account {
 impl Account {
     pub fn new(
         address: [u8; 20],
-        namespaces: impl IntoIterator<Item = (Namespace, Option<VmInfo>)>, 
-        exposed_ports: impl IntoIterator<Item = (Namespace, Vec<ExposedPort>)>,
-        tasks: impl IntoIterator<Item = (TaskId, TaskStatus)>
+        namespaces: impl IntoParallelIterator<Item = (Namespace, Option<VmInfo>)>, 
+        exposed_ports: impl IntoParallelIterator<Item = (Namespace, Vec<ExposedPort>)>,
+        tasks: impl IntoParallelIterator<Item = (TaskId, TaskStatus)>
     ) -> Self {
-        let namespaces = namespaces.into_iter().collect();
-        let tasks = tasks.into_iter().collect();
-        let exposed_ports = exposed_ports.into_iter().collect();
+        let namespaces = namespaces.into_par_iter().collect();
+        let tasks = tasks.into_par_iter().collect();
+        let exposed_ports = exposed_ports.into_par_iter().collect();
         Self { address, namespaces, tasks, exposed_ports }
     }
 
@@ -105,7 +107,7 @@ impl Account {
 
     pub fn update_exposed_ports(&mut self, namespace: &Namespace, exposed_ports: Vec<ExposedPort>) {
         if let Some(entry) = self.exposed_ports.get_mut(namespace) {
-            entry.extend(exposed_ports.into_iter())
+            entry.par_extend(exposed_ports.into_par_iter())
         } else {
             self.exposed_ports.insert(namespace.clone(), exposed_ports);
         }

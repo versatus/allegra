@@ -1,3 +1,4 @@
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tikv_client::{
     TransactionClient,
     RawClient,
@@ -74,10 +75,10 @@ impl StateWriter {
 
     pub async fn batch_put(
         &self,
-        kv_pairs: impl IntoIterator<Item = KvPair>
+        kv_pairs: impl ParallelIterator<Item = KvPair>
     ) -> Result<()> {
         let mut txn = self.client.begin_optimistic().await?;
-        let mutations: Vec<Mutation> = kv_pairs.into_iter()
+        let mutations: Vec<Mutation> = kv_pairs.into_par_iter()
             .map(|kv| {
                 let key: Key = kv.0.into();
                 let value: Value = kv.1.into();
