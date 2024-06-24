@@ -62,10 +62,11 @@ impl VmmService {
     where 
         P: TryInto<Params, Error = std::io::Error> + 
         TryInto<Namespace, Error = std::io::Error> + 
-        Clone
+        Clone + std::fmt::Debug 
     {
         let event_id = uuid::Uuid::new_v4().to_string();
         log::info!("created event id {} for CheckResponsibility event...", &event_id);
+        println!("{:?}", params);
         let quorum_event = QuorumEvent::CheckResponsibility {
             namespace: params.clone().try_into().map_err(|e| {
                 std::io::Error::new(

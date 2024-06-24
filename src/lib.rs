@@ -10,7 +10,6 @@ pub mod rpc;
 pub mod vm_types;
 pub mod state;
 pub mod account;
-pub mod node;
 pub mod vm_info;
 pub mod params;
 pub mod helpers;

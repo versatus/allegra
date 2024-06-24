@@ -187,6 +187,9 @@ impl NetworkClient {
                     NetworkEvent::ShareCert { peer, cert, .. } => {
                         todo!()
                     }
+                    NetworkEvent::CastLeaderElectionVote { .. } => {
+                        todo!()
+                    }
                 }
             }
             _ => return Err(

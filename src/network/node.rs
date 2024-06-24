@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{account::TaskId, cluster::Ballot, dht::Peer, event::NetworkEvent, publish::{GenericPublisher, NetworkTopic}, voting::{Ballot, Vote}};
+use crate::{account::TaskId, dht::Peer, event::NetworkEvent, publish::{GenericPublisher, NetworkTopic}, voting::{Ballot, Vote}};
 use conductor::publisher::PubStream;
 use getset::{Getters, MutGetters};
 use tokio::time::{Instant, Interval};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use uuid::Uuid;
-use derive_new::new as New;
 
 pub const ELECTION_BLOCK_INTERVAL: u64 = 1800;
 
@@ -16,7 +15,8 @@ pub enum NodeState {
     Leader
 }
 
-#[derive(Getters, MutGetters, New)]
+#[derive(Getters, MutGetters)]
+#[getset(get = "pub", get_copy = "pub", get_mut)]
 pub struct Node {
     peer_info: Peer,
     current_leader: Option<Peer>,
@@ -36,7 +36,7 @@ pub struct Node {
 }
 
 impl Node { 
-    pub async fn new(peer_info: Peer) -> Self {
+    pub fn new(peer_info: Peer) -> Self {
         Self {
             peer_info,
             current_leader: None,
@@ -58,8 +58,8 @@ impl Node {
 
     pub async fn start_election(
         &mut self, 
-        peers: HashSet<Peer>, 
-        uri: String
+        peers: &HashSet<Peer>, 
+        uri: &String
     ) -> std::io::Result<()> {
         self.current_term += 1;
 

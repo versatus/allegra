@@ -103,7 +103,8 @@ pub struct QuorumManager {
 impl QuorumManager {
     pub async fn new(
         subscriber_uri: &str, 
-        publisher_uri: &str
+        publisher_uri: &str,
+        peer_info: Peer,
     ) -> std::io::Result<Self> {
         let peer_hashring = anchorhash::Builder::default()
             .with_resources(
@@ -119,8 +120,10 @@ impl QuorumManager {
         quorums.insert(BOOTSTRAP_QUORUM.id().clone(), BOOTSTRAP_QUORUM.clone());
         let publisher = GenericPublisher::new(publisher_uri).await?;
         let subscriber = QuorumSubscriber::new(subscriber_uri).await?;
+        let node = Node::new(peer_info);
         
         Ok(Self {
+            node,
             peers: HashMap::new(),
             instances: HashMap::new(),
             quorums,
@@ -158,6 +161,29 @@ impl QuorumManager {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    async fn elect_leader(&mut self) -> std::io::Result<()> {
+        let quorums = self.quorums().clone();
+        let quorum_peers = quorums.get(
+            &self.get_peer_quorum_membership(
+                self.node.peer_info()
+            ).ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to find membership for local node"
+                )
+            )?
+        ).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find peers for local node quorum"
+            )
+        )?;
+        let uri = self.publisher().peer_addr()?;
+        self.node.start_election(quorum_peers.peers(), &uri).await?;
 
         Ok(())
     }
