@@ -5,7 +5,8 @@ use uuid::Uuid;
 use anchorhash::AnchorHash;
 use serde::{Serialize, Deserialize};
 
-use crate::{account::{Namespace, TaskId}, event::{Event, NetworkEvent}, publish::GenericPublisher, subscribe::QuorumSubscriber};
+use crate::{account::{Namespace, TaskId}, event::{Event, NetworkEvent}, publish::GenericPublisher, subscribe::QuorumSubscriber, network::node::Node};
+
 use conductor::subscriber::SubStream;
 use conductor::publisher::PubStream;
 use tokio::task::JoinHandle;
@@ -21,7 +22,7 @@ lazy_static::lazy_static! {
 #[derive(Debug, Clone, Getters, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Peer {
     id: Uuid,
-    address: String
+    address: String,
 }
 
 impl Peer {
@@ -87,6 +88,7 @@ pub enum QuorumResult {
 #[derive(Getters, MutGetters)]
 #[getset(get = "pub", get_copy = "pub", get_mut)]
 pub struct QuorumManager {
+    node: Node,
     peers: HashMap<Uuid, Peer>,
     instances: HashMap<Namespace, Quorum>,
     quorums: HashMap<Uuid, Quorum>,

@@ -61,6 +61,7 @@ dependencies = [
  "bip39",
  "clap",
  "conductor",
+ "derive-new 0.6.0",
  "derive_builder",
  "derive_more",
  "ethers-core",
@@ -1044,6 +1045,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "derive-new"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d150dea618e920167e5973d70ae6ece4385b7164e0d799fe7c122dd0a5d912ad"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.66",
 ]
 
 [[package]]
@@ -4168,7 +4180,7 @@ checksum = "048968e4e3d04db472346770cc19914c6b5ae206fa44677f6a0874d54cd05940"
 dependencies = [
  "async-recursion 0.3.2",
  "async-trait",
- "derive-new",
+ "derive-new 0.5.9",
  "either",
  "fail",
  "futures",

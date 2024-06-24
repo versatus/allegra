@@ -28,7 +28,7 @@ use crate::{
         }, vm_info::{
             VmInfo, 
             VmList
-        }, vm_types::VmType
+        }, vm_types::VmType, voting::Vote
 };
 use crate::params::Payload;
 
@@ -329,6 +329,12 @@ pub enum NetworkEvent {
         task_id: TaskId,
         peer: Peer,
         cert: String,
+    },
+    CastLeaderElectionVote {
+        event_id: String,
+        task_id: TaskId,
+        vote: Vote,
+        peers: Vec<Peer>
     }
 }
 
