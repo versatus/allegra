@@ -20,7 +20,8 @@ impl_topic!(
     TaskStatusTopic,
     VmManagerTopic,
     SyncTopic, 
-    DnsTopic
+    DnsTopic,
+    RpcResponseTopic
 );
 
 macro_rules! impl_from_str {

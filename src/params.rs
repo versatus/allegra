@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::str::FromStr;
 use clap::ValueEnum;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
@@ -112,12 +113,7 @@ impl TryFrom<ProtoCreate> for InstanceCreateParams {
             name: value.name,
             distro: value.distro,
             version: value.version,
-            vmtype: serde_json::from_str(&value.vmtype).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?,
+            vmtype: <VmType as FromStr>::from_str(&value.vmtype)?,
             sig: value.sig,
             recovery_id: value.recovery_id.try_into().map_err(|e| {
                 std::io::Error::new(
@@ -238,24 +234,8 @@ impl TryFrom<ProtoStart> for Params {
 impl TryFrom<ProtoCreate> for Params {
     type Error = std::io::Error;
     fn try_from(value: ProtoCreate) -> Result<Self, Self::Error> {
-        Ok(Params::Create(InstanceCreateParams {
-            name: value.name,
-            distro: value.distro,
-            version: value.version,
-            vmtype: serde_json::from_str(&value.vmtype).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?,
-            sig: value.sig,
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        }))
+        let params: InstanceCreateParams = value.try_into()?;
+        Ok(Params::Create(params))
     }
 }
 

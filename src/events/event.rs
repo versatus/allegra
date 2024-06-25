@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, net::SocketAddr};
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
@@ -22,9 +22,7 @@ use crate::{
             recover_namespace, 
             recover_owner_address
         }, params::{
-            HasOwner, 
-            Params, 
-            ServiceType
+            HasOwner, Params, ServiceType
         }, vm_info::{
             VmInfo, 
             VmList
@@ -494,8 +492,8 @@ pub enum QuorumEvent {
     RequestSshDetails {
         event_id: String,
         task_id: TaskId,
-        quorum_id: String,
-        namespace: Namespace
+        namespace: Namespace,
+        requestor_addr: Option<SocketAddr>
     },
     CheckResponsibility {
         event_id: String,
@@ -883,4 +881,7 @@ impl TryFrom<InstanceGetSshDetails> for Namespace {
         let namespace = recover_namespace(owner, &params.name);
         Ok(namespace)
     }
+}
+
+impl From<InstanceCreateParams> for VmmEvent {
 }
