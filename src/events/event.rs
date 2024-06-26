@@ -29,6 +29,7 @@ use crate::{
         }, vm_types::VmType, voting::Vote
 };
 use crate::params::Payload;
+use getset::Getters;
 
 macro_rules! impl_into_event {
     ($($t:ty => $variant:ident),*) => {
@@ -510,7 +511,8 @@ pub struct GeneralResponseEvent {
     response: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Getters, Serialize, Deserialize)]
+#[getset(get = "pub")]
 pub struct RpcResponseEvent {
     original_event_id: String,
     event_id: String,
@@ -881,7 +883,4 @@ impl TryFrom<InstanceGetSshDetails> for Namespace {
         let namespace = recover_namespace(owner, &params.name);
         Ok(namespace)
     }
-}
-
-impl From<InstanceCreateParams> for VmmEvent {
 }

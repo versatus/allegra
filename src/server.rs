@@ -122,18 +122,25 @@ async fn main() -> std::io::Result<()> {
     let next_port = 2222;
     log::info!("established network port");
     
-    let vmm_publisher = Arc::new(
+    let publisher = Arc::new(
         Mutex::new(
             GenericPublisher::new("127.0.0.1:5555").await?
         )
     );
 
+    let subscriber = Arc::new(
+        Mutex::new(
+            RpcResponseSubscriber::new("127.0.0.1:5556").await?
+        )
+    );
+
+
     let service = VmmService {
         local_peer: local_peer.clone(),
         network: "lxdbr0".to_string(),
         port: next_port,
-        publisher: vmm_publisher,
-        subscriber: RpcResponseSubscriber::new("127.0.0.1:5556").await?
+        publisher,
+        subscriber
     };
 
     let vmmserver = VmmServer::new(

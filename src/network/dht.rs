@@ -158,7 +158,7 @@ impl QuorumManager {
 
     pub async fn run(
         &mut self,
-        mut stop_rx: Receiver<()>
+        stop_rx: &mut Receiver<()>
     ) -> std::io::Result<()> {
         let mut interval = interval(Duration::from_secs(21600));
         loop {
@@ -167,31 +167,29 @@ impl QuorumManager {
                     match result {
                         Ok(messages) => {
                             for m in messages {
-                                self.handle_quorum_message(m).await?;
+                                if let Err(e) = self.handle_quorum_message(m).await {
+                                    log::error!("{e}");
+                                }
                             }
                         }
                         Err(e) => log::error!("{e}")
                     }
                 },
-                quorum_result = self.futures.next() => {
+                Some(quorum_result) = self.futures.next() => {
                     match quorum_result {
-                        Some(Ok(Ok(QuorumResult::Unit(())))) => {
+                        Ok(Ok(QuorumResult::Unit(()))) => {
                             log::info!("Successfully awaited future");
                         }
-                        Some(Ok(Ok(QuorumResult::Other(details)))) => {
+                        Ok(Ok(QuorumResult::Other(details))) => {
                             log::info!("Successfully awaited future: {details}");
                         }
-                        Some(Err(e)) => {
+                        Err(e) => {
                             log::error!("Error awaiting future: {e}");
                         }
-                        Some(Ok(Err(e))) => {
+                        Ok(Err(e)) => {
                             log::error!("Error awaiting future: {e}");
-                        }
-                        None => {
-                            log::error!("Unable to await future");
                         }
                     }
-                    todo!()
                 },
                 leader_election = interval.tick() => {
                     log::info!("leader election event triggered: {:?}", leader_election);
@@ -212,11 +210,12 @@ impl QuorumManager {
             QuorumEvent::Consolidate { .. } => todo!(),
             QuorumEvent::RequestSshDetails { .. } => todo!(),
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
+                log::info!("Received quorum message: {event_id}: {task_id}");
                 self.handle_check_responsibility_message(
                     &namespace,
                     &payload,
                     task_id
-                );
+                ).await?;
                 // Send to peers in quorum responsible
             }
         }
@@ -272,6 +271,7 @@ impl QuorumManager {
         let quorum_responsible = self.get_quorum_responsible(&namespace)?; 
         let peers = self.get_quorum_peers_by_id(&quorum_responsible)?.clone();
         if let Some(true) = self.is_responsible(&namespace) {
+            log::info!("Local node quorum is responsible for instance {}", &namespace.to_string());
             self.publisher_mut().publish(
                 Box::new(VmManagerTopic),
                 Box::new(
@@ -296,6 +296,7 @@ impl QuorumManager {
             let task_id = task_id.clone();
             tokio::spawn(
                 async move {
+                    log::info!("publishing payload for {task_id} to {}", peer.address().to_string());
                     let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
                     let event_id = Uuid::new_v4().to_string();
                     let _ = publisher.publish(
@@ -650,31 +651,37 @@ impl QuorumManager {
     ) -> std::io::Result<()> {
         match payload {
             Params::Create(p) => {
+                log::info!("Handling Quorum Create message: {task_id}");
                 return self.handle_create_payload(
                     namespace, p, &task_id
                 ).await
             }
             Params::Start(p) => {
+                log::info!("Handling Quorum Start message: {task_id}");
                 return self.handle_start_payload(
                     namespace, p, &task_id
                 ).await
             }
             Params::Stop(p) => {
+                log::info!("Handling Quorum Stop message: {task_id}");
                 return self.handle_stop_payload(
                     namespace, p, &task_id
                 ).await
             }
             Params::Delete(p) => {
+                log::info!("Handling Quorum Delete message: {task_id}");
                 return self.handle_delete_payload(
                     namespace, p, &task_id
                 ).await
             }
             Params::AddPubkey(p) => {
+                log::info!("Handling Quorum AddPubkey message: {task_id}");
                 return self.handle_add_pubkey_payload(
                     namespace, p, &task_id
                 ).await
             }
             Params::ExposeService(p) => {
+                log::info!("Handling ExposeService message: {task_id}");
                 return self.handle_expose_service_payload(
                     namespace, p, &task_id
                 ).await

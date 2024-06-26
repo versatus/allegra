@@ -371,6 +371,7 @@ impl PubStream for GenericPublisher {
         full_message.extend_from_slice(&topic_len_bytes);
         full_message.extend_from_slice(&topic.to_string().as_bytes());
         full_message.extend_from_slice(message_str.as_bytes());
+        self.stream.write_all(&full_message).await?;
 
         Ok(())
     }

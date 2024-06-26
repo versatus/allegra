@@ -45,8 +45,7 @@ use futures::{
         FuturesUnordered, 
         StreamExt
     }, 
-    Future
-};
+    Future};
 use lazy_static::lazy_static;
 use rayon::iter::{
     IndexedParallelIterator, 
@@ -441,9 +440,9 @@ impl VmManager {
                         break
                     }
                 },
-                vmm_result = self.handles.next() => {
+                Some(vmm_result) = self.handles.next() => {
                     match vmm_result {
-                        Some(Ok(Ok(res))) => {
+                        Ok(Ok(res)) => {
                             match res {
                                 VmmResult::UpdateIptables {
                                     owner, task_id, task_status
@@ -466,23 +465,21 @@ impl VmManager {
                                 _ => { todo!() }
                             }
                         }
-                        Some(Err(e)) => {
+                        Err(e) => {
                             log::error!("error handling future {e}");
                         }
-                        Some(Ok(Err(e))) => {
+                        Ok(Err(e)) => {
                             log::error!("{e}");
                         }
-                        None => {}
                     }
                 },
-                sync_status = self.sync_futures.next() => {
+                Some(sync_status) = self.sync_futures.next() => {
                     match sync_status {
-                        Some(Ok(())) => {
+                        Ok(()) => {
                         }
-                        Some(Err(e)) => {
+                        Err(e) => {
                             log::error!("error handling future {e}");
                         }
-                        None => {}
                     }
                 },
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(180)) => {

@@ -37,7 +37,7 @@ use crate::{
     }, subscribe::RpcResponseSubscriber
 };
 
-use conductor::publisher::PubStream;
+use conductor::{subscriber::SubStream, publisher::PubStream};
 
 use tonic::{Request, Response, Status};
 use std::{net::SocketAddr, result::Result};
@@ -50,7 +50,7 @@ pub struct VmmService {
     pub port: u16,
     pub local_peer: Peer,
     pub publisher: Arc<Mutex<GenericPublisher>>,
-    pub subscriber: RpcResponseSubscriber,
+    pub subscriber: Arc<Mutex<RpcResponseSubscriber>>,
 }
 
 impl VmmService {
@@ -92,7 +92,7 @@ impl VmmService {
         Ok(())
     }
 
-    async fn update_task_status(&self, task_id: TaskId, owner: [u8; 20]) -> std::io::Result<()> {
+    async fn update_task_status(&self, task_id: TaskId, owner: [u8; 20]) -> std::io::Result<TaskStatus> {
         let task_status_event_id = uuid::Uuid::new_v4();
         let task_status_event = TaskStatusEvent::Update { 
             owner,
@@ -100,11 +100,51 @@ impl VmmService {
             task_status: TaskStatus::Pending,
             event_id: task_status_event_id.to_string()
         };
+        log::info!("created task_status_event: {}", task_status_event_id);
 
         let mut guard = self.publisher.lock().await;
+        log::info!("acquired publish guard");
         guard.publish(Box::new(TaskStatusTopic), Box::new(task_status_event)).await?;
+        log::info!("published check status event");
         drop(guard);
-        Ok(())
+        log::info!("dropped publish guard");
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
+        let mut guard = self.subscriber.lock().await;
+        tokio::select! {
+            Ok(response) = guard.receive() => {
+                let mut task_status: Option<TaskStatus> = None;
+                for r in response {
+                    let original_event_id = r.original_event_id();
+                    if task_status_event_id.to_string() == original_event_id.to_string() {
+                        let status: TaskStatus = serde_json::from_str(&r.response()).map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                format!("Error attempting to deserialize task status for task: {}: {e}", task_id.to_string())
+                            )
+                        })?;
+                        task_status = Some(status);
+                    }
+                }
+                drop(guard);
+                return Ok(
+                    task_status.ok_or(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Unable to acquire task status for task: {}", task_id.to_string())
+                        )
+                    )?
+                );
+            }
+            _ = interval.tick() => {
+                drop(guard);
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Task status request timed out for task: {}", task_id.to_string())
+                    )
+                )
+            }
+        }
     }
 
     async fn request_ssh_details(

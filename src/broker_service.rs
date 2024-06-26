@@ -5,5 +5,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     broker.start().await?;
+
     Ok(())
 }
