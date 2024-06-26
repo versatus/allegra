@@ -453,6 +453,29 @@ pub fn recover_namespace(
     Namespace::new(hex)
 }
 
+pub fn owner_address_from_string(addr: &str) -> std::io::Result<[u8; 20]> {
+    let mut owner: [u8; 20] = [0; 20];
+    if addr.starts_with("0x") {
+        let byte_vec = hex::decode(&addr[2..]).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        owner.copy_from_slice(&byte_vec[..]);
+        Ok(owner)
+    } else {
+        let byte_vec = hex::decode(&addr).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        owner.copy_from_slice(&byte_vec[..]);
+        Ok(owner)
+    }
+}
+
 pub async fn verify_ownership(
     state_client: tikv_client::RawClient,
     owner: [u8; 20],

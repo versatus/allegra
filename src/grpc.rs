@@ -24,16 +24,12 @@ use crate::{
     }, dht::Peer, event::{
         QuorumEvent, 
         TaskStatusEvent
-    }, helpers::{
-        recover_owner_address,
-        generate_task_id,
-        get_payload_hash
+    }, grpc_light::generate_task_id, helpers::{
+        generate_task_id, get_payload_hash, owner_address_from_string, recover_owner_address
     }, params::{
         HasOwner, Params, Payload
     }, publish::{
-        GenericPublisher, 
-        QuorumTopic, 
-        TaskStatusTopic
+        GenericPublisher, QuorumTopic, RpcResponseTopic, TaskStatusTopic
     }, subscribe::RpcResponseSubscriber
 };
 
@@ -64,9 +60,29 @@ impl VmmService {
         TryInto<Namespace, Error = std::io::Error> + 
         Clone + std::fmt::Debug 
     {
+        let quorum_event = Self::create_check_responsibility_event(params, task_id)?;
+        log::info!("created CheckResponsibility event");
+        let mut guard = self.publisher.lock().await;
+        log::info!("acquired publisher guard...");
+        guard.publish(Box::new(QuorumTopic), Box::new(quorum_event)).await?;
+        log::info!("published CheckResponsibility event to topic {}...", QuorumTopic);
+        drop(guard);
+        log::info!("dropped publisher guard...");
+        Ok(())
+    }
+
+    fn create_check_responsibility_event<P>(
+        params: P, 
+        task_id: TaskId
+    ) -> std::io::Result<QuorumEvent> 
+    where 
+        P: TryInto<Params, Error = std::io::Error> + 
+        TryInto<Namespace, Error = std::io::Error> + 
+        Clone + std::fmt::Debug 
+    {
         let event_id = uuid::Uuid::new_v4().to_string();
         log::info!("created event id {} for CheckResponsibility event...", &event_id);
-        let quorum_event = QuorumEvent::CheckResponsibility {
+        Ok(QuorumEvent::CheckResponsibility {
             namespace: params.clone().try_into().map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -81,18 +97,10 @@ impl VmmService {
             })?,
             task_id,
             event_id
-        };
-        log::info!("created CheckResponsibility event");
-        let mut guard = self.publisher.lock().await;
-        log::info!("acquired publisher guard...");
-        guard.publish(Box::new(QuorumTopic), Box::new(quorum_event)).await?;
-        log::info!("published CheckResponsibility event to topic {}...", QuorumTopic);
-        drop(guard);
-        log::info!("dropped publisher guard...");
-        Ok(())
+        })
     }
 
-    async fn update_task_status(&self, task_id: TaskId, owner: [u8; 20]) -> std::io::Result<TaskStatus> {
+    async fn update_task_status(&self, task_id: TaskId, owner: [u8; 20]) -> std::io::Result<()> {
         let task_status_event_id = uuid::Uuid::new_v4();
         let task_status_event = TaskStatusEvent::Update { 
             owner,
@@ -105,42 +113,91 @@ impl VmmService {
         let mut guard = self.publisher.lock().await;
         log::info!("acquired publish guard");
         guard.publish(Box::new(TaskStatusTopic), Box::new(task_status_event)).await?;
-        log::info!("published check status event");
+        log::info!("published update status event");
         drop(guard);
         log::info!("dropped publish guard");
+        Ok(())
+    }
+
+    async fn check_task_status(
+        &self,
+        original_task_id: TaskId,
+        current_task_id: TaskId
+        owner: [u8; 20],
+    ) -> std::io::Result<TaskStatus> {
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let response_topics = vec![RpcResponseTopic.to_string()];
+        let task_status_event = TaskStatusEvent::Get { 
+            owner,
+            original_task_id: original_task_id.clone(),
+            current_task_id: current_task_id.clone(), 
+            event_id: event_id.clone(),
+            response_topics,
+        }; 
+        log::info!("created task_status_event: {}", event_id);
+        let mut guard = self.publisher.lock().await;
+        log::info!("acquired publish guard");
+        guard.publish(
+            Box::new(TaskStatusTopic),
+            Box::new(task_status_event)
+        ).await?;
+        log::info!("published check status event");
+        drop(guard);
+        self.await_task_status_response(event_id, original_task_id.to_string()).await
+    }
+
+    async fn await_task_status_response(&self, task_status_check_id: String, task_id: String) -> std::io::Result<TaskStatus> {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
         let mut guard = self.subscriber.lock().await;
+        log::info!("acquired subscribe guard");
         tokio::select! {
             Ok(response) = guard.receive() => {
                 let mut task_status: Option<TaskStatus> = None;
                 for r in response {
                     let original_event_id = r.original_event_id();
-                    if task_status_event_id.to_string() == original_event_id.to_string() {
-                        let status: TaskStatus = serde_json::from_str(&r.response()).map_err(|e| {
+                    if task_status_check_id.to_string() == original_event_id.to_string() {
+                        log::info!(
+                            "Received response for task status check for task: {}",
+                            task_id.to_string()
+                        );
+                        let status: TaskStatus = serde_json::from_str(
+                            &r.response()
+                        ).map_err(|e| {
                             std::io::Error::new(
                                 std::io::ErrorKind::Other,
-                                format!("Error attempting to deserialize task status for task: {}: {e}", task_id.to_string())
+                                format!(
+                                    "Error attempting to deserialize task status for task: {}: {e}",
+                                    task_id.to_string()
+                                )
                             )
                         })?;
                         task_status = Some(status);
                     }
                 }
                 drop(guard);
+                log::info!("dropped subscribe guard");
                 return Ok(
                     task_status.ok_or(
                         std::io::Error::new(
                             std::io::ErrorKind::Other,
-                            format!("Unable to acquire task status for task: {}", task_id.to_string())
+                            format!(
+                                "Unable to acquire task status for task: {}",
+                                task_id.to_string()
+                            )
                         )
                     )?
                 );
             }
             _ = interval.tick() => {
                 drop(guard);
+                log::info!("dropped subscribe guard");
                 return Err(
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Task status request timed out for task: {}", task_id.to_string())
+                        format!(
+                            "Task status request timed out for task: {}",
+                            task_id.to_string()
+                        )
                     )
                 )
             }
@@ -325,7 +382,30 @@ impl Vmm for VmmService {
         let params = request.into_inner();
         let _owner_address = params.owner()?;
 
-        todo!()
+        let task_id = generate_task_id(params.clone())?;
+        
+        let owner = owner_address_from_string(&params.owner)?; 
+
+        let check_task_id = TaskId::new(params.id);
+        let task_status = self.check_task_status(
+            check_task_id.clone(), task_id.clone(), owner 
+        ).await?;
+
+        self.update_task_status(task_id.clone(), owner).await?;
+
+        let details = serde_json::json!({
+            "task_id": check_task_id.to_string(),
+            "task_status": task_status.to_string(),
+        }).to_string();
+
+        Ok(Response::new(
+                VmResponse {
+                    status: TaskStatus::Success.to_string(),
+                    details,
+                    ssh_details: None
+                }
+            )
+        )
     }
 
     async fn get_ssh_details(

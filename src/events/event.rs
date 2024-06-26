@@ -189,7 +189,8 @@ pub enum TaskStatusEvent {
     },
     Get { 
         owner: [u8; 20],
-        task_id: TaskId,
+        original_task_id: TaskId,
+        current_task_id: TaskId,
         event_id: String,
         response_topics: Vec<String>
     }, 
