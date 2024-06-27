@@ -16,14 +16,12 @@ use crate::{
         InstanceGetSshDetails, 
         InstanceStartParams, 
         InstanceStopParams
-    }, dht::Peer, 
-        grpc_light::generate_task_id, 
-        helpers::{
+    }, dht::Peer, grpc_light::generate_task_id, helpers::{
             recover_namespace, 
             recover_owner_address
         }, params::{
             HasOwner, Params, ServiceType
-        }, vm_info::{
+        }, publish::{EventTopic, GeneralResponseTopic, Topic}, vm_info::{
             VmInfo, 
             VmList
         }, vm_types::VmType, voting::Vote
@@ -164,6 +162,13 @@ impl SerializeIntoInner for Event {
             }
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum StateValueType {
+    Account,
+    TaskStatus,
+    Instance
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -394,6 +399,8 @@ pub enum StateEvent {
         event_id: String,
         task_id: TaskId,
         key: Vec<u8>,
+        response_topics: Vec<GeneralResponseTopic>,
+        expected_type: StateValueType,
     },
     Post {
         event_id: String,
@@ -422,18 +429,22 @@ pub enum StateEvent {
         namespace: Namespace,
         vm_info: VmInfo,
         port_map: HashMap<u16, (u16, ServiceType)>,
+        last_snapshot: Option<u64>,
+        last_sync: Option<u64>,
     },
     GetAccount {
         event_id: String,
         task_id: TaskId,
         task_status: TaskStatus,
-        owner: [u8; 20]
+        owner: [u8; 20],
+        response_topics: Vec<GeneralResponseTopic>,
     },
     GetInstance {
         event_id: String,
         task_id: TaskId,
         task_status: TaskStatus,
-        owner: [u8; 20]
+        namespace: Namespace,
+        response_topics: Vec<GeneralResponseTopic>,
     },
     PostAccount {
         event_id: String,
@@ -451,6 +462,8 @@ pub enum StateEvent {
         namespace: Namespace,
         vm_info: VmInfo,
         port_map: HashMap<u16, (u16, ServiceType)>,
+        last_snapshot: Option<u64>,
+        last_sync: Option<u64>,
     },
     DeleteInstance {
         event_id: String,
@@ -471,6 +484,7 @@ pub enum StateEvent {
     GetTaskStatus {
         event_id: String,
         task_id: TaskId,
+        response_topics: Vec<GeneralResponseTopic>,
     },
     DeleteTaskStatus {
         event_id: String,
@@ -510,6 +524,16 @@ pub struct GeneralResponseEvent {
     event_id: String,
     original_event_id: String,
     response: String,
+}
+
+impl GeneralResponseEvent {
+    pub fn new(
+        event_id: String,
+        original_event_id: String,
+        response: String,
+    ) -> Self {
+        Self { event_id, original_event_id, response }
+    }
 }
 
 #[derive(Clone, Debug, Getters, Serialize, Deserialize)]

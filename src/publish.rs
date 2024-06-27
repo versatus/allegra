@@ -1,5 +1,6 @@
 use std::str::FromStr;
 use conductor::publisher::PubStream;
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use derive_more::Display;
@@ -57,7 +58,96 @@ impl_from_str!(
     RpcResponseTopic
 );
 
+#[derive(Display)]
+pub enum EventTopic {
+    #[display(fmt = "network")]
+    NetworkTopic(NetworkTopic),
+    #[display(fmt = "quorum")]
+    QuorumTopic(QuorumTopic),
+    #[display(fmt = "state")]
+    StateTopic(StateTopic),
+    #[display(fmt = "task_status")]
+    TaskStatusTopic(TaskStatusTopic),
+    #[display(fmt = "vmm")]
+    VmManagerTopic(VmManagerTopic),
+    #[display(fmt = "sync")]
+    SyncTopic(SyncTopic),
+    #[display(fmt = "dns")]
+    DnsTopic(DnsTopic),
+    #[display(fmt = "rpc_response")]
+    RpcResponseTopic(RpcResponseTopic),
+    #[display(fmt = "network")]
+    GeneralResponseTopic(GeneralResponseTopic)
+}
+
+impl FromStr for EventTopic {
+    type Err = std::io::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "network" => Ok(Self::NetworkTopic(NetworkTopic)),
+            "quorum" => Ok(Self::QuorumTopic(QuorumTopic)),
+            "state" => Ok(Self::StateTopic(StateTopic)),
+            "task_status" => Ok(Self::TaskStatusTopic(TaskStatusTopic)),
+            "vmm" => Ok(Self::VmManagerTopic(VmManagerTopic)),
+            "sync" => Ok(Self::SyncTopic(SyncTopic)),
+            "dns" => Ok(Self::DnsTopic(DnsTopic)),
+            "rpc_response" => Ok(Self::RpcResponseTopic(RpcResponseTopic)),
+            _ => {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Cannot convert {s} to concrete EventTopic")
+                ))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Display, Debug, Serialize, Deserialize)]
+pub enum GeneralResponseTopic {
+    #[display(fmt = "network_response")]
+    NetworkResponseTopic,
+    #[display(fmt = "quorum_response")]
+    QuorumResponseTopic,
+    #[display(fmt = "state_response")]
+    StateResponseTopic,
+    #[display(fmt = "task_status_response")]
+    TaskStatusResponseTopic,
+    #[display(fmt = "vmm_response")]
+    VmManagerResponseTopic,
+    #[display(fmt = "sync_response")]
+    SyncResponseTopic,
+    #[display(fmt = "dns_response")]
+    DnsResponseTopic,
+    #[display(fmt = "rpc_response")]
+    RpcResponseTopic
+}
+
+impl Topic for GeneralResponseTopic {}
+
+impl FromStr for GeneralResponseTopic {
+    type Err = std::io::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "network_response" => Ok(GeneralResponseTopic::NetworkResponseTopic),
+            "quorum_response" => Ok(GeneralResponseTopic::QuorumResponseTopic),
+            "state_response" => Ok(GeneralResponseTopic::StateResponseTopic),
+            "task_status_response" => Ok(GeneralResponseTopic::TaskStatusResponseTopic),
+            "vmm_response" => Ok(GeneralResponseTopic::VmManagerResponseTopic),
+            "sync_response" => Ok(GeneralResponseTopic::SyncResponseTopic),
+            "dns_response" => Ok(GeneralResponseTopic::DnsResponseTopic),
+            "rpc_response" => Ok(GeneralResponseTopic::RpcResponseTopic),
+            _ => Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Unable to convert {s} to GeneralResponseTopic")
+                )
+            )
+        }
+    }
+}
+
 pub trait Topic: std::fmt::Display {}
+
 
 #[derive(Display, Default)]
 #[display(fmt = "network")]
@@ -81,7 +171,7 @@ pub struct SyncTopic;
 #[display(fmt = "dns")]
 pub struct DnsTopic;
 #[derive(Display, Default)]
-#[display(fmt = "rpc_respose")]
+#[display(fmt = "rpc_response")]
 pub struct RpcResponseTopic;
 
 pub struct GenericPublisher {

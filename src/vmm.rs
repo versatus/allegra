@@ -71,6 +71,8 @@ pub struct Instance {
     vminfo: VmInfo,
     port_map: HashMap<u16, (u16, ServiceType)>,
     last_snapshot: Option<u64>,
+    last_sync: Option<u64>,
+    // Add other metadata like quorum owned, access trie, etc.
 }
 
 lazy_static! {
@@ -83,13 +85,15 @@ impl Instance {
         namespace: Namespace,
         vminfo: VmInfo,
         port_map: impl IntoParallelIterator<Item = (u16, (u16, ServiceType))>,
-        last_snapshot: Option<u64>
+        last_snapshot: Option<u64>,
+        last_sync: Option<u64>
     ) -> Self {
         Self {
             namespace,
             vminfo,
             port_map: port_map.into_par_iter().collect(),
-            last_snapshot
+            last_snapshot,
+            last_sync,
         }
     }
 
@@ -130,6 +134,14 @@ impl Instance {
         &mut self
     ) -> &mut HashMap<u16, (u16, ServiceType)> {
         &mut self.port_map
+    }
+    
+    pub fn update_last_snapshot(&mut self, last_snapshot: Option<u64>) {
+        self.last_snapshot = last_snapshot;
+    }
+
+    pub fn update_last_sync(&mut self, last_sync: Option<u64) {
+        self.last_sync = last_sync;
     }
 }
 
