@@ -980,55 +980,9 @@ impl VmManager {
         let recovery_id = params.recovery_id.to_be_bytes()[3];
         let owner = recover_owner_address(hash, sig, recovery_id)?;
         let namespace = recover_namespace(owner, &params.name);
-
-        self.refresh_vmlist().await?;
-        let vmlist = self.vmlist.clone();
-        let new_next_port = params.port.into_par_iter()
-            .zip(
-                params.service_type.into_par_iter()
-            ).map(|(port, service)| {
-            let port = port.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-            let mut next_port = self.next_port;
-            let inner_namespace = namespace.clone();
-            let inner_task_id = task_id.clone();
-            let service: ServiceType = service.into();
-            let publisher_uri = self.publisher.peer_addr()?;
-            let inner_vmlist = vmlist.clone();
-            let handle: JoinHandle<std::io::Result<VmmResult>> = tokio::spawn(
-                async move {
-                    let (owner, task_id, task_status) = update_iptables(
-                        &publisher_uri,
-                        inner_vmlist,
-                        owner,
-                        inner_namespace.clone(),
-                        next_port,
-                        service.clone(),
-                        inner_task_id.clone(),
-                        port 
-                    ).await?;
-                    Ok(VmmResult::UpdateIptables { owner, task_id, task_status })
-                }
-            );
-            next_port += 1;
-            self.handles.push(handle);
-            Ok::<u16, std::io::Error>(next_port)
-        }).filter_map(|res| {
-            match res {
-                Ok(n) => Some(n),
-                _ => None
-            }
-        }).max().ok_or(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "all iterations failed"
-            )
-        )?;
-
+        let new_next_port = self.handle_expose_service_iptable_updates(
+            params, namespace, task_id, owner
+        ).await?; 
         self.next_port = new_next_port;
         Ok(())
     }
@@ -1312,26 +1266,30 @@ impl VmManager {
         namespace: Namespace,
         task_id: TaskId,
         owner: [u8; 20]
-    ) -> std::io::Result<()> {
-        for (port, service) in params.port.into_iter().zip(params.service_type.into_iter()) {
+    ) -> std::io::Result<u16> {
+        self.refresh_vmlist().await?;
+        let vmlist = self.vmlist.clone();
+        let new_next_port = params.port.into_par_iter()
+            .zip(
+                params.service_type.into_par_iter()
+            ).map(|(port, service)| {
             let port = port.try_into().map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     e
                 )
             })?;
-            self.refresh_vmlist().await?;
-            let vmlist = self.vmlist.clone();
-            let next_port = self.next_port;
+            let mut next_port = self.next_port;
             let inner_namespace = namespace.clone();
             let inner_task_id = task_id.clone();
             let service: ServiceType = service.into();
             let publisher_uri = self.publisher.peer_addr()?;
+            let inner_vmlist = vmlist.clone();
             let handle: JoinHandle<std::io::Result<VmmResult>> = tokio::spawn(
                 async move {
                     let (owner, task_id, task_status) = update_iptables(
                         &publisher_uri,
-                        vmlist.clone(),
+                        inner_vmlist,
                         owner,
                         inner_namespace.clone(),
                         next_port,
@@ -1339,18 +1297,25 @@ impl VmManager {
                         inner_task_id.clone(),
                         port 
                     ).await?;
-                    Ok(VmmResult::UpdateIptables { 
-                        owner,
-                        task_id, 
-                        task_status 
-                    })
+                    Ok(VmmResult::UpdateIptables { owner, task_id, task_status })
                 }
             );
-            self.next_port += 1;
+            next_port += 1;
             self.handles.push(handle);
-        }
+            Ok::<u16, std::io::Error>(next_port)
+        }).filter_map(|res| {
+            match res {
+                Ok(n) => Some(n),
+                _ => None
+            }
+        }).max().ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "all iterations failed"
+            )
+        )?;
 
-        Ok(())
+        Ok(new_next_port)
     }
 
     async fn handle_create_iptables_update(
