@@ -288,9 +288,11 @@ pub async fn update_instance(
     namespace: Namespace,
     vm_info: VmInfo,
     port_map: impl IntoParallelIterator<Item = (u16, (u16, ServiceType))>,
+    //TODO(asmith): Replace with GenericPublisher
     state_client: tikv_client::RawClient,
 ) -> std::io::Result<()> {
     log::info!("checking if instance has entry in state...");
+    //TODO(asmith): Replace with `StateEvent::GetInstance` event
     let instance = if let Ok(Some(instance_bytes)) = state_client.get(
         namespace.inner()
     ).await {
@@ -323,6 +325,7 @@ pub async fn update_instance(
 
     log::info!("Instance: {:?}", &instance);
 
+    //TODO(asmith): Replace with StateEvent::PutInstance event
     state_client.put(
         namespace.inner(),
         serde_json::to_vec(
@@ -480,11 +483,13 @@ pub fn owner_address_from_string(addr: &str) -> std::io::Result<[u8; 20]> {
 }
 
 pub async fn verify_ownership(
+    //TODO(asmith): Replace with GenericPublisher
     state_client: tikv_client::RawClient,
     owner: [u8; 20],
     namespace: Namespace
 ) -> std::io::Result<()> {
 
+    //Todo(asmith): Replace with StateEvent::GetAccount event
     let account = serde_json::from_slice::<Account>(
         &state_client.get(
             owner.to_vec()
@@ -543,6 +548,7 @@ pub async fn update_task_status(
 }
 
 pub async fn update_account(
+    //TODO(asmith): Replace with GenericPublisher;
     state_client: tikv_client::RawClient,
     vmlist: VmList,
     owner: [u8; 20],
@@ -560,6 +566,8 @@ pub async fn update_account(
     );
 
     log::info!("updating owner account...");
+    //TODO(asmith): Replace with StateEvent::PutAccount or StateEvent::PostAccount Event
+    // Probably best to use Put for overwrites/new accounts and Post for updates
     let account: Account = if let Ok(Some(account_bytes)) = state_client.get(owner.to_vec()).await {
         let mut account = match serde_json::from_slice::<Account>(&account_bytes) {
             Ok(account) => account,
@@ -585,6 +593,8 @@ pub async fn update_account(
         account
     };
 
+    //TODO(asmith): Replace with StateEvent::PutAccount or StateEvent::PostAccount Event
+    // Probably best to use Put for overwrites/new accounts and Post for updates
     state_client.put(
         owner.to_vec(),
         serde_json::to_vec(
@@ -625,6 +635,7 @@ pub async fn get_public_ip() -> std::io::Result<String> {
 
 pub async fn get_instance(
     namespace: Namespace,
+    //Replace with GenericPublisher
     state_client: tikv_client::RawClient
 ) -> std::io::Result<Instance> {
     log::info!("attempting to get instance: {}", namespace.inner());

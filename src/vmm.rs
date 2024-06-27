@@ -1116,7 +1116,9 @@ impl VmManager {
             task_status: TaskStatus::Pending, 
             namespace: namespace.clone(), 
             vm_info: vminfo, 
-            port_map: vec![(22u16, (self.next_port, ServiceType::Ssh))].into_iter().collect() 
+            port_map: vec![(22u16, (self.next_port, ServiceType::Ssh))].into_iter().collect(),
+            last_snapshot: None,
+            last_sync: None
         };
 
         self.publisher.publish(

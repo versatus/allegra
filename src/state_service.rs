@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pd_endpoints,
         subscriber_uri,
         publisher_uri
-    )?;
+    ).await?;
 
     state_manager.run().await?;
 

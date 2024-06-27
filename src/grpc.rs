@@ -24,7 +24,7 @@ use crate::{
     }, dht::Peer, event::{
         QuorumEvent, 
         TaskStatusEvent
-    }, grpc_light::generate_task_id, helpers::{
+    }, helpers::{
         generate_task_id, get_payload_hash, owner_address_from_string, recover_owner_address
     }, params::{
         HasOwner, Params, Payload

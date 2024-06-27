@@ -234,7 +234,7 @@ impl StateManager {
             })?;
 
             instance.update_vminfo(vminfo);
-            instance.extend_port_mapping(port_map_iter.par_iter().collect());
+            instance.extend_port_mapping(port_map_iter.par_iter().cloned());
             instance.update_last_snapshot(last_snapshot);
             instance.update_last_sync(last_sync);
 
@@ -243,7 +243,7 @@ impl StateManager {
             let instance = Instance::new(
                 namespace, 
                 vminfo, 
-                port_map.par_iter().collect(), 
+                port_map, 
                 last_snapshot, 
                 last_sync
             );
