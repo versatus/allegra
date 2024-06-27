@@ -29,7 +29,7 @@ use crate::{
     }, params::{
         HasOwner, Params, Payload
     }, publish::{
-        GenericPublisher, QuorumTopic, RpcResponseTopic, TaskStatusTopic
+        GeneralResponseTopic, GenericPublisher, QuorumTopic, RpcResponseTopic, TaskStatusTopic
     }, subscribe::RpcResponseSubscriber
 };
 
@@ -122,11 +122,11 @@ impl VmmService {
     async fn check_task_status(
         &self,
         original_task_id: TaskId,
-        current_task_id: TaskId
+        current_task_id: TaskId,
         owner: [u8; 20],
     ) -> std::io::Result<TaskStatus> {
         let event_id = uuid::Uuid::new_v4().to_string();
-        let response_topics = vec![RpcResponseTopic.to_string()];
+        let response_topics = vec![GeneralResponseTopic::RpcResponseTopic];
         let task_status_event = TaskStatusEvent::Get { 
             owner,
             original_task_id: original_task_id.clone(),

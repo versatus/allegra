@@ -140,7 +140,7 @@ impl Instance {
         self.last_snapshot = last_snapshot;
     }
 
-    pub fn update_last_sync(&mut self, last_sync: Option<u64) {
+    pub fn update_last_sync(&mut self, last_sync: Option<u64>) {
         self.last_sync = last_sync;
     }
 }

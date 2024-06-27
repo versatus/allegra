@@ -270,7 +270,9 @@ pub async fn update_iptables(
         task_status: TaskStatus::Success, 
         namespace: namespace.clone(), 
         vm_info: vminfo, 
-        port_map: port_map.into_par_iter().collect() 
+        port_map: port_map.into_par_iter().collect(),
+        last_snapshot: None,
+        last_sync: None
     };
     publisher.publish(
         Box::new(StateTopic), 
@@ -312,6 +314,7 @@ pub async fn update_instance(
             namespace.clone(),
             vm_info,
             port_map,
+            None,
             None
         );
         log::info!("successfully built instance {}...", namespace.inner());

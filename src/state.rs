@@ -19,6 +19,7 @@ use tikv_client::{
 use uuid::Uuid;
 
 use std::{collections::HashMap, sync::Arc};
+use std::num::NonZeroUsize;
 use tokio::sync::{Mutex, RwLock};
 use crate::{
     account::{
@@ -30,9 +31,9 @@ use crate::{
     }, event::{
         GeneralResponseEvent, 
         StateEvent, 
-        StateValueType
+        StateValueType, TaskStatusEvent
     }, params::ServiceType,
-    publish::GenericPublisher, 
+    publish::{GenericPublisher, StateTopic}, 
     subscribe::{
         StateSubscriber, 
         TaskStatusSubscriber
@@ -58,12 +59,85 @@ pub struct StateManager {
 }
 
 impl StateManager {
+    pub async fn new(pd_endpoints: Vec<&str>, subscriber_uri: &str, publisher_uri: &str) -> std::io::Result<Self> {
+        let writer = StateWriter::new(pd_endpoints.clone()).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        let reader = StateReader::new(pd_endpoints.clone()).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        let state_subscriber = StateSubscriber::new(subscriber_uri).await?;
+        let task_subscriber = TaskStatusSubscriber::new(subscriber_uri).await?;
+        let publisher = Arc::new(Mutex::new(GenericPublisher::new(publisher_uri).await?));
+        let task_cache = Arc::new(
+            RwLock::new(
+                LruCache::new(
+                    NonZeroUsize::new(1000).ok_or(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Invalid NonZeroUsize"
+                        )
+                    )?
+                )
+            )
+        );
+        let account_cache = Arc::new(
+            RwLock::new(
+                LruCache::new(
+                    NonZeroUsize::new(
+                        1000
+                    ).ok_or(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Invalid NonZeroUsize"
+                        )
+                    )?
+                )
+            )
+        );
+        let instance_cache = Arc::new(
+            RwLock::new(
+                LruCache::new(
+                    NonZeroUsize::new(
+                        1000
+                    ).ok_or(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Invalid NonZeroUsize"
+                        )
+                    )?
+                )
+            )
+        );
+
+        Ok(Self {
+            writer,
+            reader,
+            task_cache,
+            account_cache,
+            instance_cache,
+            state_subscriber,
+            task_subscriber,
+            publisher
+        })
+    }
     pub async fn run(&mut self) -> std::io::Result<()> {
         loop {
             tokio::select! {
                 Ok(message) = self.state_subscriber.receive() => {
                     for m in message {
                         self.handle_state_event(m).await?;
+                    }
+                }
+                Ok(message) = self.task_subscriber.receive() => {
+                    for m in message {
+                        self.handle_task_event(m).await?;
                     }
                 }
                 _ = tokio::signal::ctrl_c() => {
@@ -84,14 +158,18 @@ impl StateManager {
         namespace: Namespace,
         exposed_ports: Option<Vec<ExposedPort>>
     ) -> std::io::Result<Account> {
-        if let Some(account_bytes) = self.reader_mut().get(owner.to_vec()).await.map_err(|e| {
+        if let Some(account_bytes) = self.reader_mut().get(
+            owner.to_vec()
+        ).await.map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })? {
             // Account already exists, add to it
-            let mut account: Account = serde_json::from_slice(&account_bytes).map_err(|e| {
+            let mut account: Account = serde_json::from_slice(
+                &account_bytes
+            ).map_err(|e| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     e
@@ -131,9 +209,10 @@ impl StateManager {
         last_snapshot: Option<u64>,
         last_sync: Option<u64>,
     ) -> std::io::Result<Instance> {
-        let port_map_iter: Vec<(u16, (u16,  ServiceType))> = port_map.par_iter().map(|(x, (y, st))| {
-            (*x, (*y, st.clone().into()))
-        }).collect();
+        let port_map_iter: Vec<(u16, (u16,  ServiceType))> = port_map.par_iter()
+            .map(|(x, (y, st))| {
+                (*x, (*y, st.clone().into()))
+            }).collect();
         if let Some(instance_bytes) = self.reader_mut().get(
             serde_json::to_vec(&namespace).map_err(|e| {
                 std::io::Error::new(
@@ -516,6 +595,45 @@ impl StateManager {
                         e
                     )
                 })?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_task_event(&mut self, task_event: TaskStatusEvent) -> std::io::Result<()> {
+        match task_event {
+            TaskStatusEvent::Get { original_task_id, event_id, response_topics, .. } => {
+                let mut read_guard = self.task_cache().write().await;
+                if let Some(task_status) = read_guard.get(&original_task_id) {
+                    let response_event_id = Uuid::new_v4().to_string(); 
+                    let response = GeneralResponseEvent::new(
+                        response_event_id.clone(),
+                        event_id.to_string(),
+                        serde_json::to_string(&task_status)?
+                    );
+                    let mut publish_guard = self.publisher().lock().await;
+                    for topic in response_topics {
+                        publish_guard.publish(
+                            Box::new(topic), 
+                            Box::new(response.clone())
+                        ).await?;
+                    }
+                    drop(publish_guard);
+                }
+                drop(read_guard);
+            }
+            TaskStatusEvent::Update { task_id, task_status, .. } => {
+                let new_event_id = Uuid::new_v4().to_string();
+                let mut read_guard = self.task_cache().write().await;
+                let entry = read_guard.get_or_insert_mut(task_id.clone(), || TaskStatus::Pending);
+                *entry = task_status.clone();
+                let mut guard = self.publisher().lock().await;
+                let event = StateEvent::PutTaskStatus { event_id: new_event_id, task_id, task_status };
+                guard.publish(
+                    Box::new(StateTopic),
+                    Box::new(event)
+                ).await?;
             }
         }
 

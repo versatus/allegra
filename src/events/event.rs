@@ -197,7 +197,7 @@ pub enum TaskStatusEvent {
         original_task_id: TaskId,
         current_task_id: TaskId,
         event_id: String,
-        response_topics: Vec<String>
+        response_topics: Vec<GeneralResponseTopic>
     }, 
 }
 
