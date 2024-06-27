@@ -29,7 +29,7 @@ use crate::{
     }, params::{
         HasOwner, Params, Payload
     }, publish::{
-        GeneralResponseTopic, GenericPublisher, QuorumTopic, RpcResponseTopic, TaskStatusTopic
+        GeneralResponseTopic, GenericPublisher, QuorumTopic, TaskStatusTopic
     }, subscribe::RpcResponseSubscriber
 };
 

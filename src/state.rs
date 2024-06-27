@@ -127,6 +127,7 @@ impl StateManager {
             publisher
         })
     }
+
     pub async fn run(&mut self) -> std::io::Result<()> {
         loop {
             tokio::select! {
@@ -747,7 +748,7 @@ impl StateWriter {
         key: impl Into<Key> + Clone
     ) -> Result<()> {
         let mut txn = self.client.begin_optimistic().await?;
-        txn.delete(key);
+        txn.delete(key).await?;
         txn.commit().await?;
         Ok(())
     }

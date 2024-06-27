@@ -1,4 +1,4 @@
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tokio::net::TcpStream;
 use conductor::subscriber::SubStream;
 use tokio::io::AsyncReadExt;

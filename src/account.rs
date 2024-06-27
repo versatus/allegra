@@ -2,7 +2,6 @@ use std::{collections::HashMap, fmt::Display};
 use rayon::iter::{IntoParallelIterator, ParallelExtend, ParallelIterator};
 use serde::{Serialize, Deserialize};
 use crate::{vm_info::VmInfo, params::ServiceType};
-use uuid::Uuid;
 
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]

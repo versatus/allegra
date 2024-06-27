@@ -204,7 +204,7 @@ impl Node {
     }
 
     async fn get_election_block_hash(
-        block_height: u64
+        _block_height: u64
     ) -> std::io::Result<[u8; 32]> {
         todo!()
     }

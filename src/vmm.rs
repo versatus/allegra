@@ -575,66 +575,66 @@ impl VmManager {
     ) -> std::io::Result<()> {
         match message {
             VmManagerMessage::NewInstance { 
-                event_id,
-                params, 
-                task_id 
+                params,
+                task_id,
+                ..
             } => {
                 log::info!("received NewInstance message, attempting to launch instance.");
                 return self.launch_instance(params, task_id).await
             }
             VmManagerMessage::StartInstance { 
-                event_id,
                 params, 
                 sig, 
-                task_id 
+                task_id,
+                ..
             } => {
                 log::info!("received StartInstance message, attempting to start instance.");
                 return self.start_instance(params, sig, task_id).await
             }
             VmManagerMessage::InjectAuth { 
-                event_id,
                 params, 
                 sig, 
-                task_id 
+                task_id,
+                ..
             } => {
                 log::info!("received InjectAuth message, attempting to add auth to instance.");
                 return self.inject_authorization(params, sig, task_id).await
             }
             VmManagerMessage::StopInstance { 
-                event_id,
                 params, 
                 sig, 
-                task_id 
+                task_id,
+                ..
             } => {
                 log::info!("received StopInstance message, attempting to stop instance.");
                 return self.stop_instance(params, sig, task_id).await
             }
             VmManagerMessage::DeleteInstance { 
-                event_id,
                 params, 
                 sig, 
-                task_id 
+                task_id,
+                ..
             } => {
                 log::info!("received DeleteInstance message, attempting to delete instance.");
                 return self.delete_instance(params, sig, task_id).await
             }
             VmManagerMessage::ExposeService { 
-                event_id,
                 params, 
                 sig, 
-                task_id 
+                task_id,
+                ..
             } => {
                 log::info!("received ExposeService message, attempting to expose service on instance.");
                 return self.expose_service(params, sig, task_id).await
             }
-            VmManagerMessage::SyncInstance { event_id, namespace, path } => {
+            VmManagerMessage::SyncInstance { namespace, path, .. } => {
                 log::info!("received SyncInstance message, attempting to sync instance");
                 let vmlist = self.vmlist.clone();
                 let future = Box::pin(Self::sync_instance(vmlist, namespace, path));
                 self.sync_futures.push(future);
                 return Ok(())
             }
-            VmManagerMessage::MigrateInstance { event_id, namespace, new_quorum, path } => {
+            VmManagerMessage::MigrateInstance { namespace, new_quorum, path, .. } => {
                 log::info!("received MigrateInstance message, attempting to migrate instance");
                 let vmlist = self.vmlist.clone();
                 let future = Box::pin(Self::move_instance(vmlist, namespace, path, new_quorum));
@@ -1086,18 +1086,18 @@ impl VmManager {
     }
 
     pub async fn sync_instance(
-        vmlist: VmList,
+        _vmlist: VmList,
         namespace: String,
-        path: String 
+        _path: String 
     ) -> std::io::Result<()> {
         log::info!("Attempting to sync instance {namespace}");
         todo!()
     }
 
     pub async fn move_instance(
-        vmlist: VmList,
-        namespace: String,
-        path: String,
+        _vmlist: VmList,
+        _namespace: String,
+        _path: String,
         _new_quorum: Option<String>,
     ) -> std::io::Result<()> {
         todo!()

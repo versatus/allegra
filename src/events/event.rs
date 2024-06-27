@@ -21,7 +21,7 @@ use crate::{
             recover_owner_address
         }, params::{
             HasOwner, Params, ServiceType
-        }, publish::{EventTopic, GeneralResponseTopic, Topic}, vm_info::{
+        }, publish::{GeneralResponseTopic}, vm_info::{
             VmInfo, 
             VmList
         }, vm_types::VmType, voting::Vote

@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, io};
+use std::{collections::{HashMap, HashSet}, hash::RandomState};
 use futures::stream::FuturesUnordered;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use sha3::{Sha3_256, Digest};
@@ -11,11 +11,9 @@ use crate::{
         Namespace,
         TaskId
     }, event::{
-        self, 
         Event, 
         NetworkEvent, 
         QuorumEvent, 
-        RpcResponseEvent, 
         VmmEvent
     }, network::node::Node, 
         params::{
@@ -24,7 +22,7 @@ use crate::{
             InstanceDeleteParams, InstanceAddPubkeyParams
         }, 
         publish::{
-            GenericPublisher, NetworkTopic, RpcResponseTopic, VmManagerTopic
+            GenericPublisher, NetworkTopic, VmManagerTopic
         }, subscribe::QuorumSubscriber
 };
 
@@ -121,6 +119,7 @@ pub struct QuorumManager {
 }
 
 
+#[allow(unused)]
 impl QuorumManager {
     pub async fn new(
         subscriber_uri: &str, 
