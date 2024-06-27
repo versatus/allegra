@@ -151,6 +151,14 @@ message ClusterCertMessage {
     string quorum = 5;
 }
 
+message NodeCertMessage {
+    string peer_id = 1;
+    string peer_address = 2;
+    string cert = 3;
+    string quorum_id = 4;
+    string request_id = 5;
+}
+
 service Vmm {
   rpc CreateVm(InstanceCreateParams) returns (VmResponse);
   rpc ShutdownVm(InstanceStopParams) returns (VmResponse);
@@ -165,4 +173,5 @@ service Vmm {
   rpc Sync(stream SyncMessage) returns (TransferStatus);
   rpc Migrate(stream MigrateMessage) returns (TransferStatus);
   rpc GetPort(GetPortMessage) returns (PortResponse);
+  rpc NodeCertificate(NodeCertMessage) returns (Ack);
 }

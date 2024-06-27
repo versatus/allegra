@@ -2,25 +2,7 @@ use crate::{
     account::{
         Namespace, TaskId, TaskStatus
     }, allegra_rpc::{
-        vmm_server::Vmm, 
-        Ack, 
-        GetPortMessage, 
-        GetTaskStatusRequest, 
-        InstanceAddPubkeyParams, 
-        InstanceCreateParams, 
-        InstanceDeleteParams, 
-        InstanceExposeServiceParams, 
-        InstanceGetSshDetails, 
-        InstanceStartParams, 
-        InstanceStopParams, 
-        MessageHeader, 
-        MigrateMessage, 
-        NewPeerMessage, 
-        PingMessage, 
-        PongMessage, 
-        PortResponse, 
-        SyncMessage, 
-        VmResponse
+        vmm_server::Vmm, Ack, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage, NodeCertMessage, PingMessage, PongMessage, PortResponse, SyncMessage, VmResponse
     }, dht::Peer, event::{
         QuorumEvent, 
         TaskStatusEvent
@@ -36,7 +18,8 @@ use crate::{
 use conductor::{subscriber::SubStream, publisher::PubStream};
 
 use tonic::{Request, Response, Status};
-use std::{net::SocketAddr, result::Result};
+use uuid::Uuid;
+use std::{net::SocketAddr, result::Result, str::FromStr};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -204,6 +187,41 @@ impl VmmService {
         }
     }
 
+    async fn handle_node_certificate_message(
+        &self,
+        node_cert: NodeCertMessage
+    ) -> std::io::Result<()> {
+
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = generate_task_id(node_cert.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        let event = QuorumEvent::CheckAcceptCert { 
+            event_id, 
+            task_id, 
+            peer: Peer::new(
+                Uuid::from_str(
+                    &node_cert.peer_id
+                ).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })?, node_cert.peer_address), 
+            cert: node_cert.cert 
+        };
+        let mut guard = self.publisher.lock().await;
+        guard.publish(
+            Box::new(QuorumTopic), 
+            Box::new(event)
+        ).await?;
+
+        Ok(())
+    }
+
     async fn request_ssh_details(
         &self,
         _remote_addr: Option<SocketAddr>,
@@ -215,10 +233,33 @@ impl VmmService {
 
     async fn add_peer(
         &self,
-        _peer: NewPeerMessage
+        peer: NewPeerMessage
     ) -> std::io::Result<()> {
         // Send to quorum management service
-        todo!()
+        let task_id = generate_task_id(peer.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        let event_id = Uuid::new_v4().to_string();
+        let peer_id = Uuid::from_str(&peer.new_peer_id).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        let peer = Peer::new(peer_id, peer.new_peer_address);
+        let event = QuorumEvent::NewPeer { event_id, task_id, peer };
+
+        let mut guard = self.publisher.lock().await;
+        guard.publish(
+            Box::new(QuorumTopic), 
+            Box::new(event)
+        ).await?;
+
+        Ok(())
+
     }
 }
 
@@ -487,4 +528,28 @@ impl Vmm for VmmService {
         let _service = message.service_type;
         todo!()
     }
+
+    async fn node_certificate(
+        &self,
+        request: Request<NodeCertMessage>
+    ) -> Result<Response<Ack>, Status> {
+        let message = request.into_inner().clone();
+        let request_id = message.request_id.clone();
+        self.handle_node_certificate_message(message).await?;
+
+        let message_id = Uuid::new_v4().to_string();
+        let header = MessageHeader {
+            peer_id: self.local_peer.id().to_string(),
+            peer_address: self.local_peer.address().to_string(),
+            message_id
+        };
+        Ok(Response::new(
+                Ack {
+                    header: Some(header),
+                    request_id
+                }
+            )
+        )
+    }
 }
+

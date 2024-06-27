@@ -1,14 +1,7 @@
 use crate::{
-    params::Payload,
     allegra_rpc::{
-        InstanceCreateParams,
-        InstanceStopParams,
-        InstanceDeleteParams,
-        InstanceExposeServiceParams,
-        InstanceGetSshDetails,
-        InstanceAddPubkeyParams,
-        InstanceStartParams, GetTaskStatusRequest
-    }
+        GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, NewPeerMessage, NodeCertMessage
+    }, params::Payload
 };
 
 use std::any::Any;
@@ -120,6 +113,35 @@ impl Payload for InstanceGetSshDetails {
         serde_json::json!({
             "command": "getSshDetails",
             "name": &self.name
+        }).to_string()
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+}
+
+impl Payload for NewPeerMessage {
+    fn into_payload(&self) -> String {
+        serde_json::json!({
+            "command": "newPeerMessage",
+            "newPeerId": self.new_peer_id,
+            "newPeerAddress": self.new_peer_address,
+        }).to_string()
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+}
+
+impl Payload for NodeCertMessage {
+    fn into_payload(&self) -> String {
+        serde_json::json!({
+            "command": "newCertificate",
+            "peerId": self.peer_id,
+            "peerAddress": self.peer_address,
+            "certificate": self.cert
         }).to_string()
     }
 

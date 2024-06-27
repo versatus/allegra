@@ -11,7 +11,6 @@ use crate::{
         Namespace,
         TaskId
     }, event::{
-        Event, 
         NetworkEvent, 
         QuorumEvent, 
         VmmEvent
@@ -208,6 +207,10 @@ impl QuorumManager {
             QuorumEvent::Expand { .. } => todo!(),
             QuorumEvent::Consolidate { .. } => todo!(),
             QuorumEvent::RequestSshDetails { .. } => todo!(),
+            QuorumEvent::NewPeer { event_id, task_id, peer } => {
+                log::info!("Received quorum message: {event_id}: {task_id}");
+                self.handle_new_peer_message(&peer).await?;
+            }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
                 log::info!("Received quorum message: {event_id}: {task_id}");
                 self.handle_check_responsibility_message(
@@ -215,7 +218,10 @@ impl QuorumManager {
                     &payload,
                     task_id
                 ).await?;
-                // Send to peers in quorum responsible
+            }
+            QuorumEvent::CheckAcceptCert { peer, cert, event_id, task_id } => {
+                log::info!("Received quorum message: {event_id}: {task_id}");
+                self.accept_cert(&peer, &cert).await?;
             }
         }
 
@@ -642,6 +648,16 @@ impl QuorumManager {
         todo!()
     }
 
+    async fn handle_new_peer_message(
+        &mut self, 
+        peer: &Peer
+    ) -> std::io::Result<()> {
+
+        self.add_peer(peer).await?;
+
+        Ok(())
+    }
+
     async fn handle_check_responsibility_message(
         &mut self,
         namespace: &Namespace,
@@ -773,7 +789,13 @@ impl QuorumManager {
         Ok(())
     }
 
-    pub async fn share_cert(&mut self, local_id: &str, peer: &Peer) -> std::io::Result<()> {
+    pub async fn share_cert(
+        &mut self, 
+        local_id: &str, 
+        peer: &Peer, 
+        quorum_id: &Uuid, 
+        dst: &Peer
+    ) -> std::io::Result<()> {
         let peer_id_bytes = peer.id().to_string().as_bytes().to_vec();
         let local_peer_id_bytes = local_id.as_bytes();
 
@@ -819,17 +841,22 @@ impl QuorumManager {
                 )
             };
 
-            //TODO(asmith): Replace with publisher 
             let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
             let event_id = uuid::Uuid::new_v4().to_string();
-            let _event = Event::NetworkEvent(
-                NetworkEvent::ShareCert { 
-                    peer: peer.clone(), 
-                    cert,
-                    task_id,
-                    event_id
-                }
-            );
+            let event = NetworkEvent::ShareCert { 
+                peer: peer.clone(), 
+                cert,
+                task_id,
+                event_id,
+                quorum_id: quorum_id.to_string(),
+                dst: dst.clone()
+            };
+
+            self.publisher.publish(
+                Box::new(NetworkTopic),
+                Box::new(event)
+            ).await?;
+
         } else {
             let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
                 std::io::Error::new(
@@ -856,31 +883,38 @@ impl QuorumManager {
     ) -> std::io::Result<()> {
         //TODO(asmith): We will want to check against their stake to verify membership
 
-        let output = std::process::Command::new("sudo")
-            .arg("lxc")
-            .arg("remote")
-            .arg("add")
-            .arg(peer.id().to_string())
-            .arg(cert)
-            .output()?;
+        // Check if peer is member of same quorum as local node
+        let qid = self.get_local_quorum_membership()?;
+        let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
+        if quorum_peers.contains(peer) {
+            let output = std::process::Command::new("sudo")
+                .arg("lxc")
+                .arg("remote")
+                .arg("add")
+                .arg(peer.id().to_string())
+                .arg(cert)
+                .output()?;
 
-        if output.status.success() {
-            log::info!("Successfully added peer {} certificate to trust store", &peer.id().to_string());
-            return Ok(())
-        } else {
-            let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
+            if output.status.success() {
+                log::info!("Successfully added peer {} certificate to trust store", &peer.id().to_string());
+                return Ok(())
+            } else {
+                let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })?;
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to add peer {} certificate to trust store: {}", &peer.id().to_string(), stderr)
+                    )
                 )
-            })?;
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to add peer {} certificate to trust store: {}", &peer.id().to_string(), stderr)
-                )
-            )
+            }
         }
+
+        Ok(())
     }
 
     pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
@@ -890,9 +924,15 @@ impl QuorumManager {
                 std::io::ErrorKind::Other,
                 "unable to map peer to resource"
             )
-        )?;
+        )?.clone();
 
-        let quorum = self.quorums.get_mut(q.id()).ok_or(
+        let local_quorum_member = if q.id() == &self.get_local_quorum_membership()? {
+            true
+        } else {
+            false
+        };
+
+        let quorum = self.quorums.get_mut(&q.id().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "quorum assigned does not exist"
@@ -902,48 +942,46 @@ impl QuorumManager {
         log::info!("quorum.size() = {}", quorum.size());
         quorum.add_peer(peer);
         log::info!("quorum.size() = {}", quorum.size());
+
+        if quorum.clone().size() >= 50 {
+            drop(quorum);
+            self.create_new_quorum().await?;
+        }
+
         if !self.peers.contains_key(&peer.id()) {
             self.peers.insert(peer.id, peer.clone());
-            for (_, dst_peer) in &self.peers {
-                if dst_peer != peer {
+            for (_, dst_peer) in self.peers.clone() {
+                if &dst_peer != peer {
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
                     let event_id = uuid::Uuid::new_v4().to_string();
-                    let _dst_event = Event::NetworkEvent(
-                        NetworkEvent::NewPeer { 
-                            peer_id: peer.id().to_string(), 
-                            peer_address: peer.address().to_string(), 
-                            dst: dst_peer.address().to_string(),
-                            task_id,
-                            event_id,
-                        }
-                    );
+                    let dst_event = NetworkEvent::NewPeer { 
+                        peer_id: peer.id().to_string(), 
+                        peer_address: peer.address().to_string(), 
+                        dst: dst_peer.address().to_string(),
+                        task_id,
+                        event_id,
+                    };
 
-                    let task_id = TaskId::new(
-                        uuid::Uuid::new_v4().to_string()
-                    );
-                    let event_id = uuid::Uuid::new_v4().to_string();
-                    let _new_peer_event = Event::NetworkEvent(
-                        NetworkEvent::NewPeer { 
-                            peer_id: dst_peer.id().to_string(), 
-                            peer_address: dst_peer.address().to_string(), 
-                            dst: dst_peer.address().to_string(),
-                            task_id,
-                            event_id
-                        }
-                    );
 
-                    //TODO(asmith): replace with publisher
-                    //let mut guard = self.event_broker.lock().await;
-                    //guard.publish("Network".to_string(), dst_event).await;
-                    //guard.publish("Network".to_string(), new_peer_event).await;
+                    self.publisher_mut().publish(
+                        Box::new(NetworkTopic),
+                        Box::new(dst_event)
+                    ).await?;
                 }
             }
         } 
 
-        if quorum.size() >= 50 {
-            self.create_new_quorum().await?;
+        if local_quorum_member {
+            let local_id = self.node().peer_info().id().clone();
+            let local_peer = self.node.peer_info().clone();
+            self.share_cert(
+                &local_id.to_string(),
+                &local_peer,
+                q.id(),
+                peer
+            ).await?;
         }
 
         Ok(())

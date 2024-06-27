@@ -328,12 +328,16 @@ pub enum NetworkEvent {
         event_id: String,
         task_id: TaskId,
         certs: HashMap<Peer, String>,
+        peer: Peer,
+        quorum_id: String,
     },
     ShareCert {
         event_id: String,
         task_id: TaskId,
         peer: Peer,
         cert: String,
+        quorum_id: String,
+        dst: Peer
     },
     CastLeaderElectionVote {
         event_id: String,
@@ -517,6 +521,17 @@ pub enum QuorumEvent {
         namespace: Namespace,
         payload: Params,
     },
+    NewPeer {
+        event_id: String,
+        task_id: TaskId,
+        peer: Peer
+    },
+    CheckAcceptCert {
+        event_id: String,
+        task_id: TaskId,
+        peer: Peer,
+        cert: String,
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
