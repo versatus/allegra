@@ -417,10 +417,6 @@ impl Vmm for VmmService {
         let namespace: Namespace = params.clone().try_into().map_err(|_| {
             Status::internal("Unable to convert params into Namespace")
         })?; 
-
-        // Check which quorum is responsible
-        // if local quorum is responsible
-        // check if local is closest node
         Ok(self.request_ssh_details(remote_addr, params, namespace).await?)
     }
 
