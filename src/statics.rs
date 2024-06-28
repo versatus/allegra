@@ -19,7 +19,7 @@ server {
 "#;
     pub static ref DEFAULT_LXD_STORAGE_POOL: &'static str = "/mnt/libretto/lxd-storage-pool"; 
     pub static ref DEFAULT_LXD_STORAGE_DIR: &'static str = "/home/ans/projects/sandbox/test-dir/";     
-    pub static ref DEFAULT_GRPC_ADDRESS: &'static str = "0.0.0.0.50051";
+    pub static ref DEFAULT_GRPC_ADDRESS: &'static str = "0.0.0.0:50051";
     pub static ref DEFAULT_SUBSCRIBER_ADDRESS: &'static str = "127.0.0.1:5556";
     pub static ref DEFAULT_PUBLISHER_ADDRESS: &'static str = "127.0.0.1:5555";
     pub static ref TEMP_PATH: &'static str = "/var/snap/lxd/common/lxd/tmp"; 
