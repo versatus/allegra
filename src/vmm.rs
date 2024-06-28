@@ -18,7 +18,7 @@ use crate::{
     }, publish::{
         GenericPublisher,
         StateTopic
-    }, startup::self, subscribe::VmmSubscriber, vm_info::{
+    }, startup::self, subscribe::{LibrettoSubscriber, VmmSubscriber}, vm_info::{
         VmInfo, 
         VmList
     }
@@ -43,6 +43,7 @@ use futures::{
         StreamExt
     }, 
     Future};
+use libretto::pubsub::{LibrettoEvent, VmmAction};
 use rayon::iter::{
     IndexedParallelIterator, 
     IntoParallelIterator, 
@@ -342,6 +343,7 @@ pub struct VmManager {
     vmlist: VmList,
     publisher: GenericPublisher,
     pub subscriber: VmmSubscriber,
+    pub fs_monitor: LibrettoSubscriber,
 }
 
 impl VmManager {
@@ -399,6 +401,8 @@ impl VmManager {
         let publisher = GenericPublisher::new("127.0.0.1:5555").await?;
         log::info!("instantiated GenericPublisher publishing to 127.0.0.1:5555");
         log::info!("Returning VmManager");
+        let fs_monitor = LibrettoSubscriber::new("127.0.0.1:5556").await?;
+
         Ok(Self {
             network: network.to_string(),
             next_port,
@@ -406,7 +410,8 @@ impl VmManager {
             vmlist,
             sync_futures,
             subscriber,
-            publisher
+            publisher,
+            fs_monitor
         })
     }
 
@@ -432,6 +437,21 @@ impl VmManager {
                         }
                     }
                 },
+                fs_events = self.fs_monitor.receive() => {
+                    if let Ok(events) = fs_events {
+                        log::info!("Filesystem event received");
+                        for event in events {
+                            match self.handle_fs_monitor_event(
+                                event
+                            ).await {
+                                Err(e) => {
+                                    log::error!("Error in fs_monitor: {e}")
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
                 stop = stop_rx.recv() => {
                     if let Some(_) = stop {
                         log::warn!("received stop token");
@@ -613,10 +633,10 @@ impl VmManager {
                 log::info!("received ExposeService message, attempting to expose service on instance.");
                 return self.expose_service(params, sig, task_id).await
             }
-            VmManagerMessage::SyncInstance { namespace, path, .. } => {
+            VmManagerMessage::SyncInstance { namespace, .. } => {
                 log::info!("received SyncInstance message, attempting to sync instance");
                 let vmlist = self.vmlist.clone();
-                let future = Box::pin(Self::sync_instance(vmlist, namespace, path));
+                let future = Box::pin(Self::sync_instance(vmlist, namespace));
                 self.sync_futures.push(future);
                 return Ok(())
             }
@@ -628,6 +648,40 @@ impl VmManager {
                 return Ok(())
             }
         }
+    }
+
+    async fn handle_fs_monitor_event(
+        &mut self,
+        event: LibrettoEvent,
+    ) -> std::io::Result<()> {
+        let action = event.action(); 
+        match action {
+            VmmAction::Copy => {
+                self.refresh_vmlist().await?;
+                let vmlist = self.vmlist.clone();
+                let future = Box::pin(
+                    Self::sync_instance(
+                        vmlist,
+                        event.instance_name().clone().ok_or(
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "Instance namespace not included in event"
+                            )
+                        )?
+                    )
+                );
+                self.sync_futures.push(future);
+            }
+            VmmAction::Rollup => {
+                log::info!("Received fs_event to rollup {:?}", event.instance_name());
+            }
+            VmmAction::Snapshot => {
+                log::info!("Received fs_event to snapshot {:?}", event.instance_name());
+            }
+            _ => todo!()
+        }
+
+        Ok(())
     }
 
     async fn start_instance(
@@ -1072,9 +1126,8 @@ impl VmManager {
     }
 
     pub async fn sync_instance(
-        _vmlist: VmList,
+        vmlist: VmList,
         namespace: String,
-        _path: String 
     ) -> std::io::Result<()> {
         log::info!("Attempting to sync instance {namespace}");
         todo!()
