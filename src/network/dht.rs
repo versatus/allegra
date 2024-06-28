@@ -28,7 +28,6 @@ use crate::{
 use conductor::subscriber::SubStream;
 use conductor::publisher::PubStream;
 use tokio::task::JoinHandle;
-use tokio::sync::mpsc::Receiver;
 use tokio::time::{interval, Duration};
 use futures::StreamExt;
 use getset::{Getters, MutGetters};
