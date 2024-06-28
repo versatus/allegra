@@ -11,6 +11,7 @@ pub struct NetworkClient {
     local_peer_id: String,
     local_peer_address: String,
     subscriber: NetworkSubscriber,
+    #[allow(unused)]
     publisher: GenericPublisher
 }
 

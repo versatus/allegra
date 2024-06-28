@@ -6,8 +6,7 @@ use getset::{Getters, MutGetters};
 use tokio::time::{Instant, Interval};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use uuid::Uuid;
-
-pub const ELECTION_BLOCK_INTERVAL: u64 = 1800;
+use crate::consts::*;
 
 #[derive(Debug, Clone)]
 pub enum NodeState {

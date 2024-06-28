@@ -32,10 +32,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio::time::{interval, Duration};
 use futures::StreamExt;
 use getset::{Getters, MutGetters};
-
-lazy_static::lazy_static! {
-    pub static ref BOOTSTRAP_QUORUM: Quorum = Quorum::new(); 
-}
+use crate::statics::BOOTSTRAP_QUORUM;
 
 #[derive(Debug, Clone, Getters, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Peer {
@@ -155,8 +152,7 @@ impl QuorumManager {
     }
 
     pub async fn run(
-        &mut self,
-        stop_rx: &mut Receiver<()>
+        &mut self
     ) -> std::io::Result<()> {
         let mut interval = interval(Duration::from_secs(21600));
         loop {
@@ -193,7 +189,7 @@ impl QuorumManager {
                     log::info!("leader election event triggered: {:?}", leader_election);
                     let _ = self.elect_leader();
                 },
-                _ = stop_rx.recv() => {
+                _ = tokio::signal::ctrl_c() => {
                     break;
                 }
             }
@@ -944,7 +940,6 @@ impl QuorumManager {
         log::info!("quorum.size() = {}", quorum.size());
 
         if quorum.clone().size() >= 50 {
-            drop(quorum);
             self.create_new_quorum().await?;
         }
 

@@ -5,8 +5,6 @@ pub mod allegra_rpc {
 
 pub mod payload_impls;
 pub mod vmm;
-#[cfg(feature = "tarpc")]
-pub mod rpc;
 pub mod vm_types;
 pub mod state;
 pub mod account;
@@ -24,6 +22,8 @@ pub mod events;
 pub mod cluster;
 pub mod publish;
 pub mod subscribe;
+pub mod statics;
+pub mod consts;
 
 
 pub use cli::commands::*;

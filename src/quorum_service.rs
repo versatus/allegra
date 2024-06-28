@@ -1,5 +1,6 @@
-use allegra::{dht::{Peer, QuorumManager}, helpers::get_public_ip};
+use allegra::{dht::{Peer, QuorumManager}, helpers::get_public_ip, statics::*};
 use uuid::Uuid;
+use tokio::task::spawn;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,20 +12,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         })?;
 
+    //TODO(asmith): Replace uuid with Address or IdentityManager service
     let local_peer_id = Uuid::new_v4();
     let address = get_public_ip().await?;
-    let local_peer = Peer::new(local_peer_id, address);
+    let local_peer = Peer::new(
+        local_peer_id,
+        address
+    );
     let mut quorum_manager = QuorumManager::new(
-        "127.0.0.1:5556",
-        "127.0.0.1:5555",
+        &std::env::var(
+            "SUBSCRIBER_ADDRESS"
+        ).unwrap_or(
+            DEFAULT_SUBSCRIBER_ADDRESS.to_string()
+        ),
+        &std::env::var(
+            "PUBLISHER_ADDRESS"
+        ).unwrap_or(
+            DEFAULT_PUBLISHER_ADDRESS.to_string()
+        ),
         local_peer
     ).await?;
 
-    let (_stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1024);
     log::info!("established channel");
-    let quorum_manager_handle = tokio::task::spawn(async move {
-        let _ = quorum_manager.run(&mut stop_rx).await;
-    });
+    let quorum_manager_handle = spawn(
+        async move {
+            let _ = quorum_manager.run().await;
+        }
+    );
     log::info!("setup quorum_manager thread");
 
     quorum_manager_handle.await?;

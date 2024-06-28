@@ -1,27 +1,4 @@
-
-
-use lazy_static::lazy_static;
-//TODO(asmith) replace with environment variable
-pub const NGINX_CONFIG_PATH: &'static str = "/etc/nginx/sites-available/default";
-
-
-lazy_static! {
-    static ref SERVER_BLOCK_TEMPLATE: &'static str = r#"
-server {
-    listen {host_port};
-
-    server_name _;
-
-    location / {
-        proxy_pass http://{instance_ip}:{instance_port};
-        proxy_set_header HOST $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-"#;
-}
+use crate::statics::SERVER_BLOCK_TEMPLATE;
 
 pub async fn update_nginx_config(
     instance_ip: &str,

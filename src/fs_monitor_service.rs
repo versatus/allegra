@@ -3,11 +3,7 @@ use libretto::client::handle_events;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::VecDeque;
-use lazy_static::lazy_static;
-
-lazy_static! {
-    pub static ref DEFAULT_LXD_STORAGE_POOL: &'static str = "/mnt/libretto/lxd-storage-pool"; 
-}
+use allegra::statics::DEFAULT_LXD_STORAGE_POOL;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

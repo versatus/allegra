@@ -1,4 +1,4 @@
-use allegra::dht::Peer;
+use allegra::{dht::Peer, statics::DEFAULT_NETWORK};
 use allegra::grpc::VmmService;
 
 use allegra::helpers::get_public_ip;
@@ -11,10 +11,13 @@ use tonic::transport::Server;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic_reflection::server::Builder;
-
-lazy_static::lazy_static! {
-    static ref DEFAULT_LXD_STORAGE_DIR: &'static str = "/home/ans/projects/sandbox/test-dir/";     
-}
+#[allow(unused)]
+use allegra::statics::{
+    DEFAULT_LXD_STORAGE_POOL,
+    DEFAULT_GRPC_ADDRESS,
+    DEFAULT_SUBSCRIBER_ADDRESS,
+    DEFAULT_PUBLISHER_ADDRESS
+};
 
 pub async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
     tokio::spawn(fut);
@@ -40,17 +43,6 @@ async fn main() -> std::io::Result<()> {
     log::info!("local peer created");
 
 
-    /*
-     * TODO(asmith): Replace with publish event to Quorum topic
-    let mut quorum_manager = Arc::new(RwLock::new(QuorumManager::new()));
-    log::info!("created quorum_manager");
-
-    let mut guard = quorum_manager.write().await; 
-    log::info!("acquired quorum_manager guard");
-    guard.add_peer(&local_peer).await?;
-    log::info!("added self to network state");
-    */
-
     #[cfg(not(feature="bootstrap"))]
     {
         let bootstrap_addr = std::env::var(
@@ -71,76 +63,46 @@ async fn main() -> std::io::Result<()> {
             ), bootstrap_addr
         );
     }
-/*
- * TODO: Replace with publishing events to Quorum & Network topic
-    #[cfg(not(feature="bootstrap"))]
-    guard.add_peer(&bootstrap_peer).await?;
-
-    #[cfg(not(feature="bootstrap"))]
-    drop(guard);
-
-    //let mut guard = event_broker.lock().await;
-    //log::info!("acquired event broker guard");
-    //let mut network_rx = guard.subscribe("Network".to_string()).await;
-    //log::info!("acquired network topic rx");
-    //drop(guard);
-    log::info!("dropped event broker guard");
-    let mut network_client = NetworkClient::new(
-        //TODO(asmith): Replace with subscriber
-        //network_rx, 
-        local_peer.id().to_string(),
-        local_peer.address().to_string()
-    ).await?;
-    log::info!("created network client");
-
-    let network_client_handle = tokio::task::spawn(async move {
-        let _ = network_client.run();
-    });
-    log::info!("setup network client thread");
-
-    log::info!("created tikv client");
-
-
-    #[cfg(not(feature="bootstrap"))]
-    let guard = network_state.read().await;
-    #[cfg(not(feature="bootstrap"))]
-    let event = Event::NetworkEvent(
-        NetworkEvent::NewPeer { 
-            peer_id: local_peer.id().to_string(), 
-            peer_address: local_peer.address().to_string(), 
-            dst: bootstrap_peer.address().to_string() 
-        }
-    ); 
-    #[cfg(not(feature="bootstrap"))]
-    drop(guard);
-
-    log::info!("started monitor directory thread");
-    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
-
-    */
 
     let next_port = 2222;
     log::info!("established network port");
+
+    let publisher_uri = std::env::var(
+        "PUBLISHER_ADDRESS"
+    ).unwrap_or(
+        DEFAULT_PUBLISHER_ADDRESS.to_string()
+    );
+
+    let subscriber_uri = std::env::var(
+        "SUBSCRIBER_ADDRESS"
+    ).unwrap_or(
+        DEFAULT_SUBSCRIBER_ADDRESS.to_string()
+    );
     
     let publisher = Arc::new(
         Mutex::new(
-            GenericPublisher::new("127.0.0.1:5555").await?
+            GenericPublisher::new(&publisher_uri).await?
         )
     );
 
     let subscriber = Arc::new(
         Mutex::new(
-            RpcResponseSubscriber::new("127.0.0.1:5556").await?
+            RpcResponseSubscriber::new(&subscriber_uri).await?
         )
     );
 
+    let lxd_network_interface = std::env::var(
+        "LXD_NETWORK_INTERFACE"
+    ).unwrap_or(
+        DEFAULT_NETWORK.to_string()
+    );
 
     let service = VmmService {
         local_peer: local_peer.clone(),
-        network: "lxdbr0".to_string(),
+        network: lxd_network_interface,
         port: next_port,
-        publisher,
-        subscriber
+        publisher: publisher.clone(),
+        subscriber: subscriber.clone()
     };
 
     let vmmserver = VmmServer::new(
@@ -148,12 +110,18 @@ async fn main() -> std::io::Result<()> {
     );
     log::info!("created vmm server");
 
-    let addr = "0.0.0.0:50051".parse().map_err(|e| {
+    let addr = std::env::var(
+        "GRPC_ADDRESS"
+    ).unwrap_or(
+        DEFAULT_GRPC_ADDRESS.to_string()
+    ).parse()
+    .map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e
         )
     })?;
+
     log::info!("established address to listen on for grpc...");
 
     log::info!("running grpc server on {}", &addr);
@@ -167,7 +135,9 @@ async fn main() -> std::io::Result<()> {
             )
         }
     )?;
+
     log::info!("set up reflection service for grpc server...");
+
     Server::builder().add_service(vmmserver)
         .add_service(reflection_service)
         .serve(addr).await.map_err(|e| {

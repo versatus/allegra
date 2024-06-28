@@ -18,10 +18,7 @@ use crate::{
     }, publish::{
         GenericPublisher,
         StateTopic
-    }, startup::{
-        self, 
-        PUBKEY_AUTH_STARTUP_SCRIPT
-    }, subscribe::VmmSubscriber, vm_info::{
+    }, startup::self, subscribe::VmmSubscriber, vm_info::{
         VmInfo, 
         VmList
     }
@@ -46,7 +43,6 @@ use futures::{
         StreamExt
     }, 
     Future};
-use lazy_static::lazy_static;
 use rayon::iter::{
     IndexedParallelIterator, 
     IntoParallelIterator, 
@@ -57,13 +53,8 @@ use rayon::iter::{
 use tokio::task::JoinHandle;
 use serde::{Serialize, Deserialize};
 use std::pin::Pin;
-
-pub const LOWEST_PORT: u16 = 2222;
-pub const HIGHEST_PORT: u16 = 65535;
-pub static DEFAULT_NETWORK: &'static str = "lxdbr0";
-pub static SUCCESS: &'static str = "SUCCESS";
-pub static FAILURE: &'static str = "FAILURE";
-pub static PENDING: &'static str = "PENDING";
+use crate::statics::*;
+use crate::consts::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
@@ -73,11 +64,6 @@ pub struct Instance {
     last_snapshot: Option<u64>,
     last_sync: Option<u64>,
     // Add other metadata like quorum owned, access trie, etc.
-}
-
-lazy_static! {
-    //TODO: replace with ENV variable
-    pub static ref TEMP_PATH: &'static str = "/var/snap/lxd/common/lxd/tmp"; 
 }
 
 impl Instance {

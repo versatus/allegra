@@ -9,7 +9,8 @@ use crate::{
     publish::{GenericPublisher, StateTopic, TaskStatusTopic}, 
     vm_info::{
         VmAddress, VmInfo, VmList
-    }, vmm::{Instance, SUCCESS},
+    }, vmm::Instance,
+    statics::SUCCESS,
     create_allegra_rpc_client_to_addr
 };
 use std::str::FromStr;
