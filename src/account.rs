@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
+use rayon::iter::{IntoParallelIterator, ParallelExtend, ParallelIterator};
 use serde::{Serialize, Deserialize};
-use crate::vm_info::VmInfo;
+use crate::{vm_info::VmInfo, params::ServiceType};
 
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -26,8 +27,8 @@ impl Display for Namespace {
 pub struct TaskId(String);
 
 impl TaskId {
-    pub fn new(taskid: String) -> Self {
-        Self(taskid)
+    pub fn new(id: String) -> Self {
+        Self(id)
     }
     
     pub fn task_id(&self) -> String {
@@ -61,11 +62,11 @@ impl Display for TaskStatus {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExposedPort {
     port: u16,
-    service_description: Option<String>,
+    service_description: Option<ServiceType>,
 }
 
 impl ExposedPort {
-    pub fn new(port: u16, service_description: Option<String>) -> Self {
+    pub fn new(port: u16, service_description: Option<ServiceType>) -> Self {
         Self { port, service_description }
     }
 }
@@ -81,13 +82,13 @@ pub struct Account {
 impl Account {
     pub fn new(
         address: [u8; 20],
-        namespaces: impl IntoIterator<Item = (Namespace, Option<VmInfo>)>, 
-        exposed_ports: impl IntoIterator<Item = (Namespace, Vec<ExposedPort>)>,
-        tasks: impl IntoIterator<Item = (TaskId, TaskStatus)>
+        namespaces: impl IntoParallelIterator<Item = (Namespace, Option<VmInfo>)>, 
+        exposed_ports: impl IntoParallelIterator<Item = (Namespace, Vec<ExposedPort>)>,
+        tasks: impl IntoParallelIterator<Item = (TaskId, TaskStatus)>
     ) -> Self {
-        let namespaces = namespaces.into_iter().collect();
-        let tasks = tasks.into_iter().collect();
-        let exposed_ports = exposed_ports.into_iter().collect();
+        let namespaces = namespaces.into_par_iter().collect();
+        let tasks = tasks.into_par_iter().collect();
+        let exposed_ports = exposed_ports.into_par_iter().collect();
         Self { address, namespaces, tasks, exposed_ports }
     }
 
@@ -104,8 +105,8 @@ impl Account {
     }
 
     pub fn update_exposed_ports(&mut self, namespace: &Namespace, exposed_ports: Vec<ExposedPort>) {
-        if let Some(mut entry) = self.exposed_ports.get_mut(namespace) {
-            entry.extend(exposed_ports.into_iter())
+        if let Some(entry) = self.exposed_ports.get_mut(namespace) {
+            entry.par_extend(exposed_ports.into_par_iter())
         } else {
             self.exposed_ports.insert(namespace.clone(), exposed_ports);
         }
@@ -117,6 +118,14 @@ impl Account {
 
     pub fn tasks_mut(&mut self) -> &mut HashMap<TaskId, TaskStatus> {
         &mut self.tasks
+    }
+
+    pub fn update_task_status(&mut self, task_id: &TaskId, task_status: TaskStatus) {
+        if let Some(entry) = self.tasks.get_mut(task_id) {
+            *entry = task_status;
+        } else {
+            self.tasks.insert(task_id.clone(), task_status);
+        }
     }
 
     pub fn get_task_status(&self, task_id: &TaskId) -> Option<&TaskStatus> {

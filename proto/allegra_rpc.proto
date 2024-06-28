@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+package allegra_rpc;
+
+enum ServiceType {
+    SSH = 0;
+    NODE_JS = 1;
+    POSTGRES = 2;
+    MYSQL = 3;
+    REDIS = 4;
+    MONGO_DB = 5;
+    RABBIT_MQ = 6;
+    KAFKA = 7;
+    CUSTOM = 8;
+}
+
+message SshDetails {
+  string ip = 1;
+  uint32 port = 2;
+}
+
+message VmResponse {
+  string status = 1;
+  string details = 2;
+  SshDetails ssh_details = 3;
+}
+
+message InstanceCreateParams {
+  string name = 1;
+  string distro = 2;
+  string version = 3;
+  string vmtype = 4;
+  string sig = 5;
+  uint32 recovery_id = 6;
+}
+
+message InstanceStartParams {
+  string name = 1;
+  bool console = 2;
+  bool stateless = 3;
+  string sig = 4;
+  uint32 recovery_id = 5;
+}
+
+message InstanceStopParams {
+  string name = 1;
+  string sig = 2;
+  uint32 recovery_id = 3;
+}
+
+message InstanceAddPubkeyParams {
+  string name = 1;
+  string pubkey = 2;
+  string sig = 3;
+  uint32 recovery_id = 4;
+}
+
+message InstanceDeleteParams {
+  string name = 1;
+  bool force = 2;
+  bool interactive = 3;
+  string sig = 4;
+  uint32 recovery_id = 5;
+}
+
+message InstanceExposeServiceParams {
+  string name = 1;
+  repeated uint32 port = 2;
+  repeated ServiceType service_type = 3;
+  string sig = 4;
+  uint32 recovery_id = 5;
+}
+
+message InstanceGetSshDetails {
+  string owner = 1;
+  string name = 2;
+  optional string keypath = 3;
+  optional string username = 4;
+}
+
+message GetTaskStatusRequest {
+  string owner = 1;
+  string id = 2;
+}
+
+message MessageHeader {
+    string peer_id = 1;
+    string peer_address = 2;
+    string message_id = 3;
+}
+
+message NewPeerMessage {
+    MessageHeader header = 1;
+    string new_peer_id = 2;
+    string new_peer_address = 3;
+}
+
+message Ack {
+    MessageHeader header = 1;
+    string request_id = 2;
+}
+
+message PingMessage {
+    MessageHeader header = 1;
+}
+
+message PongMessage {
+    MessageHeader header = 1; 
+    string ping_message_id = 2;
+}
+
+message SyncMessage {
+    MessageHeader header = 1;
+    string namespace = 2;
+    uint64 last_update = 3;
+}
+
+message MigrateMessage {
+    MessageHeader header = 1;
+    string namespace = 2;
+    string new_quorum = 3;
+}
+
+message FileChunk {
+    string namespace = 1;
+    bytes content = 2;
+    optional string new_quorum = 3;
+}
+
+message TransferStatus {
+    string message = 1;
+    bool success = 2;
+}
+
+message GetPortMessage {
+    string namespace = 1;
+    ServiceType service_type = 2;
+}
+
+message PortResponse {
+    string namespace = 1;
+    ServiceType service_type = 2;
+    uint32 port = 3;
+}
+
+message ClusterCertMessage {
+    string leader = 1;
+    string peer_id = 2;
+    string peer_address = 3;
+    string cert = 4;
+    string quorum = 5;
+}
+
+message NodeCertMessage {
+    string peer_id = 1;
+    string peer_address = 2;
+    string cert = 3;
+    string quorum_id = 4;
+    string request_id = 5;
+}
+
+service Vmm {
+  rpc CreateVm(InstanceCreateParams) returns (VmResponse);
+  rpc ShutdownVm(InstanceStopParams) returns (VmResponse);
+  rpc StartVm(InstanceStartParams) returns (VmResponse);
+  rpc SetSshPubkey(InstanceAddPubkeyParams) returns (VmResponse);
+  rpc DeleteVm(InstanceDeleteParams) returns (VmResponse);
+  rpc ExposeVmPorts(InstanceExposeServiceParams) returns (VmResponse);
+  rpc GetTaskStatus(GetTaskStatusRequest) returns (VmResponse);
+  rpc GetSshDetails(InstanceGetSshDetails) returns (VmResponse);
+  rpc Register(NewPeerMessage) returns (Ack);
+  rpc Ping(PingMessage) returns (PongMessage);
+  rpc Sync(stream SyncMessage) returns (TransferStatus);
+  rpc Migrate(stream MigrateMessage) returns (TransferStatus);
+  rpc GetPort(GetPortMessage) returns (PortResponse);
+  rpc NodeCertificate(NodeCertMessage) returns (Ack);
+}
