@@ -29,7 +29,7 @@ impl NetworkClient {
         Ok(Self { local_peer_id, local_peer_address, subscriber, publisher })
     }
 
-    pub async fn run(&mut self) -> std::io::Result<()> {
+    pub async fn run(mut self) -> std::io::Result<()> {
         loop {
             tokio::select! {
                 Ok(messages) = self.subscriber.receive() => {
