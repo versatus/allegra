@@ -1,23 +1,15 @@
-use libretto::watcher::monitor_directory;
-use libretto::client::handle_events;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::collections::VecDeque;
+use libretto::{client::LibrettoClient, pubsub::FilesystemPublisher, watcher::monitor_directory};
 use allegra::statics::DEFAULT_LXD_STORAGE_POOL;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let (_stop_tx, stop_rx) = std::sync::mpsc::channel();
-    let queue = Arc::new(
-        RwLock::new(
-            VecDeque::new()
-        )
+    let client = LibrettoClient::new("127.0.0.1:5556", "127.0.0.1:5556").await?;
+    let event_handler = tokio::spawn(
+        async move {
+            client.run().await?;
+            Ok::<(), std::io::Error>(())
+        }
     );
-
-    let event_handling_queue = queue.clone();
-    let event_handler = tokio::spawn(async move {
-        handle_events(event_handling_queue.clone()).await;
-    });
 
     let dir = std::env::var(
         "LXD_STORAGE_POOL"
@@ -25,11 +17,11 @@ async fn main() -> std::io::Result<()> {
         DEFAULT_LXD_STORAGE_POOL.to_string()
     });
     dbg!(&dir);
+    let publisher = FilesystemPublisher::new("127.0.0.1:5555").await?;
     let monitor = tokio::spawn(async move {
         let _ = monitor_directory(
             &dir,
-            queue,
-            stop_rx
+            publisher
         ).await;
     });
 
