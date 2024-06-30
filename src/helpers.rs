@@ -1,20 +1,13 @@
 use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
-    }, allegra_rpc::{GetPortMessage, SshDetails, PortResponse, VmResponse}, 
-    dht::{QuorumManager, Peer},
-    event::{StateEvent, TaskStatusEvent}, 
-    expose::update_nginx_config, 
-    params::{Payload, ServiceType}, 
-    publish::{GenericPublisher, StateTopic, TaskStatusTopic}, 
-    vm_info::{
+    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{NodeConfig, WalletConfig}, params::{Payload, ServiceType}, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, SUCCESS}, vm_info::{
         VmAddress, VmInfo, VmList
-    }, vmm::Instance,
-    statics::SUCCESS,
-    create_allegra_rpc_client_to_addr
+    }, vmm::Instance
 };
 use std::str::FromStr;
 use conductor::publisher::PubStream;
+use hex::FromHex;
 use sha3::{Digest, Sha3_256};
 use ethers_core::{
     utils::public_key_to_address,
@@ -32,6 +25,7 @@ use tokio::sync::RwLock;
 use std::net::SocketAddr;
 use geolocation::Locator;
 use rand::Rng;
+use alloy::{network::{Ethereum, EthereumWallet, NetworkWallet}, primitives::Address, signers::local::{coins_bip39::English, LocalSigner, MnemonicBuilder}};
 
 pub fn handle_get_instance_ip_output_success(
     output: &std::process::Output,
@@ -919,7 +913,7 @@ pub async fn get_quorum_peers(
 
 pub fn get_peer_locations(peers: impl IntoParallelIterator<Item = Peer>) -> Vec<Locator> {
     peers.into_par_iter().filter_map(|p| {
-        geolocation::find(p.address()).ok()
+        geolocation::find(&p.ip_address().to_string()).ok()
     }).collect()
 }
 
@@ -969,7 +963,7 @@ pub async fn get_random_ip(
         let len = peers.len();
         let random_choice = rng.gen_range(0..len);
         let peers_to_choose: Vec<&Peer> = peers.par_iter().collect();
-        peers_to_choose[random_choice].address().to_string()
+        peers_to_choose[random_choice].ip_address().to_string()
     };
 
     if let Ok(resp) = get_port(namespace.inner().clone(), &random_ip, ServiceType::Ssh).await {
@@ -999,4 +993,121 @@ pub fn get_payload_hash(payload_bytes: &[u8]) -> Vec<u8> {
     let mut hasher = Sha3_256::new();
     hasher.update(payload_bytes);
     hasher.finalize().to_vec()
+}
+
+pub async fn load_config_from_env() -> std::io::Result<NodeConfig> {
+    let path = std::env::var("CONFIG_FILEPATH").unwrap_or(
+        DEFAULT_CONFIG_FILEPATH.to_string()
+    );
+
+    Ok(NodeConfig::from_file(&path).await?)
+
+}
+
+pub async fn load_config_from_path(config_path: &str) -> std::io::Result<NodeConfig> {
+    Ok(NodeConfig::from_file(config_path).await?)
+}
+
+pub async fn load_config_from_env_or_path(config_path: Option<&str>) -> std::io::Result<NodeConfig> {
+    if let Some(path) = config_path {
+        return load_config_from_path(path).await
+    }
+
+    load_config_from_env().await 
+}
+
+pub async fn load_or_create_ethereum_address(config_path: Option<&str>) -> std::io::Result<Address> {
+    let config = load_config_from_env_or_path(config_path).await?;
+    if let Some(sk) = config.wallet_signing_key() {
+        let signing_key = alloy::signers::k256::ecdsa::SigningKey::from_slice(sk.as_bytes()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        let local_signer = LocalSigner::from_signing_key(signing_key);
+        let mut wallet = EthereumWallet::default();
+        wallet.register_default_signer(local_signer);
+        Ok(<EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet))
+    } else if let Some(keypath) = config.wallet_keyfile() {
+        let file_content = tokio::fs::read_to_string(keypath).await?;
+        let wallet_config: WalletConfig = serde_json::from_str(&file_content)?;
+
+        Ok(Address::from_hex(wallet_config.address()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?)
+    } else if let Some(wallet_address) = config.wallet_address() {
+        Ok(Address::from_hex(wallet_address).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?)
+    } else {
+        let local_signer = MnemonicBuilder::<English>::default()
+            .word_count(12)
+            .write_to(".mnemonic")
+            .build().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+
+        let mut wallet = EthereumWallet::default();
+        wallet.register_default_signer(local_signer);
+        Ok(<EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet))
+    }
+}
+
+pub async fn load_or_get_public_ip_addresss(config_path: Option<&str>) -> std::io::Result<SocketAddr> {
+    let config = load_config_from_env_or_path(config_path).await?;
+    if let Some(ip_addr) = config.public_ip_address() {
+        Ok(ip_addr.to_string().parse().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?)
+    } else {
+        Ok(get_public_ip().await?.parse().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?)
+    }
+}
+
+pub async fn load_bootstrap_node(config_path: Option<&str>) -> std::io::Result<(Address, SocketAddr)> {
+    let config = load_config_from_env_or_path(config_path).await?;
+    if let Some(bootstrap_ip_addr) = config.bootstrap_ip_address() {
+        if let Some(bootstrap_wallet_addr) = config.bootstrap_wallet_address() {
+            let bootstrap_wallet_address = Address::from_hex(bootstrap_wallet_addr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+
+            let bootstrap_ip_address = bootstrap_ip_addr.parse().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+
+            return Ok((bootstrap_wallet_address, bootstrap_ip_address))
+        }
+    }
+
+    return Err(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Boostrap node wallet address and ip address required to be bootstrapped into the network"
+        )
+    )
 }

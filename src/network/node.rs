@@ -3,10 +3,50 @@ use std::collections::{HashMap, HashSet};
 use crate::{account::TaskId, dht::Peer, event::NetworkEvent, publish::{GenericPublisher, NetworkTopic}, voting::{Ballot, Vote}};
 use conductor::publisher::PubStream;
 use getset::{Getters, MutGetters};
+use sha3::{Sha3_256, Digest};
 use tokio::time::{Instant, Interval};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator};
 use uuid::Uuid;
 use crate::consts::*;
+use serde::{Serialize, Deserialize};
+
+#[derive(Getters, Serialize, Deserialize, Debug)]
+#[getset(get = "pub")]
+pub struct NodeConfig {
+    wallet_keyfile: Option<String>,
+    public_ip_address: Option<String>,
+    wallet_mnemonic: Option<Vec<String>>,
+    wallet_address: Option<String>,
+    wallet_pubkey: Option<String>,
+    wallet_signing_key: Option<String>,
+    pd_endpoints: Option<Vec<String>>,
+    subscriber_uri: Option<String>,
+    publisher_uri: Option<String>,
+    bootstrap_wallet_address: Option<String>,
+    bootstrap_ip_address: Option<String>,
+}
+
+#[derive(Getters, Serialize, Deserialize, Debug)]
+#[getset(get = "pub")]
+pub struct WalletConfig {
+    secret_key: String,
+    public_key: String,
+    address: String,
+}
+
+impl NodeConfig {
+    pub async fn from_file(path: &str) -> std::io::Result<Self> {
+        let config_file_content = tokio::fs::read_to_string(path).await?;
+        let config = toml::from_str(&config_file_content).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        
+        Ok(config)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum NodeState {
@@ -173,7 +213,7 @@ impl Node {
         //MAX_QUORUM_SIZE
         self.votes_collected = HashMap::with_capacity(50);
 
-        log::info!("new leader elected: {}", winning_ballot.candidate().id());
+        log::info!("new leader elected: {:x}", winning_ballot.candidate().wallet_address());
         Ok(())
 
     }
@@ -209,10 +249,15 @@ impl Node {
     }
 
     fn calculate_xor_metric(block_hash: [u8; 32], candidate: &Peer) -> Ballot {
+        let mut hasher = Sha3_256::new();
+        hasher.update(candidate.wallet_address());
+        let hash_bytes = hasher.finalize().to_vec();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&hash_bytes);
         let mut result = [0u8; 32];
         block_hash.par_iter()
             .zip(
-                candidate.id_hash().par_iter()
+                hash.par_iter()
             ).zip(
                 result.par_iter_mut()
             ).for_each(|((bh, can), res)| *res = bh ^ can);

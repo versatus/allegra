@@ -1,5 +1,4 @@
-use allegra::{dht::{Peer, QuorumManager}, helpers::get_public_ip, statics::*};
-use uuid::Uuid;
+use allegra::{dht::{Peer, QuorumManager}, helpers::{load_or_create_ethereum_address, load_or_get_public_ip_addresss}, statics::*};
 use tokio::task::spawn;
 
 #[tokio::main]
@@ -12,12 +11,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         })?;
 
-    //TODO(asmith): Replace uuid with Address or IdentityManager service
-    let local_peer_id = Uuid::new_v4();
-    let address = get_public_ip().await?;
+    let wallet_address = load_or_create_ethereum_address(None).await?;
+    let ip_address = load_or_get_public_ip_addresss(None).await?;
     let local_peer = Peer::new(
-        local_peer_id,
-        address
+        wallet_address,
+        ip_address
     );
     let mut quorum_manager = QuorumManager::new(
         &std::env::var(

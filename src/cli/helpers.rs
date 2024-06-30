@@ -5,7 +5,7 @@ use crate::allegra_rpc::vmm_client::VmmClient;
 use std::io::Read;
 use std::collections::HashMap;
 use std::io::Write;
-use ethers_core::k256::elliptic_curve::SecretKey;
+use alloy::signers::k256::elliptic_curve::SecretKey;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use sha3::{Digest, Sha3_256};
 use ethers_core::{

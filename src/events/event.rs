@@ -595,7 +595,7 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             vmtype: value.1.vmtype.clone(), 
             sig: value.1.sig.clone(), 
             recovery_id,
-            dst: value.0.address().to_string(),
+            dst: value.0.ip_address().to_string(),
             event_id,
             task_id
         })
@@ -623,7 +623,7 @@ impl TryFrom<(Peer, InstanceStopParams)> for NetworkEvent {
             name: value.1.name,
             sig: value.1.sig,
             recovery_id, 
-            dst: value.0.address().to_string(), 
+            dst: value.0.ip_address().to_string(), 
             event_id,
             task_id
         })
@@ -652,7 +652,7 @@ impl TryFrom<(Peer, InstanceStartParams)> for NetworkEvent {
             recovery_id,
             console: value.1.console, 
             stateless: value.1.stateless, 
-            dst: value.0.address().to_string(), 
+            dst: value.0.ip_address().to_string(), 
             event_id,
             task_id
         })
@@ -680,7 +680,7 @@ impl TryFrom<(Peer, InstanceAddPubkeyParams)> for NetworkEvent {
             sig: value.1.sig.clone(), 
             recovery_id, 
             pubkey: value.1.pubkey, 
-            dst: value.0.address().to_string(), 
+            dst: value.0.ip_address().to_string(), 
             event_id,
             task_id
         })  
@@ -709,7 +709,7 @@ impl TryFrom<(Peer, InstanceDeleteParams)> for NetworkEvent {
             interactive: value.1.interactive, 
             sig: value.1.sig, 
             recovery_id, 
-            dst: value.0.address().to_string(), 
+            dst: value.0.ip_address().to_string(), 
             event_id,
             task_id
         }) 
@@ -742,7 +742,7 @@ impl TryFrom<(Peer, InstanceExposeServiceParams)> for NetworkEvent {
             service_type: value.1.service_type.par_iter().map(|st| {
                 st.to_owned().into()
             }).collect::<Vec<ServiceType>>().clone(), 
-            dst: value.0.address().to_string(),
+            dst: value.0.ip_address().to_string(),
             event_id,
             task_id
         }) 

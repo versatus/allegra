@@ -210,7 +210,7 @@ impl Cluster {
             let config = ClusterConfigBuilder::default()
                 .config(
                     ConfigBuilder::default()
-                        .core_https_address(self.local_peer.address())
+                        .core_https_address(self.local_peer.ip_address().to_string())
                         .images_auto_update_interval(Some(15))
                         .build()?
                 )
@@ -260,7 +260,7 @@ impl Cluster {
                 )
                 .cluster(
                     ConfiguredClusterBuilder::default()
-                        .server_name(self.local_peer.address().to_string())
+                        .server_name(self.local_peer.ip_address().to_string())
                         .enabled(true)
                         .build()?
                 ).build()?;

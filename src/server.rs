@@ -1,16 +1,18 @@
+use allegra::account::TaskId;
+use allegra::event::QuorumEvent;
 use allegra::{dht::Peer, statics::DEFAULT_NETWORK};
 use allegra::grpc::VmmService;
-
-use allegra::helpers::get_public_ip;
-use allegra::publish::GenericPublisher;
+use allegra::helpers::{load_bootstrap_node, load_or_create_ethereum_address, load_or_get_public_ip_addresss};
+use allegra::publish::{GenericPublisher, QuorumTopic};
 use allegra::subscribe::RpcResponseSubscriber;
 use futures::prelude::*;
-
 use allegra::allegra_rpc::{vmm_server::VmmServer, FILE_DESCRIPTOR_SET};
 use tonic::transport::Server;
+use uuid::Uuid;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic_reflection::server::Builder;
+use conductor::publisher::PubStream;
 #[allow(unused)]
 use allegra::statics::{
     DEFAULT_LXD_STORAGE_POOL,
@@ -35,37 +37,15 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("logger set up");
 
-    let local_peer_id = uuid::Uuid::new_v4();
-    log::info!("local_peer_id = {}", &local_peer_id.to_string());
-    let local_peer_address = get_public_ip().await?; 
-    log::info!("local_peer_address: {}", &local_peer_address);
-    let local_peer = Peer::new(local_peer_id, local_peer_address);
+    let wallet_address = load_or_create_ethereum_address(None).await?; 
+    log::info!("local wallet address: {}", &wallet_address);
+
+    let ip_address = load_or_get_public_ip_addresss(None).await?; 
+    log::info!("local ip address = {}", &ip_address);
+
+    let local_peer = Peer::new(wallet_address, ip_address);
     log::info!("local peer created");
 
-
-    #[cfg(not(feature="bootstrap"))]
-    {
-        let bootstrap_addr = std::env::var(
-            "BOOTSTRAP_ADDR"
-        ).expect(
-            "If not configured as bootsrap node, bootstrap node is required"
-        );
-        let bootstrap_id = std::env::var(
-            "BOOTSTRAP_ID"
-        ).expect(
-            "If not configured as boostrap node, bootstrap node is required"
-        ); 
-        let _bootstrap_peer = Peer::new(
-            uuid::Uuid::parse_str(
-                &bootstrap_id
-            ).expect(
-                "bootstrap_id must be valid uuid v4"
-            ), bootstrap_addr
-        );
-    }
-
-    let next_port = 2222;
-    log::info!("established network port");
 
     let publisher_uri = std::env::var(
         "PUBLISHER_ADDRESS"
@@ -73,18 +53,46 @@ async fn main() -> std::io::Result<()> {
         DEFAULT_PUBLISHER_ADDRESS.to_string()
     );
 
-    let subscriber_uri = std::env::var(
-        "SUBSCRIBER_ADDRESS"
-    ).unwrap_or(
-        DEFAULT_SUBSCRIBER_ADDRESS.to_string()
-    );
-    
     let publisher = Arc::new(
         Mutex::new(
             GenericPublisher::new(&publisher_uri).await?
         )
     );
 
+    #[cfg(not(feature="bootstrap"))]
+    {
+        //TODO(asmith): Use configuration file
+
+        let (bootstrap_wallet_addr, bootstrap_ip_addr) = load_bootstrap_node(None).await?;
+        let bootstrap_peer = Peer::new(
+            bootstrap_wallet_addr, bootstrap_ip_addr
+        );
+
+        let mut guard = publisher.lock().await;
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = QuorumEvent::NewPeer { event_id, task_id, peer: bootstrap_peer };
+        guard.publish(
+            Box::new(QuorumTopic), 
+            Box::new(event)
+        ).await?;
+
+        //TODO(asmith): Create a network event to request being
+        //bootstrapped into the network, which include being informed
+        //of other nodes in the network and the quorum they are each 
+        //a member of.
+    }
+
+    let next_port = 2222;
+    log::info!("established network port");
+
+
+    let subscriber_uri = std::env::var(
+        "SUBSCRIBER_ADDRESS"
+    ).unwrap_or(
+        DEFAULT_SUBSCRIBER_ADDRESS.to_string()
+    );
+    
     let subscriber = Arc::new(
         Mutex::new(
             RpcResponseSubscriber::new(&subscriber_uri).await?

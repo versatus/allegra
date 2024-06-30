@@ -1,7 +1,7 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState};
+use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr};
+use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use sha3::{Sha3_256, Digest};
 use uuid::Uuid;
 use anchorhash::AnchorHash;
 use serde::{Serialize, Deserialize};
@@ -35,34 +35,25 @@ use crate::statics::BOOTSTRAP_QUORUM;
 
 #[derive(Debug, Clone, Getters, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Peer {
-    id: Uuid,
-    address: String,
+    wallet_address: Address,
+    ip_address: SocketAddr,
 }
 
 impl Peer {
-    pub fn new(id: Uuid, address: String) -> Self {
-        Self { id, address }
+    pub fn new(wallet_address: Address, ip_address: SocketAddr) -> Self {
+        Self { wallet_address, ip_address }
     }
 
-    pub fn id(&self) -> &Uuid {
-        &self.id
+    pub fn wallet_address(&self) -> &Address {
+        &self.wallet_address
     }
 
-    pub fn address(&self) -> &str {
-        &self.address
+    pub fn ip_address(&self) -> &SocketAddr {
+        &self.ip_address
     }
 
-    pub fn id_hash(&self) -> [u8; 32] {
-        let mut hasher = Sha3_256::new();
-        hasher.update(self.id.as_bytes());
-        let hash_vec = hasher.finalize().to_vec();
-        let mut hash_bytes = [0u8; 32];
-        hash_bytes.copy_from_slice(&hash_vec[..]);
-        hash_bytes
-    }
-
-    pub fn id_hex(&self) -> String {
-        hex::encode(&self.id_hash())
+    pub fn wallet_address_hex(&self) -> String {
+        format!("{:x}", self.wallet_address())
     }
 }
 
@@ -103,10 +94,10 @@ pub enum QuorumResult {
 #[getset(get = "pub", get_copy = "pub", get_mut)]
 pub struct QuorumManager {
     node: Node,
-    peers: HashMap<Uuid, Peer>,
+    peers: HashMap<Address, Peer>,
     instances: HashMap<Namespace, Quorum>,
     quorums: HashMap<Uuid, Quorum>,
-    peer_hashring: AnchorHash<Uuid, Quorum, RandomState>,
+    peer_hashring: AnchorHash<Address, Quorum, RandomState>,
     instance_hashring: AnchorHash<Namespace, Quorum, RandomState>,
     subscriber: QuorumSubscriber,
     publisher: GenericPublisher,
@@ -296,7 +287,7 @@ impl QuorumManager {
             let task_id = task_id.clone();
             tokio::spawn(
                 async move {
-                    log::info!("publishing payload for {task_id} to {}", peer.address().to_string());
+                    log::info!("publishing payload for {task_id} to {}", peer.ip_address().to_string());
                     let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
                     let event_id = Uuid::new_v4().to_string();
                     let _ = publisher.publish(
@@ -311,7 +302,7 @@ impl QuorumManager {
                                 vmtype: payload.vmtype.clone().to_string(), 
                                 sig: payload.sig.clone(), 
                                 recovery_id: payload.recovery_id, 
-                                dst: peer.address().to_string() 
+                                dst: peer.ip_address().to_string() 
                             }
                         )
                     ).await?;
@@ -373,7 +364,7 @@ impl QuorumManager {
                                 stateless: payload.stateless,
                                 sig: payload.sig.clone(),
                                 recovery_id: payload.recovery_id,
-                                dst: peer.address().to_string()
+                                dst: peer.ip_address().to_string()
                             }
                         )
                     ).await?;
@@ -431,7 +422,7 @@ impl QuorumManager {
                                 name: payload.name.clone(),
                                 sig: payload.sig.clone(),
                                 recovery_id: payload.recovery_id,
-                                dst: peer.address().to_string()
+                                dst: peer.ip_address().to_string()
                             }
                         )
                     ).await?;
@@ -494,7 +485,7 @@ impl QuorumManager {
                                 recovery_id: payload.recovery_id,
                                 force: payload.force,
                                 interactive: payload.interactive,
-                                dst: peer.address().to_string()
+                                dst: peer.ip_address().to_string()
                             }
                         )
                     ).await?;
@@ -555,7 +546,7 @@ impl QuorumManager {
                                 sig: payload.sig.clone(),
                                 recovery_id: payload.recovery_id,
                                 pubkey: payload.pubkey.clone(),
-                                dst: peer.address().to_string()
+                                dst: peer.ip_address().to_string()
                             }
                         )
                     ).await?;
@@ -618,7 +609,7 @@ impl QuorumManager {
                                 recovery_id: payload.recovery_id,
                                 port: payload.port.clone(),
                                 service_type: payload.service_type.clone(),
-                                dst: peer.address().to_string()
+                                dst: peer.ip_address().to_string()
                             }
                         )
                     ).await?;
@@ -791,7 +782,7 @@ impl QuorumManager {
         quorum_id: &Uuid, 
         dst: &Peer
     ) -> std::io::Result<()> {
-        let peer_id_bytes = peer.id().to_string().as_bytes().to_vec();
+        let peer_id_bytes = peer.wallet_address().to_string().as_bytes().to_vec();
         let local_peer_id_bytes = local_id.as_bytes();
 
         let peer_trust_name = {
@@ -824,7 +815,7 @@ impl QuorumManager {
             .output()?;
 
         if output.status.success() {
-            log::info!("Successfully added client certificate to trust store for peer {}", &peer.id().to_string());
+            log::info!("Successfully added client certificate to trust store for peer {}", &peer.wallet_address().to_string());
 
             let cert = match std::str::from_utf8(&output.stdout) {
                 Ok(res) => res.to_string(),
@@ -862,7 +853,7 @@ impl QuorumManager {
             return Err(
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Unable to add client certificate to trust store for peer {}: {}", &peer.id().to_string(), &stderr)
+                    format!("Unable to add client certificate to trust store for peer {}: {}", &peer.wallet_address_hex(), &stderr)
                 )
             )
         }
@@ -886,12 +877,12 @@ impl QuorumManager {
                 .arg("lxc")
                 .arg("remote")
                 .arg("add")
-                .arg(peer.id().to_string())
+                .arg(peer.wallet_address_hex())
                 .arg(cert)
                 .output()?;
 
             if output.status.success() {
-                log::info!("Successfully added peer {} certificate to trust store", &peer.id().to_string());
+                log::info!("Successfully added peer {} certificate to trust store", &peer.wallet_address_hex());
                 return Ok(())
             } else {
                 let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -903,7 +894,7 @@ impl QuorumManager {
                 return Err(
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Failed to add peer {} certificate to trust store: {}", &peer.id().to_string(), stderr)
+                        format!("Failed to add peer {} certificate to trust store: {}", &peer.wallet_address_hex(), stderr)
                     )
                 )
             }
@@ -914,7 +905,7 @@ impl QuorumManager {
 
     pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
         log::info!("Attempting to add peer: {:?} to DHT", peer);
-        let q = self.peer_hashring.get_resource(peer.id().clone()).ok_or(
+        let q = self.peer_hashring.get_resource(peer.wallet_address().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "unable to map peer to resource"
@@ -942,8 +933,8 @@ impl QuorumManager {
             self.create_new_quorum().await?;
         }
 
-        if !self.peers.contains_key(&peer.id()) {
-            self.peers.insert(peer.id, peer.clone());
+        if !self.peers.contains_key(peer.wallet_address()) {
+            self.peers.insert(*peer.wallet_address(), peer.clone());
             for (_, dst_peer) in self.peers.clone() {
                 if &dst_peer != peer {
                     let task_id = TaskId::new(
@@ -951,9 +942,9 @@ impl QuorumManager {
                     );
                     let event_id = uuid::Uuid::new_v4().to_string();
                     let dst_event = NetworkEvent::NewPeer { 
-                        peer_id: peer.id().to_string(), 
-                        peer_address: peer.address().to_string(), 
-                        dst: dst_peer.address().to_string(),
+                        peer_id: peer.wallet_address_hex(), 
+                        peer_address: peer.ip_address().to_string(), 
+                        dst: dst_peer.ip_address().to_string(),
                         task_id,
                         event_id,
                     };
@@ -968,7 +959,7 @@ impl QuorumManager {
         } 
 
         if local_quorum_member {
-            let local_id = self.node().peer_info().id().clone();
+            let local_id = self.node().peer_info().wallet_address().clone();
             let local_peer = self.node.peer_info().clone();
             self.share_cert(
                 &local_id.to_string(),
@@ -989,7 +980,7 @@ impl QuorumManager {
     }
 
     pub fn get_peer_quorum_membership(&self, peer: &Peer) -> Option<Uuid> {
-        let q = self.peer_hashring.get_resource(peer.id().clone())?;
+        let q = self.peer_hashring.get_resource(peer.wallet_address().clone())?;
         Some(q.id().clone())
     }
 

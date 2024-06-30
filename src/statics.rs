@@ -28,4 +28,5 @@ server {
     pub static ref SUCCESS: &'static str = "SUCCESS";
     pub static ref FAILURE: &'static str = "FAILURE";
     pub static ref PENDING: &'static str = "PENDING";
+    pub static ref DEFAULT_CONFIG_FILEPATH: &'static str = "../config.toml";
 }

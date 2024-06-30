@@ -16,12 +16,14 @@ use crate::{
 };
 
 use conductor::{subscriber::SubStream, publisher::PubStream};
+use alloy::primitives::Address;
 
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
-use std::{net::SocketAddr, result::Result, str::FromStr};
+use std::{net::SocketAddr, result::Result};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use hex::FromHex;
 
 
 pub struct VmmService {
@@ -199,18 +201,24 @@ impl VmmService {
                 e
             )
         })?;
+        let address = Address::from_hex(node_cert.peer_id).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
         let event = QuorumEvent::CheckAcceptCert { 
             event_id, 
             task_id, 
             peer: Peer::new(
-                Uuid::from_str(
-                    &node_cert.peer_id
-                ).map_err(|e| {
+                address,
+                node_cert.peer_address.parse().map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
                         e
                     )
-                })?, node_cert.peer_address), 
+                })?
+            ), 
             cert: node_cert.cert 
         };
         let mut guard = self.publisher.lock().await;
@@ -243,13 +251,23 @@ impl VmmService {
             )
         })?;
         let event_id = Uuid::new_v4().to_string();
-        let peer_id = Uuid::from_str(&peer.new_peer_id).map_err(|e| {
+
+        //TODO(asmith): Replace with node signature, and recover the address
+        let peer_id = Address::from_hex(&peer.new_peer_id).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
-        let peer = Peer::new(peer_id, peer.new_peer_address);
+        let peer = Peer::new(
+            peer_id, 
+            peer.new_peer_address.parse().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        );
         let event = QuorumEvent::NewPeer { event_id, task_id, peer };
 
         let mut guard = self.publisher.lock().await;
@@ -486,8 +504,8 @@ impl Vmm for VmmService {
     ) -> Result<Response<PongMessage>, Status> {
         log::info!("Received ping message");
         let header = MessageHeader {
-            peer_id: self.local_peer.id().to_string(), 
-            peer_address: self.local_peer.address().to_string(),
+            peer_id: self.local_peer.wallet_address_hex(), 
+            peer_address: self.local_peer.ip_address().to_string(),
             message_id: uuid::Uuid::new_v4().to_string()
         };
         log::info!("crafted response header");
@@ -539,8 +557,8 @@ impl Vmm for VmmService {
 
         let message_id = Uuid::new_v4().to_string();
         let header = MessageHeader {
-            peer_id: self.local_peer.id().to_string(),
-            peer_address: self.local_peer.address().to_string(),
+            peer_id: self.local_peer.wallet_address_hex(),
+            peer_address: self.local_peer.ip_address().to_string(),
             message_id
         };
         Ok(Response::new(

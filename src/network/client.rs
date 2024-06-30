@@ -181,11 +181,13 @@ impl NetworkClient {
             }
             NetworkEvent::DistributeCerts { certs, peer, quorum_id, .. } => {
                 for (peer, cert) in certs {
-                    let mut client = create_allegra_rpc_client_to_addr(&peer.address()).await?;
+                    let mut client = create_allegra_rpc_client_to_addr(
+                        &peer.ip_address().to_string()
+                    ).await?;
                     let request_id = Uuid::new_v4().to_string();
                     let node_cert_message = NodeCertMessage {
-                        peer_id: peer.id().to_string(),
-                        peer_address: peer.address().to_string(),
+                        peer_id: peer.wallet_address_hex(),
+                        peer_address: peer.ip_address().to_string(),
                         quorum_id: quorum_id.clone(),
                         cert,
                         request_id
@@ -206,15 +208,15 @@ impl NetworkClient {
             NetworkEvent::ShareCert { peer, cert, quorum_id, dst, .. } => {
                 let request_id = Uuid::new_v4().to_string();
                 let node_cert_message = NodeCertMessage {
-                    peer_id: peer.id().to_string(),
-                    peer_address: peer.address().to_string(),
+                    peer_id: peer.wallet_address_hex(),
+                    peer_address: peer.ip_address().to_string(),
                     quorum_id,
                     cert,
                     request_id
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(
-                    &dst.address()
+                    &dst.ip_address().to_string()
                 ).await?;
                 let resp = client.node_certificate(
                     tonic::Request::new(
