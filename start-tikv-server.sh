@@ -1,18 +1,18 @@
 #!/bin/bash
 
 # Check if tikv-server container is running
-if [ "$(sudo docker ps -q -f name=tikv-server)" ]; then
+if [ "$(docker ps -q -f name=tikv-server)" ]; then
     echo "tikv-server is already running."
 else
     # Check if tikv-server container exists (stopped)
-    if [ "$(sudo docker ps -aq -f status=exited -f name=tikv-server)" ]; then
+    if [ "$(docker ps -aq -f status=exited -f name=tikv-server)" ]; then
         # Start the existing container
         echo "Starting existing tikv-server container..."
-        sudo docker start tikv-server
+        docker start tikv-server
     else
         # Run a new tikv-server container
         echo "Running new tikv-server container..."
-        sudo docker run -d --name tikv-server --network host pingcap/tikv:latest \
+        docker run -d --name tikv-server --network host pingcap/tikv:latest \
             --addr="127.0.0.1:20160" \
             --advertise-addr="127.0.0.1:20160" \
             --data-dir="/tikv" \
