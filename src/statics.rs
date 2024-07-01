@@ -28,4 +28,5 @@ server {
     pub static ref FAILURE: &'static str = "FAILURE";
     pub static ref PENDING: &'static str = "PENDING";
     pub static ref DEFAULT_CONFIG_FILEPATH: &'static str = "./config.toml";
+    pub static ref DEFAULT_PD_ENDPOINT: &'static str = "127.0.0.1:2379";
 }

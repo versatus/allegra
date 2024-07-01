@@ -1,7 +1,7 @@
 use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
-    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::{Payload, ServiceType}, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
+    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::{Payload, ServiceType}, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
         VmAddress, VmInfo, VmList
     }, vmm::Instance
 };
@@ -1277,4 +1277,24 @@ pub async fn load_or_get_subscriber_uri(config_path: Option<&str>) -> std::io::R
     );
 
     Ok(publisher_uri)
+}
+
+pub async fn load_or_get_pd_endpoints(config_path: Option<&str>) -> std::io::Result<Vec<String>> {
+    log::info!("Attempting to load config from env or provided path...");
+    let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+
+    let config = config.node_config();
+
+    if let Some(pd_endpoints) = config.pd_endpoints() {
+        return Ok(pd_endpoints.clone())
+    }
+
+    let pd_endpoints = std::env::var(
+        "PD_ENDPOINT"
+    ).unwrap_or(
+        DEFAULT_PD_ENDPOINT.to_string()
+    );
+
+    Ok(vec![pd_endpoints])
 }

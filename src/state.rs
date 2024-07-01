@@ -59,7 +59,7 @@ pub struct StateManager {
 }
 
 impl StateManager {
-    pub async fn new(pd_endpoints: Vec<&str>, subscriber_uri: &str, publisher_uri: &str) -> std::io::Result<Self> {
+    pub async fn new(pd_endpoints: Vec<String>, subscriber_uri: &str, publisher_uri: &str) -> std::io::Result<Self> {
         let writer = StateWriter::new(pd_endpoints.clone()).await.map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -657,8 +657,8 @@ pub struct StateWriter {
 }
 
 impl StateWriter {
-    pub async fn new<'a>(
-        pd_endpoints: Vec<&'a str>
+    pub async fn new(
+        pd_endpoints: Vec<String>
     ) -> Result<Self> {
         let client = TransactionClient::new(pd_endpoints).await?;
         Ok(Self { client }) 
@@ -769,8 +769,8 @@ pub struct StateReader {
 }
 
 impl StateReader {
-    pub async fn new<'a>(
-        pd_endpoints: Vec<&'a str>
+    pub async fn new(
+        pd_endpoints: Vec<String>
     ) -> Result<Self> {
         let client = RawClient::new(pd_endpoints).await?;
         Ok(Self { client })

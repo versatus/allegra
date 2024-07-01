@@ -1,6 +1,7 @@
 #!/bin/bash
 
 HOST_IP=$(ip route | awk '/default/ { print $3 }')
+export PD_ENDPOINT="$HOST_IP:2379"
 
 # Check if tikv-server container is running
 if [ "$(docker ps -q -f name=tikv-server)" ]; then
@@ -18,6 +19,6 @@ else
             --addr="0.0.0.0:20160" \
             --advertise-addr="0.0.0.0:20160" \
             --data-dir="/tikv" \
-            --pd="http://$HOST_IP:2379"
+            --pd="http://$PD_ENDPOINT"
     fi
 fi
