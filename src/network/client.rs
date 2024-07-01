@@ -4,12 +4,11 @@ use uuid::Uuid;
 use crate::{
     allegra_rpc::{
         InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage
-    }, create_allegra_rpc_client_to_addr, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
+    }, create_allegra_rpc_client_to_addr, dht::Peer, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 
 pub struct NetworkClient {
-    local_peer_id: String,
-    local_peer_address: String,
+    local_peer: Peer,
     subscriber: NetworkSubscriber,
     #[allow(unused)]
     publisher: GenericPublisher
@@ -17,8 +16,7 @@ pub struct NetworkClient {
 
 impl NetworkClient {
     pub async fn new(
-        local_peer_id: String,
-        local_peer_address: String,
+        local_peer: Peer,
         subscriber_uri: &str,
         publisher_uri: &str,
     ) -> std::io::Result<Self> {
@@ -26,7 +24,7 @@ impl NetworkClient {
         let subscriber = NetworkSubscriber::new(subscriber_uri).await?;
         let publisher = GenericPublisher::new(publisher_uri).await?;
 
-        Ok(Self { local_peer_id, local_peer_address, subscriber, publisher })
+        Ok(Self { local_peer, subscriber, publisher })
     }
 
     pub async fn run(mut self) -> std::io::Result<()> {
@@ -70,8 +68,8 @@ impl NetworkClient {
                 peer_id, peer_address, dst, ..
             } => {
                 let header = MessageHeader {
-                    peer_id: self.local_peer_id.clone(),
-                    peer_address: self.local_peer_address.clone(),
+                    peer_id: self.local_peer.wallet_address_hex(),
+                    peer_address: self.local_peer.ip_address().to_string().clone(),
                     message_id: uuid::Uuid::new_v4().to_string(),
                 };
 
@@ -231,6 +229,12 @@ impl NetworkClient {
             }
             NetworkEvent::CastLeaderElectionVote { .. } => {
                 todo!()
+            }
+            NetworkEvent::BootstrapNewPeer { event_id, task_id, peer, dst } => {
+                log::info!("Received Bootstrap New Peer event");
+            }
+            NetworkEvent::BootstrapResponse { event_id, original_event_id, task_id, quorums, instances } => {
+                log::info!("Received Bootstrap Response event");
             }
         }
 

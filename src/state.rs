@@ -66,15 +66,20 @@ impl StateManager {
                 e
             )
         })?;
+        log::info!("Created StateWriter...");
         let reader = StateReader::new(pd_endpoints.clone()).await.map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
+        log::info!("Created StateReader...");
         let state_subscriber = StateSubscriber::new(subscriber_uri).await?;
+        log::info!("Created StateSubscriber...");
         let task_subscriber = TaskStatusSubscriber::new(subscriber_uri).await?;
+        log::info!("Created TaskStatusSubscriber...");
         let publisher = Arc::new(Mutex::new(GenericPublisher::new(publisher_uri).await?));
+        log::info!("Created GenericPublisher...");
         let task_cache = Arc::new(
             RwLock::new(
                 LruCache::new(
@@ -87,6 +92,7 @@ impl StateManager {
                 )
             )
         );
+        log::info!("Created TaskCache...");
         let account_cache = Arc::new(
             RwLock::new(
                 LruCache::new(
@@ -101,6 +107,7 @@ impl StateManager {
                 )
             )
         );
+        log::info!("Created AccountCache...");
         let instance_cache = Arc::new(
             RwLock::new(
                 LruCache::new(
@@ -115,6 +122,7 @@ impl StateManager {
                 )
             )
         );
+        log::info!("Created InstanceCache...");
 
         Ok(Self {
             writer,
@@ -133,11 +141,13 @@ impl StateManager {
             tokio::select! {
                 Ok(message) = self.state_subscriber.receive() => {
                     for m in message {
+                        log::info!("Received state event...");
                         self.handle_state_event(m).await?;
                     }
                 }
                 Ok(message) = self.task_subscriber.receive() => {
                     for m in message {
+                        log::info!("Received task_status event...");
                         self.handle_task_event(m).await?;
                     }
                 }

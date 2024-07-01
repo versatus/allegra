@@ -1,12 +1,13 @@
 use allegra::account::TaskId;
-use allegra::event::QuorumEvent;
+use allegra::event::{NetworkEvent, QuorumEvent};
 use allegra::{dht::Peer, statics::DEFAULT_NETWORK};
 use allegra::grpc::VmmService;
 use allegra::helpers::{load_bootstrap_node, load_or_create_ethereum_address, load_or_get_public_ip_addresss};
-use allegra::publish::{GenericPublisher, QuorumTopic};
+use allegra::publish::{GenericPublisher, NetworkTopic, QuorumTopic};
 use allegra::subscribe::RpcResponseSubscriber;
 use futures::prelude::*;
 use allegra::allegra_rpc::{vmm_server::VmmServer, FILE_DESCRIPTOR_SET};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tonic::transport::Server;
 use uuid::Uuid;
 use std::sync::Arc;
@@ -59,29 +60,63 @@ async fn main() -> std::io::Result<()> {
         )
     );
 
-    #[cfg(not(feature="bootstrap"))]
-    {
-        //TODO(asmith): Use configuration file
+    let to_dial = if let Ok(bootstrap_nodes) = load_bootstrap_node(None).await {
+        bootstrap_nodes.par_iter().filter_map(|(wallet, ip)| {
+            let bootstrap_peer = Peer::new(
+                wallet.clone(), ip.clone() 
+            );
 
-        let (bootstrap_wallet_addr, bootstrap_ip_addr) = load_bootstrap_node(None).await?;
-        let bootstrap_peer = Peer::new(
-            bootstrap_wallet_addr, bootstrap_ip_addr
-        );
+            if bootstrap_peer != local_peer {
+                None
+            } else {
+                Some(bootstrap_peer)
+            }
+        }).collect::<Vec<Peer>>()
+    } else {
+        vec![]
+    };
 
-        let mut guard = publisher.lock().await;
+    let mut guard = publisher.lock().await;
+    for peer in to_dial {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let event = QuorumEvent::NewPeer { event_id, task_id, peer: bootstrap_peer };
+        let event = QuorumEvent::NewPeer { event_id, task_id, peer: peer.clone()};
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
         ).await?;
 
-        //TODO(asmith): Create a network event to request being
-        //bootstrapped into the network, which include being informed
-        //of other nodes in the network and the quorum they are each 
-        //a member of.
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = NetworkEvent::BootstrapNewPeer { event_id, task_id, peer: local_peer.clone(), dst: peer.clone()};
+        guard.publish(
+            Box::new(NetworkTopic),
+            Box::new(event)
+        ).await?;
     }
+
+    let event_id = Uuid::new_v4().to_string();
+    let task_id = TaskId::new(Uuid::new_v4().to_string());
+    let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone() };
+    guard.publish(
+        Box::new(QuorumTopic),
+        Box::new(event),
+    ).await?;
+    drop(guard);
+
+    //TODO(asmith): Create a network event to request being
+    //bootstrapped into the network, which include being informed
+    //of other nodes in the network and the quorum they are each 
+    //a member of.
+
+    //We probably actually need a "Bootstrap" or "Handshake" event
+    //where the new peer is bootstrapped into the network, including
+    //the sharing of current quorum makeup, current leaders, etc.
+    //is added to a quorum, if a quorum reshuffle occurs as a result,
+    //this process should conclude before the new node is synced with 
+    //its quorum peers
+
+    //Add self to quorum
 
     let next_port = 2222;
     log::info!("established network port");

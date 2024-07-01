@@ -1,7 +1,8 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::{HashMap, HashSet}, net::SocketAddr};
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
+use uuid::Uuid;
 use crate::{
     account::{
         ExposedPort,
@@ -16,15 +17,15 @@ use crate::{
         InstanceGetSshDetails, 
         InstanceStartParams, 
         InstanceStopParams
-    }, dht::Peer, grpc_light::generate_task_id, helpers::{
+    }, dht::{Peer, Quorum}, grpc_light::generate_task_id, helpers::{
             recover_namespace, 
             recover_owner_address
         }, params::{
             HasOwner, Params, ServiceType
-        }, publish::{GeneralResponseTopic}, vm_info::{
+        }, publish::GeneralResponseTopic, vm_info::{
             VmInfo, 
             VmList
-        }, vm_types::VmType, voting::Vote
+        }, vm_types::VmType, vmm::Instance, voting::Vote
 };
 use crate::params::Payload;
 use getset::Getters;
@@ -344,6 +345,36 @@ pub enum NetworkEvent {
         task_id: TaskId,
         vote: Vote,
         peers: Vec<Peer>
+    },
+    BootstrapNewPeer {
+        // This event ensures a new peer is fully bootstrapped into the network
+        // before it starts participating.
+        // This means this event should trigger the peer being added to a quourum
+        // the peer should receive, from it's quorum leader, the current makeup
+        // of it's quuorum and all other quorums
+        // the peer should be synced with it's quorum
+        //
+        // in the event this process leads to a quorum reshuffling,
+        // the new peer should receive all of the network's peer information
+        // such as the existing peers and the quorums they are members of
+        // after the quorum reshuffling and leader elections occur, and the 
+        // peer is firmly a member of a quorum
+        //
+        // in the event this process is interrupted by a new leader election
+        // the leader election should complete without the new peer
+        // and then following the leader election, the new leader will
+        // be responsible for bootstrapping the new peer into the network
+        event_id: String,
+        task_id: TaskId,
+        peer: Peer,
+        dst: Peer
+    },
+    BootstrapResponse {
+        event_id: String,
+        original_event_id: String,
+        task_id: TaskId,
+        quorums: Vec<Quorum>,
+        instances: Vec<Instance>,
     }
 }
 

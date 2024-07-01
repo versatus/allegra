@@ -11,12 +11,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         })?;
 
+    log::info!("Attempting to load ethereum address");
     let wallet_address = load_or_create_ethereum_address(None).await?;
+    log::info!("Attempting to load public ip address");
     let ip_address = load_or_get_public_ip_addresss(None).await?;
+    log::info!("Attempting to create local peer from wallet and ip addresses");
     let local_peer = Peer::new(
         wallet_address,
         ip_address
     );
+    log::info!("Attempting to create QuorumManager");
     let mut quorum_manager = QuorumManager::new(
         &std::env::var(
             "SUBSCRIBER_ADDRESS"

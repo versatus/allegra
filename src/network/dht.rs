@@ -57,7 +57,7 @@ impl Peer {
     }
 }
 
-#[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq)]
+#[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quorum {
     #[getset(get_copy="pub", get="pub", get_mut)]
     id: Uuid,
@@ -151,12 +151,12 @@ impl QuorumManager {
                     match result {
                         Ok(messages) => {
                             for m in messages {
-                                if let Err(e) = self.handle_quorum_message(m).await {
-                                    log::error!("{e}");
+                                if let Err(e) = self.handle_quorum_message(m.clone()).await {
+                                    log::error!("self.handle_quorum_message(m): {e}: message: {m:?}");
                                 }
                             }
                         }
-                        Err(e) => log::error!("{e}")
+                        Err(e) => log::error!("self.subscriber.receive() Error: {e}")
                     }
                 },
                 Some(quorum_result) = self.futures.next() => {
@@ -194,7 +194,7 @@ impl QuorumManager {
             QuorumEvent::Consolidate { .. } => todo!(),
             QuorumEvent::RequestSshDetails { .. } => todo!(),
             QuorumEvent::NewPeer { event_id, task_id, peer } => {
-                log::info!("Received quorum message: {event_id}: {task_id}");
+                log::info!("Received NewPeer quorum message: {event_id}: {task_id}");
                 self.handle_new_peer_message(&peer).await?;
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
@@ -912,12 +912,14 @@ impl QuorumManager {
             )
         )?.clone();
 
+        log::info!("checking if new peer is member in local quorum");
         let local_quorum_member = if q.id() == &self.get_local_quorum_membership()? {
             true
         } else {
             false
         };
 
+        log::info!("acquiring quorum that new peer is a member of");
         let quorum = self.quorums.get_mut(&q.id().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -930,13 +932,17 @@ impl QuorumManager {
         log::info!("quorum.size() = {}", quorum.size());
 
         if quorum.clone().size() >= 50 {
+            log::info!("quorum exceeds maximum size, time to reshuffle quorums");
             self.create_new_quorum().await?;
         }
 
         if !self.peers.contains_key(peer.wallet_address()) {
+            log::info!("self.peers does not contain peer key, adding");
             self.peers.insert(*peer.wallet_address(), peer.clone());
-            for (_, dst_peer) in self.peers.clone() {
+            log::info!("added new peer to self.peers");
+            for (peer_wallet_address, dst_peer) in self.peers.clone() {
                 if &dst_peer != peer {
+                    log::info!("informing: {:?} of new peer", peer_wallet_address);
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
@@ -958,7 +964,8 @@ impl QuorumManager {
             }
         } 
 
-        if local_quorum_member {
+        if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
+            log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
             let local_id = self.node().peer_info().wallet_address().clone();
             let local_peer = self.node.peer_info().clone();
             self.share_cert(

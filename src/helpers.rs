@@ -1,7 +1,7 @@
 use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
-    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{NodeConfig, WalletConfig}, params::{Payload, ServiceType}, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, SUCCESS}, vm_info::{
+    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::{Payload, ServiceType}, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
         VmAddress, VmInfo, VmList
     }, vmm::Instance
 };
@@ -25,7 +25,21 @@ use tokio::sync::RwLock;
 use std::net::SocketAddr;
 use geolocation::Locator;
 use rand::Rng;
-use alloy::{network::{Ethereum, EthereumWallet, NetworkWallet}, primitives::Address, signers::local::{coins_bip39::English, LocalSigner, MnemonicBuilder}};
+use alloy::{
+    network::{
+        Ethereum, 
+        EthereumWallet, 
+        NetworkWallet
+    }, primitives::Address, 
+    signers::local::{
+        coins_bip39::English, 
+        LocalSigner, 
+        MnemonicBuilder
+    }, signers::k256::{
+        elliptic_curve::SecretKey,
+        Secp256k1
+    }
+};
 
 pub fn handle_get_instance_ip_output_success(
     output: &std::process::Output,
@@ -995,20 +1009,23 @@ pub fn get_payload_hash(payload_bytes: &[u8]) -> Vec<u8> {
     hasher.finalize().to_vec()
 }
 
-pub async fn load_config_from_env() -> std::io::Result<NodeConfig> {
+pub async fn load_config_from_env() -> std::io::Result<Config> {
     let path = std::env::var("CONFIG_FILEPATH").unwrap_or(
         DEFAULT_CONFIG_FILEPATH.to_string()
     );
 
-    Ok(NodeConfig::from_file(&path).await?)
+    log::info!("Attempting to load config from env variable or default: {path}");
+    log::info!("current working directory: {:?}", std::env::current_dir());
+    Ok(Config::from_file(&path).await?)
 
 }
 
-pub async fn load_config_from_path(config_path: &str) -> std::io::Result<NodeConfig> {
-    Ok(NodeConfig::from_file(config_path).await?)
+pub async fn load_config_from_path(config_path: &str) -> std::io::Result<Config> {
+    log::info!("Attempting to load config from provided path");
+    Ok(Config::from_file(config_path).await?)
 }
 
-pub async fn load_config_from_env_or_path(config_path: Option<&str>) -> std::io::Result<NodeConfig> {
+pub async fn load_config_from_env_or_path(config_path: Option<&str>) -> std::io::Result<Config> {
     if let Some(path) = config_path {
         return load_config_from_path(path).await
     }
@@ -1017,36 +1034,81 @@ pub async fn load_config_from_env_or_path(config_path: Option<&str>) -> std::io:
 }
 
 pub async fn load_or_create_ethereum_address(config_path: Option<&str>) -> std::io::Result<Address> {
+
+    log::info!("Attempting to load config from env or provided path...");
     let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+    log::info!("Config: {:?}", config);
+
+    let config = config.node_config();
     if let Some(sk) = config.wallet_signing_key() {
-        let signing_key = alloy::signers::k256::ecdsa::SigningKey::from_slice(sk.as_bytes()).map_err(|e| {
+
+        log::info!("Acquired wallet signing key as string, attempting to deserialize from bytes");
+        let decoded_sk = hex::decode(&sk).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
+
+        let secret_key: SecretKey<Secp256k1> = SecretKey::from_slice(&decoded_sk).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        let signing_key = alloy::signers::k256::ecdsa::SigningKey::from(secret_key);
+
+        log::info!("Creating local signer...");
         let local_signer = LocalSigner::from_signing_key(signing_key);
+
+        log::info!("Creating ethereum wallet...");
         let mut wallet = EthereumWallet::default();
+
+        log::info!("Registering local signer with ethereum wallet...");
         wallet.register_default_signer(local_signer);
+
+        log::info!("Returning default signer address...");
         Ok(<EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet))
+
     } else if let Some(keypath) = config.wallet_keyfile() {
+
+        log::info!("Attempting to create wallet from key file...");
         let file_content = tokio::fs::read_to_string(keypath).await?;
+
+        log::info!("Attempting to deserialize key file content into Wallet Config...");
         let wallet_config: WalletConfig = serde_json::from_str(&file_content)?;
 
-        Ok(Address::from_hex(wallet_config.address()).map_err(|e| {
+        log::info!("Attempting to deserialize ethereum address from hex string...");
+        let address = Address::from_hex(wallet_config.address()).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
-        })?)
+        })?;
+
+        log::info!("returning ethereum address ...");
+        Ok(address)
+
     } else if let Some(wallet_address) = config.wallet_address() {
-        Ok(Address::from_hex(wallet_address).map_err(|e| {
+
+        log::info!("Attempting to deserialize Address from hex string from config.wallet_address()...");
+        let address = Address::from_hex(wallet_address).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
-        })?)
+        })?;
+
+        log::info!("returning ethereum address...");
+        Ok(address)
+
     } else {
+
+        log::info!("None of the attempts to load the address succedded, created new ethereum wallet...");
+        log::info!("attempting to build mnemonic phrase...");
+        log::info!("attempting to write mnemonic phrase to .mnemonic file...");
         let local_signer = MnemonicBuilder::<English>::default()
             .word_count(12)
             .write_to(".mnemonic")
@@ -1057,57 +1119,162 @@ pub async fn load_or_create_ethereum_address(config_path: Option<&str>) -> std::
                 )
             })?;
 
+        log::info!("Instantiating default ethereum wallet...");
         let mut wallet = EthereumWallet::default();
+
+        log::info!("Registering local signer with ethereum wallet as default signer...");
         wallet.register_default_signer(local_signer);
+
+        log::info!("returning default signer address...");
         Ok(<EthereumWallet as NetworkWallet<Ethereum>>::default_signer_address(&wallet))
+
     }
 }
 
 pub async fn load_or_get_public_ip_addresss(config_path: Option<&str>) -> std::io::Result<SocketAddr> {
+    log::info!("Attempting to load config from env or provided path...");
     let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+
+    let config = config.node_config();
     if let Some(ip_addr) = config.public_ip_address() {
-        Ok(ip_addr.to_string().parse().map_err(|e| {
+        log::info!("Config contained declared public ip address, attempting to parse into SocketAddr...");
+        let socket_addr = ip_addr.to_string().parse().map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
-        })?)
+        })?;
+
+        log::info!("Successfully parsed ip address string into SocketAddr, returning...");
+        Ok(socket_addr)
     } else {
-        Ok(get_public_ip().await?.parse().map_err(|e| {
+        log::info!("config did not include declared public ip address, attempting to acquire via http call");
+        let ip_addr = get_public_ip().await?;
+        log::info!("succesfully acquired ip address string via HTTP call, attempting to parse into SocketAddr...");
+        let server_ip_address = format!("{}:50051", ip_addr);
+        let socket_addr = server_ip_address.parse().map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
-        })?)
+        })?; 
+
+        log::info!("succesfully parsed ip address string into SocketAddr, returning...");
+        Ok(socket_addr)
     }
 }
 
-pub async fn load_bootstrap_node(config_path: Option<&str>) -> std::io::Result<(Address, SocketAddr)> {
+pub async fn load_bootstrap_node(config_path: Option<&str>) -> std::io::Result<Vec<(Address, SocketAddr)>> {
+    log::info!("Attempting to load config from env or provided path...");
     let config = load_config_from_env_or_path(config_path).await?;
-    if let Some(bootstrap_ip_addr) = config.bootstrap_ip_address() {
-        if let Some(bootstrap_wallet_addr) = config.bootstrap_wallet_address() {
-            let bootstrap_wallet_address = Address::from_hex(bootstrap_wallet_addr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
+    log::info!("Successfully loaded config...");
 
-            let bootstrap_ip_address = bootstrap_ip_addr.parse().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
+    let config = config.node_config();
 
-            return Ok((bootstrap_wallet_address, bootstrap_ip_address))
+    if let Some(bootstrap_ip_addresses) = config.bootstrap_ip_addresses() {
+        log::info!("discovered bootstrap ip addresses in config...");
+        if let Some(bootstrap_wallet_addresses) = config.bootstrap_wallet_addresses() {
+            log::info!("discovered bootstrap wallet addresses in config...");
+            log::info!("collecting wallet and ip addresses into pairs...");
+            let bootstrap_nodes = bootstrap_wallet_addresses.par_iter()
+                .zip(bootstrap_ip_addresses.par_iter())
+                .filter_map(|(wallet, ip)| {
+                    match (Address::from_hex(wallet.clone()), ip.parse::<SocketAddr>()) {
+                        (Ok(wallet_address), Ok(ip_address)) => Some((wallet_address, ip_address)),
+                        _ => None
+                    }
+                }).collect::<Vec<(Address, SocketAddr)>>();
+            log::info!("returning boostrap node addresses...");
+            return Ok(bootstrap_nodes)
         }
     }
 
+    log::error!("one or more conditions failed in attempting to acquire bootstrap peers...");
     return Err(
         std::io::Error::new(
             std::io::ErrorKind::Other,
             "Boostrap node wallet address and ip address required to be bootstrapped into the network"
         )
     )
+}
+
+pub async fn load_or_get_vmm_filesystem(config_path: Option<&str>) -> std::io::Result<String> {
+    log::info!("Attempting to load config from env or provided path...");
+    let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+
+    let config = config.node_config();
+
+    if let Some(vmm_filesystem) = config.vmm_filesystem() {
+        return Ok(vmm_filesystem.clone())
+    } 
+
+    Ok(std::env::var(
+        "LXD_STORAGE_POOL"
+    ).unwrap_or_else(|_| {
+        DEFAULT_LXD_STORAGE_POOL.to_string()
+    }))
+}
+
+pub async fn load_or_get_broker_endpoints(config_path: Option<&str>) -> std::io::Result<(String, String)> {
+    log::info!("Attempting to load config from env or provided path...");
+    let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+
+    let config = config.node_config();
+    if let (Some(broker_frontend), Some(broker_backend)) = (config.broker_frontend(), config.broker_backend()) {
+        return Ok((broker_frontend.clone(), broker_backend.clone()))
+    }
+
+    let broker_frontend = std::env::var("BROKER_FRONTEND").unwrap_or_else(|_| {
+        DEFAULT_PUBLISHER_ADDRESS.to_string()
+    });
+    let broker_backend = std::env::var("BROKER_BACKEND").unwrap_or_else(|_| {
+        DEFAULT_SUBSCRIBER_ADDRESS.to_string()
+    });
+
+    Ok((broker_frontend, broker_backend))
+
+}
+
+pub async fn load_or_get_publisher_uri(config_path: Option<&str>) -> std::io::Result<String> {
+    log::info!("Attempting to load config from env or provided path...");
+    let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+
+    let config = config.node_config();
+
+    if let Some(publisher_uri) = config.publisher_uri() {
+        return Ok(publisher_uri.clone())
+    }
+
+    let publisher_uri = std::env::var(
+        "PUBLISHER_ADDRESS"
+    ).unwrap_or(
+        DEFAULT_PUBLISHER_ADDRESS.to_string()
+    );
+
+    Ok(publisher_uri)
+
+}
+
+pub async fn load_or_get_subscriber_uri(config_path: Option<&str>) -> std::io::Result<String> {
+    log::info!("Attempting to load config from env or provided path...");
+    let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+
+    let config = config.node_config();
+
+    if let Some(subscriber_uri) = config.subscriber_uri() {
+        return Ok(subscriber_uri.clone())
+    }
+
+    let publisher_uri = std::env::var(
+        "SUBSCRIBER_ADDRESS"
+    ).unwrap_or(
+        DEFAULT_SUBSCRIBER_ADDRESS.to_string()
+    );
+
+    Ok(publisher_uri)
 }

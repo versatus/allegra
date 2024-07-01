@@ -12,18 +12,46 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Getters, Serialize, Deserialize, Debug)]
 #[getset(get = "pub")]
+pub struct Config {
+    node_config: NodeConfig
+}
+
+impl Config {
+    pub async fn from_file(path: &str) -> std::io::Result<Self> {
+        let config_file_content = tokio::fs::read_to_string(path).await?;
+
+        let config = toml::from_str(&config_file_content).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        
+        Ok(config)
+    }
+}
+
+#[derive(Getters, Serialize, Deserialize, Debug)]
+#[getset(get = "pub")]
 pub struct NodeConfig {
     wallet_keyfile: Option<String>,
     public_ip_address: Option<String>,
-    wallet_mnemonic: Option<Vec<String>>,
+    wallet_mnemonic: Option<String>,
     wallet_address: Option<String>,
     wallet_pubkey: Option<String>,
     wallet_signing_key: Option<String>,
     pd_endpoints: Option<Vec<String>>,
     subscriber_uri: Option<String>,
     publisher_uri: Option<String>,
-    bootstrap_wallet_address: Option<String>,
-    bootstrap_ip_address: Option<String>,
+    bootstrap_wallet_addresses: Option<Vec<String>>,
+    bootstrap_ip_addresses: Option<Vec<String>>,
+    is_bootstrap: Option<bool>,
+    server_address: Option<String>,
+    vmm_filesystem: Option<String>,
+    // Publishers publish to frontend
+    broker_frontend: Option<String>,
+    // Subscribers subscribe to backend
+    broker_backend: Option<String>,
 }
 
 #[derive(Getters, Serialize, Deserialize, Debug)]

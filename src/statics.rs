@@ -18,7 +18,6 @@ server {
 }
 "#;
     pub static ref DEFAULT_LXD_STORAGE_POOL: &'static str = "/mnt/libretto/lxd-storage-pool"; 
-    pub static ref DEFAULT_LXD_STORAGE_DIR: &'static str = "/home/ans/projects/sandbox/test-dir/";     
     pub static ref DEFAULT_GRPC_ADDRESS: &'static str = "0.0.0.0:50051";
     pub static ref DEFAULT_SUBSCRIBER_ADDRESS: &'static str = "127.0.0.1:5556";
     pub static ref DEFAULT_PUBLISHER_ADDRESS: &'static str = "127.0.0.1:5555";
@@ -28,5 +27,5 @@ server {
     pub static ref SUCCESS: &'static str = "SUCCESS";
     pub static ref FAILURE: &'static str = "FAILURE";
     pub static ref PENDING: &'static str = "PENDING";
-    pub static ref DEFAULT_CONFIG_FILEPATH: &'static str = "../config.toml";
+    pub static ref DEFAULT_CONFIG_FILEPATH: &'static str = "./config.toml";
 }
