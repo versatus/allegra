@@ -67,6 +67,7 @@ async fn main() -> std::io::Result<()> {
             );
 
             if bootstrap_peer != local_peer {
+                log::warn!("bootstrap peer: {:?} is not local peer, dialing...", &bootstrap_peer);
                 Some(bootstrap_peer)
             } else {
                 None
@@ -88,6 +89,7 @@ async fn main() -> std::io::Result<()> {
 
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
+        log::warn!("Sending network event to Bootstrap new peer");
         let event = NetworkEvent::BootstrapNewPeer { event_id, task_id, peer: local_peer.clone(), dst: peer.clone()};
         guard.publish(
             Box::new(NetworkTopic),
