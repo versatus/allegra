@@ -295,12 +295,8 @@ fn generate_signature(
 }
 
 pub async fn create_allegra_rpc_client_to_addr(dst: &str) -> std::io::Result<VmmClient<Channel>> {
-    let endpoint: Endpoint = Endpoint::from_shared(dst.to_string()).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
+    log::info!("attempting to create allegra rpc client to address {}", dst);
+    let endpoint = format!("http://{}", dst); 
     let vmclient = VmmClient::connect(endpoint).await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
