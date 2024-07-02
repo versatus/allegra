@@ -6,6 +6,7 @@ use crate::{
     }, vmm::Instance
 };
 use std::str::FromStr;
+use bollard::container::InspectContainerOptions;
 use conductor::publisher::PubStream;
 use hex::FromHex;
 use sha3::{Digest, Sha3_256};
@@ -1131,6 +1132,42 @@ pub async fn load_or_create_ethereum_address(config_path: Option<&str>) -> std::
     }
 }
 
+#[cfg(feature = "docker")]
+pub async fn load_or_get_public_ip_addresss(config_path: Option<&str>) -> std::io::Result<SocketAddr> {
+    log::info!("Attempting to load config from env or provided path...");
+    let config = load_config_from_env_or_path(config_path).await?;
+    log::info!("Successfully loaded config...");
+
+    let config = config.node_config();
+    if let Some(ip_addr) = config.public_ip_address() {
+        log::info!("Config contained declared public ip address, attempting to parse into SocketAddr...");
+        let socket_addr = ip_addr.to_string().parse().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        log::info!("Successfully parsed ip address string into SocketAddr, returning...");
+        Ok(socket_addr)
+    } else {
+        log::info!("config did not include declared public ip address, attempting to acquire via http call");
+        let ip_addr = get_container_ip().await?;
+        log::info!("succesfully acquired ip address string via HTTP call, attempting to parse into SocketAddr...");
+        let server_ip_address = format!("{}:50051", ip_addr);
+        let socket_addr = server_ip_address.parse().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?; 
+
+        log::info!("succesfully parsed ip address string into SocketAddr, returning...");
+        Ok(socket_addr)
+    }
+}
+
+#[cfg(not(feature = "docker"))]
 pub async fn load_or_get_public_ip_addresss(config_path: Option<&str>) -> std::io::Result<SocketAddr> {
     log::info!("Attempting to load config from env or provided path...");
     let config = load_config_from_env_or_path(config_path).await?;
@@ -1297,4 +1334,37 @@ pub async fn load_or_get_pd_endpoints(config_path: Option<&str>) -> std::io::Res
     );
 
     Ok(vec![pd_endpoints])
+}
+
+pub async fn get_container_ip(container_name: &str) -> std::io::Result<String> {
+    let docker = bollard::Docker::connect_with_local_defaults().map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
+
+    let options = Some(InspectContainerOptions { size: false });
+    match docker.inspect_container(container_name, options).await {
+        Ok(container_info) => {
+            if let Some(network_settings) = container_info.network_settings {
+                if let Some(networks) = network_settings.networks {
+                    for (_, network) in networks {
+                        if let Some(ip_address) = network.ip_address {
+                            return Ok(ip_address)
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            ))
+    }
+
+    return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "unable to acquire docker container's ip address"
+        ))
 }

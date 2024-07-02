@@ -10,7 +10,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
         })?;
 
+    log::info!("Logger set up, attempting to get broker endpoints");
     let (frontend, backend) = load_or_get_broker_endpoints(None).await?;
+    log::info!("Broker endpoints acquired");
     let broker = conductor::broker::Broker::new(&frontend, &backend).await?;
 
     broker.start().await?;
