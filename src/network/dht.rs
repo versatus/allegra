@@ -941,8 +941,8 @@ impl QuorumManager {
             self.peers.insert(*peer.wallet_address(), peer.clone());
             log::info!("added new peer to self.peers");
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
-                if &dst_peer != peer {
-                    log::info!("informing: {:?} of new peer", peer_wallet_address);
+                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) {
+                    log::warn!("informing: {:?} of new peer", peer_wallet_address);
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
@@ -960,6 +960,24 @@ impl QuorumManager {
                         Box::new(NetworkTopic),
                         Box::new(dst_event)
                     ).await?;
+
+                    let task_id = TaskId::new(
+                        uuid::Uuid::new_v4().to_string()
+                    );
+                    let event_id = uuid::Uuid::new_v4().to_string();
+                    let new_peer_event = NetworkEvent::NewPeer { 
+                        event_id,
+                        task_id,
+                        peer_id: dst_peer.wallet_address_hex(),
+                        peer_address: dst_peer.ip_address(), 
+                        dst: peer.ip_address() 
+                    };
+
+                    self.publisher_mut().publish(
+                        Box::new(NetworkTopic),
+                        Box::new(new_peer_event)
+                    ).await?;
+
                 }
             }
         } 
