@@ -969,8 +969,8 @@ impl QuorumManager {
                         event_id,
                         task_id,
                         peer_id: dst_peer.wallet_address_hex(),
-                        peer_address: dst_peer.ip_address(), 
-                        dst: peer.ip_address() 
+                        peer_address: dst_peer.ip_address().to_string(), 
+                        dst: peer.ip_address().to_string() 
                     };
 
                     self.publisher_mut().publish(
