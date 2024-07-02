@@ -32,7 +32,9 @@ impl NetworkClient {
             tokio::select! {
                 Ok(messages) = self.subscriber.receive() => {
                     for message in messages {
-                        self.handle_networking_event(message).await?;
+                        if let Err(e) = self.handle_networking_event(message.clone()).await {
+                            log::error!("self.handle_networking_event(message): {e}: message: {message:?}");
+                        }
                     }
                 },
                 _ = tokio::signal::ctrl_c() => {
