@@ -969,7 +969,6 @@ impl QuorumManager {
                 &local_id.to_string(),
                 &local_peer,
                 q.id(),
-                peer
             ).await?;
         }
 
