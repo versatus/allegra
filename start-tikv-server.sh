@@ -1,8 +1,5 @@
 #!/bin/bash
 
-HOST_IP=$(ip route | awk '/default/ { print $3 }')
-export PD_ENDPOINT="$HOST_IP:2379"
-
 # Check if tikv-server container is running
 if [ "$(docker ps -q -f name=tikv-server)" ]; then
     echo "tikv-server is already running."
@@ -16,9 +13,9 @@ else
         # Run a new tikv-server container
         echo "Running new tikv-server container..."
         docker run -d --name tikv-server --network host pingcap/tikv:latest \
-            --addr="0.0.0.0:20160" \
-            --advertise-addr="0.0.0.0:20160" \
+            --addr="127.0.0.1:20160" \
+            --advertise-addr="127.0.0.1:20160" \
             --data-dir="/tikv" \
-            --pd="http://$PD_ENDPOINT"
+            --pd="http://127.0.0.1:2379"
     fi
 fi
