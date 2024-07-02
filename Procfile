@@ -1,7 +1,7 @@
-broker: ./target/release/broker | tee -a logs/broker.log 
-quorum: ./target/release/quorum | tee -a logs/quorum.log 
-server: ./target/release/server | tee -a logs/server.log 
-state: ./target/release/state | tee -a logs/state.log 
-vmm: ./target/release/vmm | tee -a logs/vmm.log 
-monitor: ./target/release/monitor | tee -a logs/monitor.log 
-network: ./target/release/network | tee -a logs/network.log 
+broker: bash -c './target/release/broker | tee -a logs/broker.log && sleep 5' 
+network: bash -c './target/release/network | tee -a logs/network.log && sleep 5' 
+state: bash -c './target/release/state | tee -a logs/state.log && sleep 5' 
+vmm: bash -c './target/release/vmm | tee -a logs/vmm.log && sleep 5' 
+monitor: bash -c './target/release/monitor | tee -a logs/monitor.log && sleep 5' 
+quorum: bash -c './target/release/quorum | tee -a logs/quorum.log && sleep 5' 
+server: bash -c './target/release/server | tee -a logs/server.log && sleep 5' 

@@ -44,7 +44,6 @@ impl NetworkClient {
         Ok(())
     }
 
-    #[allow(unused)]
     async fn handle_networking_event(&mut self, event: NetworkEvent) -> std::io::Result<()> {
         match event {
             NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, .. } => {
