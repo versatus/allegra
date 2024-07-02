@@ -3,5 +3,5 @@ network: bash -c 'sleep 5 && ./target/release/network | tee -a logs/network.log 
 state: bash -c 'sleep 5 && ./target/release/state | tee -a logs/state.log && sleep 5' 
 vmm: bash -c 'sleep 5 && ./target/release/vmm | tee -a logs/vmm.log && sleep 5' 
 monitor: bash -c 'sleep 5 && ./target/release/monitor | tee -a logs/monitor.log && sleep 5' 
-quorum: bash -c 'sleep 15 && ./target/release/quorum | tee -a logs/quorum.log && sleep 5' 
-server: bash -c 'sleep 15 && ./target/release/server | tee -a logs/server.log && sleep 5' 
+quorum: bash -c 'sleep 10 && ./target/release/quorum | tee -a logs/quorum.log && sleep 5' 
+server: bash -c 'sleep 20 && ./target/release/server | tee -a logs/server.log && sleep 5' 
