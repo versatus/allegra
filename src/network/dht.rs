@@ -809,7 +809,7 @@ impl QuorumManager {
             let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
             let event_id = uuid::Uuid::new_v4().to_string();
             let event = NetworkEvent::ShareCert { 
-                peer: peer.clone(), 
+                peer: self.node().peer_info().clone(), 
                 cert,
                 task_id,
                 event_id,
@@ -967,9 +967,8 @@ impl QuorumManager {
             let local_peer = self.node.peer_info().clone();
             self.share_cert(
                 &local_id.to_string(),
-                &local_peer,
+                &peer,
                 q.id(),
-                peer
             ).await?;
         }
 
