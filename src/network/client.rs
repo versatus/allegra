@@ -225,6 +225,7 @@ impl NetworkClient {
                         e
                     )
                 })?.into_inner();
+                log::info!("Sent ShareCert request with {}: response: {:?}", peer.wallet_address_hex(), resp);
             }
             NetworkEvent::CastLeaderElectionVote { .. } => {
                 todo!()

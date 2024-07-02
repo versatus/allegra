@@ -780,30 +780,9 @@ impl QuorumManager {
         local_id: &str, 
         peer: &Peer, 
         quorum_id: &Uuid, 
-        dst: &Peer
     ) -> std::io::Result<()> {
-        let peer_id_bytes = peer.wallet_address().to_string().as_bytes().to_vec();
-        let local_peer_id_bytes = local_id.as_bytes();
-
-        let peer_trust_name = {
-            assert_eq!(local_peer_id_bytes.len(), peer_id_bytes.len());
-            let mut result = Vec::with_capacity(local_peer_id_bytes.len());
-            for i in 0..local_peer_id_bytes.len() {
-                result.push(local_peer_id_bytes[i] ^ peer_id_bytes[i]);
-            }
-
-            match std::str::from_utf8(&result) {
-                Ok(res) => res.to_string(),
-                Err(e) => {
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e
-                        )
-                    )
-                }
-            }
-        };
+        log::info!("Attempting to share certificate with peer: {}", &peer.wallet_address_hex()); 
+        let peer_id = peer.wallet_address_hex();
 
         let output = std::process::Command::new("sudo")
             .arg("lxc")
@@ -811,7 +790,7 @@ impl QuorumManager {
             .arg("trust")
             .arg("add")
             .arg("--name")
-            .arg(&peer_trust_name)
+            .arg(&peer_id)
             .output()?;
 
         if output.status.success() {
@@ -835,7 +814,7 @@ impl QuorumManager {
                 task_id,
                 event_id,
                 quorum_id: quorum_id.to_string(),
-                dst: dst.clone()
+                dst: peer.clone() 
             };
 
             self.publisher.publish(
