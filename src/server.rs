@@ -67,9 +67,9 @@ async fn main() -> std::io::Result<()> {
             );
 
             if bootstrap_peer != local_peer {
-                None
-            } else {
                 Some(bootstrap_peer)
+            } else {
+                None
             }
         }).collect::<Vec<Peer>>()
     } else {
