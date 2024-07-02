@@ -1152,8 +1152,8 @@ pub async fn load_or_get_public_ip_addresss(config_path: Option<&str>) -> std::i
         Ok(socket_addr)
     } else {
         log::info!("config did not include declared public ip address, attempting to acquire via http call");
-        let container_name = std::env::var("CONTAINER_NAME").unwrap_or_default(
-            "allegra"
+        let container_name = std::env::var("CONTAINER_NAME").unwrap_or(
+            "allegra".to_string()
         );
         let ip_addr = get_container_ip(&container_name).await?;
         log::info!("succesfully acquired ip address string via HTTP call, attempting to parse into SocketAddr...");
