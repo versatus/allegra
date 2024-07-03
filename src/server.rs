@@ -78,6 +78,7 @@ async fn main() -> std::io::Result<()> {
     };
 
     let mut guard = publisher.lock().await;
+
     for peer in to_dial {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
@@ -90,7 +91,13 @@ async fn main() -> std::io::Result<()> {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
         log::warn!("Sending network event to Bootstrap new peer");
-        let event = NetworkEvent::BootstrapNewPeer { event_id, task_id, peer: local_peer.clone(), dst: peer.clone()};
+        let event = NetworkEvent::NewPeer { 
+            event_id,
+            task_id,
+            peer_id: local_peer.wallet_address_hex().clone(), 
+            peer_address: local_peer.ip_address().to_string(), 
+            dst: peer.ip_address().to_string()
+        };
         guard.publish(
             Box::new(NetworkTopic),
             Box::new(event)
@@ -100,25 +107,12 @@ async fn main() -> std::io::Result<()> {
     let event_id = Uuid::new_v4().to_string();
     let task_id = TaskId::new(Uuid::new_v4().to_string());
     let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone() };
+    log::info!("publishing event to add self to quorum...");
     guard.publish(
         Box::new(QuorumTopic),
         Box::new(event),
     ).await?;
     drop(guard);
-
-    //TODO(asmith): Create a network event to request being
-    //bootstrapped into the network, which include being informed
-    //of other nodes in the network and the quorum they are each 
-    //a member of.
-
-    //We probably actually need a "Bootstrap" or "Handshake" event
-    //where the new peer is bootstrapped into the network, including
-    //the sharing of current quorum makeup, current leaders, etc.
-    //is added to a quorum, if a quorum reshuffle occurs as a result,
-    //this process should conclude before the new node is synced with 
-    //its quorum peers
-
-    //Add self to quorum
 
     let next_port = 2222;
     log::info!("established network port");
