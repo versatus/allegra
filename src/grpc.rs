@@ -492,7 +492,7 @@ impl Vmm for VmmService {
     ) -> Result<Response<Ack>, Status> {
         log::info!("Received register request...");
         let new_peer = request.into_inner();
-        log::info!("converted requiest...");
+        log::info!("converted request into NewPeerMessage...");
         let header = new_peer.clone().header;
         log::info!("extracted request header...");
         let request_id = uuid::Uuid::new_v4();

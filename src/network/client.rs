@@ -31,7 +31,9 @@ impl NetworkClient {
         loop {
             tokio::select! {
                 Ok(messages) = self.subscriber.receive() => {
+                    log::info!("received {} messages", messages.len());
                     for message in messages {
+                        log::info!("Attempting to handle message: {:?}", message);
                         if let Err(e) = self.handle_networking_event(message.clone()).await {
                             log::error!("self.handle_networking_event(message): {e}: message: {message:?}");
                         }
