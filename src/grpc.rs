@@ -244,21 +244,25 @@ impl VmmService {
         peer: NewPeerMessage
     ) -> std::io::Result<()> {
         // Send to quorum management service
+        log::info!("Generating task ID for NewPeer QuorumEvent...");
         let task_id = generate_task_id(peer.clone()).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
+        log::info!("Generating event ID for NewPeer QuorumEvent...");
         let event_id = Uuid::new_v4().to_string();
 
         //TODO(asmith): Replace with node signature, and recover the address
+        log::info!("acquiring peer address...");
         let peer_id = Address::from_hex(&peer.new_peer_id).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
+        log::info!("Constructing peer...");
         let peer = Peer::new(
             peer_id, 
             peer.new_peer_address.parse().map_err(|e| {
@@ -268,13 +272,16 @@ impl VmmService {
                 )
             })?
         );
+        log::info!("Constructing QuorumEvent::NewPeer...");
         let event = QuorumEvent::NewPeer { event_id, task_id, peer };
 
+        log::info!("Publishing event...");
         let mut guard = self.publisher.lock().await;
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
         ).await?;
+        drop(guard);
 
         Ok(())
 
@@ -483,11 +490,17 @@ impl Vmm for VmmService {
         &self,
         request: Request<NewPeerMessage>
     ) -> Result<Response<Ack>, Status> {
+        log::info!("Received register request...");
         let new_peer = request.into_inner();
+        log::info!("converted requiest...");
         let header = new_peer.clone().header;
+        log::info!("extracted request header...");
         let request_id = uuid::Uuid::new_v4();
+        log::info!("constructed request id...");
 
+        log::info!("calling self.add_peer...");
         self.add_peer(new_peer).await?;
+        log::info!("successfully executed request...");
 
         return Ok(
             Response::new(

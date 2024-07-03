@@ -54,7 +54,7 @@ impl NetworkClient {
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.create_vm(
+                let _resp = client.create_vm(
                     tonic::Request::new(
                         create_instance_message
                     )
@@ -68,18 +68,21 @@ impl NetworkClient {
             NetworkEvent::NewPeer { 
                 peer_id, peer_address, dst, ..
             } => {
+                log::info!("Received NewPeer event, sending to {dst}");
                 let header = MessageHeader {
                     peer_id: self.local_peer.wallet_address_hex(),
                     peer_address: self.local_peer.ip_address().to_string().clone(),
                     message_id: uuid::Uuid::new_v4().to_string(),
                 };
 
+                log::info!("constructed message header");
                 let new_peer_message = NewPeerMessage {
                     header: Some(header),
                     new_peer_id: peer_id,
                     new_peer_address: peer_address,
                 };
 
+                log::info!("constructed new_peer message");
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
                 let resp = client.register(new_peer_message).await.map_err(|e| {
                     std::io::Error::new(
@@ -87,6 +90,7 @@ impl NetworkClient {
                         e.to_string()
                     )
                 })?.into_inner();
+                log::info!("Response to NewPeer message sent to {dst}: {:?}", resp);
             }
             NetworkEvent::ExposeService { 
                 name, sig, recovery_id, port, service_type, dst, ..
@@ -99,7 +103,7 @@ impl NetworkClient {
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.expose_vm_ports(
+                let _resp = client.expose_vm_ports(
                     tonic::Request::new(
                         expose_service_message
                     )
@@ -116,7 +120,7 @@ impl NetworkClient {
                 let stop_message = InstanceStopParams { name, sig, recovery_id: recovery_id as u32 };
                 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.shutdown_vm(
+                let _resp = client.shutdown_vm(
                     tonic::Request::new(
                         stop_message
                     )

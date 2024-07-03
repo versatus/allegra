@@ -639,6 +639,7 @@ impl QuorumManager {
         peer: &Peer
     ) -> std::io::Result<()> {
 
+        log::info!("Attempting to handle NewPeer event...");
         self.add_peer(peer).await?;
 
         Ok(())
