@@ -892,6 +892,7 @@ impl QuorumManager {
                         e
                     )
                 })?;
+                log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
                 return Ok(())
             } else {
                 let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
