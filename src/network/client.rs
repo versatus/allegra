@@ -211,6 +211,7 @@ impl NetworkClient {
                 }
             }
             NetworkEvent::ShareCert { peer, cert, quorum_id, dst, .. } => {
+                log::info!("Received NetworkEvent::ShareCert event");
                 let request_id = Uuid::new_v4().to_string();
                 let node_cert_message = NodeCertMessage {
                     peer_id: peer.wallet_address_hex(),
@@ -220,9 +221,11 @@ impl NetworkClient {
                     request_id
                 };
 
+                log::info!("Attempting to create allegra rpc client to {dst:?}");
                 let mut client = create_allegra_rpc_client_to_addr(
                     &dst.ip_address().to_string()
                 ).await?;
+                log::info!("Attempting to send node certificate");
                 let resp = client.node_certificate(
                     tonic::Request::new(
                         node_cert_message
