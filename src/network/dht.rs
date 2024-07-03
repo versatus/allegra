@@ -809,6 +809,7 @@ impl QuorumManager {
                 )
             };
 
+            log::info!("Cert: {cert}");
             let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
             let event_id = uuid::Uuid::new_v4().to_string();
             let event = NetworkEvent::ShareCert { 
@@ -858,6 +859,7 @@ impl QuorumManager {
         log::info!("Quorum peers: {:?}", quorum_peers);
         if quorum_peers.contains(peer) {
             log::info!("peer is member of local quorum, add certificate...");
+            log::info!("Cert: {cert}");
             let output = std::process::Command::new("sudo")
                 .arg("lxc")
                 .arg("remote")
