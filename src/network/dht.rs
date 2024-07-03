@@ -150,7 +150,9 @@ impl QuorumManager {
                 result = self.subscriber.receive() => {
                     match result {
                         Ok(messages) => {
+                            log::info!("Received {} messages", messages.len());
                             for m in messages {
+                                log::info!("attempting to handle message: {:?}", m);
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
                                     log::error!("self.handle_quorum_message(m): {e}: message: {m:?}");
                                 }
@@ -198,7 +200,7 @@ impl QuorumManager {
                 self.handle_new_peer_message(&peer).await?;
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
-                log::info!("Received quorum message: {event_id}: {task_id}");
+                log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
                 self.handle_check_responsibility_message(
                     &namespace,
                     &payload,
@@ -206,7 +208,7 @@ impl QuorumManager {
                 ).await?;
             }
             QuorumEvent::CheckAcceptCert { peer, cert, event_id, task_id } => {
-                log::info!("Received quorum message: {event_id}: {task_id}");
+                log::info!("Received CheckAcceptCert quorum message: {event_id}: {task_id}");
                 self.accept_cert(&peer, &cert).await?;
             }
         }
@@ -850,9 +852,11 @@ impl QuorumManager {
         //TODO(asmith): We will want to check against their stake to verify membership
 
         // Check if peer is member of same quorum as local node
+        log::info!("checking if certificate is for local quorum member...");
         let qid = self.get_local_quorum_membership()?;
         let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
         if quorum_peers.contains(peer) {
+            log::info!("peer is member of local quorum, add certificate...");
             let output = std::process::Command::new("sudo")
                 .arg("lxc")
                 .arg("remote")
