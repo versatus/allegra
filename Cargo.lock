@@ -83,6 +83,7 @@ dependencies = [
  "ractor_cluster_derive",
  "rand 0.8.5",
  "rayon",
+ "regex",
  "reqwest",
  "secp256k1",
  "serde",

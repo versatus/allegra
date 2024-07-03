@@ -5,6 +5,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use anchorhash::AnchorHash;
 use serde::{Serialize, Deserialize};
+use regex::Regex;
 
 use crate::{
     account::{
@@ -778,6 +779,22 @@ impl QuorumManager {
         Ok(())
     }
 
+    fn extract_cert(cert: &str) -> std::io::Result<String> {
+        let re = Regex::new(r"token:\n(.*)\n").map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        re.captures(cert).and_then(|cap| cap.get(1).map(|m| m.as_str().to_string())).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to extract jwt from cert"
+            )
+        )
+    }
+
     pub async fn share_cert(
         &mut self, 
         local_id: &str, 
@@ -809,6 +826,7 @@ impl QuorumManager {
                 )
             };
 
+            let cert = Self::extract_cert(&cert)?;
             log::info!("Cert: {cert}");
             let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
             let event_id = uuid::Uuid::new_v4().to_string();
