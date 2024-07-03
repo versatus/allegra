@@ -208,7 +208,7 @@ impl QuorumManager {
                 ).await?;
             }
             QuorumEvent::CheckAcceptCert { peer, cert, event_id, task_id } => {
-                log::info!("Received CheckAcceptCert quorum message: {event_id}: {task_id}");
+                log::info!("Received CheckAcceptCert quorum message for peer {peer:?}: {event_id}: {task_id}");
                 self.accept_cert(&peer, &cert).await?;
             }
         }
@@ -852,9 +852,10 @@ impl QuorumManager {
         //TODO(asmith): We will want to check against their stake to verify membership
 
         // Check if peer is member of same quorum as local node
-        log::info!("checking if certificate is for local quorum member...");
+        log::info!("checking if certificate from peer: {:?} is for local quorum member...", peer);
         let qid = self.get_local_quorum_membership()?;
         let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
+        log::info!("Quorum peers: {:?}", quorum_peers);
         if quorum_peers.contains(peer) {
             log::info!("peer is member of local quorum, add certificate...");
             let output = std::process::Command::new("sudo")
