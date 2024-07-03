@@ -949,6 +949,8 @@ impl QuorumManager {
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
+
+                    log::warn!("informing: {:?} of existing peers", peer.wallet_address_hex());
                     let event_id = uuid::Uuid::new_v4().to_string();
                     let new_peer_event = NetworkEvent::NewPeer { 
                         event_id,
