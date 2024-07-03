@@ -804,8 +804,7 @@ impl QuorumManager {
         log::info!("Attempting to share certificate with peer: {}", &peer.wallet_address_hex()); 
         let peer_id = peer.wallet_address_hex();
 
-        let output = std::process::Command::new("sudo")
-            .arg("lxc")
+        let output = std::process::Command::new("lxc")
             .arg("config")
             .arg("trust")
             .arg("add")
@@ -878,8 +877,7 @@ impl QuorumManager {
         if quorum_peers.contains(peer) {
             log::info!("peer is member of local quorum, add certificate...");
             log::info!("Cert: {cert}");
-            let output = std::process::Command::new("sudo")
-                .arg("lxc")
+            let output = std::process::Command::new("lxc")
                 .arg("remote")
                 .arg("add")
                 .arg(peer.wallet_address_hex())
@@ -888,6 +886,12 @@ impl QuorumManager {
 
             if output.status.success() {
                 log::info!("Successfully added peer {} certificate to trust store", &peer.wallet_address_hex());
+                let stdout = std::str::from_utf8(&output.stdout).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })?;
                 return Ok(())
             } else {
                 let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {

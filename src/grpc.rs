@@ -227,6 +227,8 @@ impl VmmService {
             Box::new(event)
         ).await?;
 
+        drop(guard);
+
         Ok(())
     }
 
