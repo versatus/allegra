@@ -1634,7 +1634,7 @@ dependencies = [
 [[package]]
 name = "conductor"
 version = "0.1.0"
-source = "git+https://github.com/versatus/conductor#6e4540be6a41a74acd1f521d7b1c2ec9414b5789"
+source = "git+https://github.com/versatus/conductor#dd1b481aac495472ca1ef6a8ef19bbbabe1b15a1"
 dependencies = [
  "async-trait",
  "bytes",
