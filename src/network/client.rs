@@ -38,7 +38,9 @@ impl NetworkClient {
                         if let Err(e) = self.handle_networking_event(message.clone()).await {
                             log::error!("self.handle_networking_event(message): {e}: message: {message:?}");
                         }
+                        log::info!("Completed message handling");
                     }
+                    log::info!("handled all messages awaiting next batch...");
                 },
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Network client is still alive");
