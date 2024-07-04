@@ -91,6 +91,17 @@ pub enum QuorumResult {
     Other(String),
 }
 
+#[derive(Getters, MutGetters, Serialize, Deserialize)]
+#[getset(get = "pub", get_copy = "pub", get_mut)]
+pub struct TrustStore {
+    #[serde(rename = "type")]
+    type_: String,
+    restricted: bool,
+    projects: Vec<String>,
+    certificate: String,
+    certificate_tokens: HashMap<String, String>
+}
+
 #[derive(Getters, MutGetters)]
 #[getset(get = "pub", get_copy = "pub", get_mut)]
 pub struct QuorumManager {
@@ -797,9 +808,7 @@ impl QuorumManager {
 
     pub async fn share_cert(
         &mut self, 
-        local_id: &str, 
         peer: &Peer, 
-        quorum_id: &Uuid, 
     ) -> std::io::Result<()> {
         log::info!("Attempting to share certificate with peer: {}", &peer.wallet_address_hex()); 
         let peer_id = peer.wallet_address_hex();
@@ -825,6 +834,7 @@ impl QuorumManager {
                 )
             };
 
+            let quorum_id = self.get_local_quorum_membership()?.to_string();
             let cert = Self::extract_cert(&cert)?;
             log::info!("Cert: {cert}");
             let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
@@ -834,7 +844,7 @@ impl QuorumManager {
                 cert,
                 task_id,
                 event_id,
-                quorum_id: quorum_id.to_string(),
+                quorum_id,
                 dst: peer.clone() 
             };
 
@@ -893,6 +903,7 @@ impl QuorumManager {
                     )
                 })?;
                 log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
+                self.share_cert(peer).await?;
                 return Ok(())
             } else {
                 let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -996,13 +1007,7 @@ impl QuorumManager {
 
         if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
             log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
-            let local_id = self.node().peer_info().wallet_address().clone();
-            let local_peer = self.node.peer_info().clone();
-            self.share_cert(
-                &local_id.to_string(),
-                &peer,
-                q.id(),
-            ).await?;
+            self.share_cert(&peer).await?;
         }
 
         Ok(())
