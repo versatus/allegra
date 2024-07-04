@@ -1,6 +1,6 @@
 use conductor::subscriber::SubStream;
 use uuid::Uuid;
-
+use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
         InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage
@@ -28,6 +28,7 @@ impl NetworkClient {
     }
 
     pub async fn run(mut self) -> std::io::Result<()> {
+        let mut heartbeat_interval = interval(Duration::from_secs(20));
         loop {
             tokio::select! {
                 Ok(messages) = self.subscriber.receive() => {
@@ -38,6 +39,9 @@ impl NetworkClient {
                             log::error!("self.handle_networking_event(message): {e}: message: {message:?}");
                         }
                     }
+                },
+                _heartbeat = heartbeat_interval.tick() => {
+                    log::info!("Network client is still alive");
                 },
                 _ = tokio::signal::ctrl_c() => {
                     break;

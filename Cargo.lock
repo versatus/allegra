@@ -1634,7 +1634,7 @@ dependencies = [
 [[package]]
 name = "conductor"
 version = "0.1.0"
-source = "git+https://github.com/versatus/conductor#2e5137cd49448eb1afebd38795e0b3a7ccde0669"
+source = "git+https://github.com/versatus/conductor#6e4540be6a41a74acd1f521d7b1c2ec9414b5789"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2766,7 +2766,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
