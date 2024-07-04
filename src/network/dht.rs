@@ -156,7 +156,8 @@ impl QuorumManager {
     pub async fn run(
         &mut self
     ) -> std::io::Result<()> {
-        let mut interval = interval(Duration::from_secs(21600));
+        let mut election_interval = interval(Duration::from_secs(21600));
+        let mut heartbeat_interval = interval(Duration::from_secs(20));
         loop {
             tokio::select! {
                 result = self.subscriber.receive() => {
@@ -189,10 +190,13 @@ impl QuorumManager {
                         }
                     }
                 },
-                leader_election = interval.tick() => {
+                leader_election = election_interval.tick() => {
                     log::info!("leader election event triggered: {:?}", leader_election);
                     let _ = self.elect_leader();
                 },
+                heartbeat = heartbeat_interval.tick() => {
+                    log::info!("Quorum is still alive...");
+                }
                 _ = tokio::signal::ctrl_c() => {
                     break;
                 }
