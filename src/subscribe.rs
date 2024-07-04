@@ -150,16 +150,20 @@ impl SubStream for NetworkSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -196,19 +200,24 @@ impl SubStream for NetworkSubscriber {
 #[async_trait::async_trait]
 impl SubStream for QuorumSubscriber {
     type Message = Vec<QuorumEvent>;
+
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -245,19 +254,24 @@ impl SubStream for QuorumSubscriber {
 #[async_trait::async_trait]
 impl SubStream for StateSubscriber {
     type Message = Vec<StateEvent>;
+
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -294,19 +308,24 @@ impl SubStream for StateSubscriber {
 #[async_trait::async_trait]
 impl SubStream for VmmSubscriber {
     type Message = Vec<VmmEvent>;
+
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -343,19 +362,24 @@ impl SubStream for VmmSubscriber {
 #[async_trait::async_trait]
 impl SubStream for DnsSubscriber {
     type Message = Vec<DnsEvent>;
+
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -395,16 +419,20 @@ impl SubStream for SyncSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -444,16 +472,20 @@ impl SubStream for TaskStatusSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -493,16 +525,20 @@ impl SubStream for RpcResponseSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -539,19 +575,24 @@ impl SubStream for RpcResponseSubscriber {
 #[async_trait::async_trait]
 impl SubStream for GeneralResponseSubscriber {
     type Message = Vec<GeneralResponseEvent>;
+
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
@@ -588,19 +629,24 @@ impl SubStream for GeneralResponseSubscriber {
 #[async_trait::async_trait]
 impl SubStream for LibrettoSubscriber {
     type Message = Vec<LibrettoEvent>;
+
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 1024]; 
-            let n = self.stream.read(&mut read_buffer).await.expect("unable to read stream to buffer");
-            if n == 0 {
-                break;
-            }
+            let mut read_buffer = [0; 4096]; 
+            match self.stream.read(&mut read_buffer).await {
+                Err(e) => log::error!("Error reading stream to buffer: {e}..."),
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
 
-            buffer.extend_from_slice(&read_buffer[..n]);
-            let results = Self::parse_messages(&mut buffer).await?;
-            if !results.is_empty() {
-                return Ok(results)
+                    buffer.extend_from_slice(&read_buffer[..n]);
+                    let results = Self::parse_messages(&mut buffer).await?;
+                    if !results.is_empty() {
+                        return Ok(results)
+                    }
+                }
             }
         }
         Err(
