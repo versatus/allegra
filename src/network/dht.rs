@@ -208,11 +208,11 @@ impl QuorumManager {
             QuorumEvent::Consolidate { .. } => todo!(),
             QuorumEvent::RequestSshDetails { .. } => todo!(),
             QuorumEvent::NewPeer { event_id, task_id, peer } => {
-                log::info!("Received NewPeer quorum message: {event_id}: {task_id}");
+                //log::info!("Received NewPeer quorum message: {event_id}: {task_id}");
                 self.handle_new_peer_message(&peer).await?;
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
-                log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
+                //log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
                 self.handle_check_responsibility_message(
                     &namespace,
                     &payload,
@@ -653,7 +653,7 @@ impl QuorumManager {
         peer: &Peer
     ) -> std::io::Result<()> {
 
-        log::info!("Attempting to handle NewPeer event...");
+        //log::info!("Attempting to handle NewPeer event...");
         self.add_peer(peer).await?;
 
         Ok(())
@@ -822,8 +822,7 @@ impl QuorumManager {
             .output()?;
 
         if output.status.success() {
-            log::info!("Successfully added client certificate to trust store for peer {}", &peer.wallet_address().to_string());
-
+            log::info!("Successfully created token for peer {}", &peer.wallet_address().to_string());
             let cert = match std::str::from_utf8(&output.stdout) {
                 Ok(res) => res.to_string(),
                 Err(e) => return Err(
@@ -880,10 +879,10 @@ impl QuorumManager {
         //TODO(asmith): We will want to check against their stake to verify membership
 
         // Check if peer is member of same quorum as local node
-        log::info!("checking if certificate from peer: {:?} is for local quorum member...", peer);
+        //log::info!("checking if certificate from peer: {:?} is for local quorum member...", peer);
         let qid = self.get_local_quorum_membership()?;
         let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
-        log::info!("Quorum peers: {:?}", quorum_peers);
+        //log::info!("Quorum peers: {:?}", quorum_peers);
         if quorum_peers.contains(peer) {
             log::info!("peer is member of local quorum, add certificate...");
             log::info!("Cert: {cert}");
@@ -895,7 +894,7 @@ impl QuorumManager {
                 .output()?;
 
             if output.status.success() {
-                log::info!("Successfully added peer {} certificate to trust store", &peer.wallet_address_hex());
+                log::info!("SUCCESS! SUCCESS! Successfully added peer {} to remote", &peer.wallet_address_hex());
                 let stdout = std::str::from_utf8(&output.stdout).map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -925,7 +924,7 @@ impl QuorumManager {
     }
 
     pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
-        log::info!("Attempting to add peer: {:?} to DHT", peer);
+        //log::info!("Attempting to add peer: {:?} to DHT", peer);
         let q = self.peer_hashring.get_resource(peer.wallet_address().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -933,14 +932,14 @@ impl QuorumManager {
             )
         )?.clone();
 
-        log::info!("checking if new peer is member in local quorum");
+        //log::info!("checking if new peer is member in local quorum");
         let local_quorum_member = if q.id() == &self.get_local_quorum_membership()? {
             true
         } else {
             false
         };
 
-        log::info!("acquiring quorum that new peer is a member of");
+        //log::info!("acquiring quorum that new peer is a member of");
         let quorum = self.quorums.get_mut(&q.id().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -948,7 +947,7 @@ impl QuorumManager {
             )
         )?;
 
-        log::info!("quorum.size() = {}", quorum.size());
+        //log::info!("quorum.size() = {}", quorum.size());
         quorum.add_peer(peer);
         log::info!("quorum.size() = {}", quorum.size());
 
