@@ -194,19 +194,23 @@ impl VmmService {
         node_cert: NodeCertMessage
     ) -> std::io::Result<()> {
 
+        log::info!("Attempting to handle node certificate message");
         let event_id = Uuid::new_v4().to_string();
+        log::info!("Generated event id");
         let task_id = generate_task_id(node_cert.clone()).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
+        log::info!("Generated task id");
         let address = Address::from_hex(node_cert.peer_id).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
+        log::info!("parsed address from hex");
         let event = QuorumEvent::CheckAcceptCert { 
             event_id, 
             task_id, 
@@ -221,12 +225,15 @@ impl VmmService {
             ), 
             cert: node_cert.cert 
         };
+        log::info!("created QuorumEvent::CheckAcceptCert");
         let mut guard = self.publisher.lock().await;
+        log::info!("Acquired publisher guard...");
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
         ).await?;
 
+        log::info!("published QuorumEvent::CheckAcceptCert");
         drop(guard);
 
         Ok(())
@@ -566,16 +573,21 @@ impl Vmm for VmmService {
         &self,
         request: Request<NodeCertMessage>
     ) -> Result<Response<Ack>, Status> {
+        log::info!("Received node_certificate call...");
         let message = request.into_inner().clone();
+        log::info!("Converted request into inner type...");
         let request_id = message.request_id.clone();
+        log::info!("Attempting to handle node certificate message...");
         self.handle_node_certificate_message(message).await?;
 
+        log::info!("Crafting response to request...");
         let message_id = Uuid::new_v4().to_string();
         let header = MessageHeader {
             peer_id: self.local_peer.wallet_address_hex(),
             peer_address: self.local_peer.ip_address().to_string(),
             message_id
         };
+        log::info!("Returning response...");
         Ok(Response::new(
                 Ack {
                     header: Some(header),
