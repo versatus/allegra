@@ -11,6 +11,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tonic::transport::Server;
 use uuid::Uuid;
 use std::sync::Arc;
+use std::collections::HashSet;
 use tokio::sync::Mutex;
 use tonic_reflection::server::Builder;
 use conductor::publisher::PubStream;
@@ -140,6 +141,7 @@ async fn main() -> std::io::Result<()> {
         local_peer: local_peer.clone(),
         network: lxd_network_interface,
         port: next_port,
+        task_log: HashSet::new(),
         publisher: publisher.clone(),
         subscriber: subscriber.clone()
     };
