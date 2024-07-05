@@ -80,10 +80,10 @@ async fn main() -> std::io::Result<()> {
             }
         }
         AllegraCommands::Create {
-            name, distro, version, vmtype, .. 
+            name, distro, version, vmtype, endpoint, .. 
         } => {
             println!("Creating an Allegra Instance {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -100,9 +100,9 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", resp);
         },
         AllegraCommands::Start {
-            name, console, stateless, ..
+            name, console, stateless, endpoint, ..
         } => {
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -118,10 +118,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::Stop {
-            name, ..
+            name, endpoint, ..
         } => {
             println!("Stopping an Allegra Instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -136,10 +136,10 @@ async fn main() -> std::io::Result<()> {
 
         },
         AllegraCommands::AddPubkey {
-            name, pubkey, ..
+            name, pubkey, endpoint, ..
         } => {
             println!("Adding a public key to an Allegra instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -155,10 +155,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::Delete {
-            name, force, interactive, ..
+            name, force, interactive, endpoint, ..
         } => {
             println!("Deleting an Allegra Instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -174,10 +174,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::ExposeService {
-            name, port, service_type, .. 
+            name, port, service_type, endpoint, .. 
         } => {
             println!("Exposing ports on an Allegra instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let port: Vec<u32> = port.par_iter().map(|p| *p as u32).collect();
             let service_type: Vec<i32> = service_type.par_iter().map(|s| s.clone().into()).collect();
@@ -196,10 +196,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::GetSshDetails{
-            name, owner, ..
+            name, owner, endpoint, ..
         } => {
             println!("Getting ssh details for an Allegra instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
             let params = InstanceGetSshDetails {
                 owner: owner.clone(),
                 name: name.clone(),
@@ -209,15 +209,15 @@ async fn main() -> std::io::Result<()> {
             let response = vmclient.get_ssh_details(params.clone()).await; 
             println!("Response: {:?}", response);
         }
-        AllegraCommands::PollTask { owner, task_id } => {
-            let mut vmclient = create_allegra_rpc_client().await?;
+        AllegraCommands::PollTask { owner, task_id, endpoint } => {
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
             let request = GetTaskStatusRequest { owner: owner.clone(), id: task_id.clone() };
 
             let response = vmclient.get_task_status(request).await;
             println!("Response: {:?}", response);
         }
-        AllegraCommands::Ssh { name, owner, keypath, username } => {
-            let mut vmclient = create_allegra_rpc_client().await?;
+        AllegraCommands::Ssh { name, owner, keypath, username, endpoint } => {
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
             let params = InstanceGetSshDetails { 
                 name: name.clone(), 
                 owner: owner.clone(), 

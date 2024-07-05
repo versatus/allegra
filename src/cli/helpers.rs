@@ -307,13 +307,24 @@ pub async fn create_allegra_rpc_client_to_addr(dst: &str) -> std::io::Result<Vmm
     Ok(vmclient)
 }
 
-pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient<Channel>> {
-    let vmclient = VmmClient::connect("http://127.0.0.1:50051").await.map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
+pub async fn create_allegra_rpc_client(endpoint: Option<String>) -> std::io::Result<VmmClient<Channel>> {
+    let vmclient = if let Some(endpoint) = endpoint {
+        let vmclient = VmmClient::connect(endpoint).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        vmclient
+    } else {
+        let vmclient = VmmClient::connect("http://127.0.0.1:50051").await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        vmclient
+    };
 
     Ok(vmclient)
 }
