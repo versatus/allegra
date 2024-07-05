@@ -548,14 +548,13 @@ impl QuorumManager {
             ).await?;
         }
 
-        let futures = peers.par_iter().map(|p| {
-            let payload = payload.clone();
-            let publish_to_addr = publisher_addr.clone();
-            let peer = p.clone();
-            let task_id = task_id.clone();
-            tokio::spawn(
+        for p in peers {
+            let publish_to_addr = self.publisher().peer_addr()?;
+            let inner_payload = payload.clone();
+            let inner_task_id = task_id.clone();
+            let future = tokio::spawn(
                 async move {
-                    log::info!("publishing payload for {task_id} to {}", peer.ip_address().to_string());
+                    log::info!("publishing payload for {task_id} to {}", p.ip_address().to_string());
                     let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
                     let event_id = Uuid::new_v4().to_string();
                     let _ = publisher.publish(
@@ -563,24 +562,25 @@ impl QuorumManager {
                         Box::new(
                             NetworkEvent::Create { 
                                 event_id, 
-                                task_id: task_id.clone(), 
-                                name: payload.name.clone(), 
-                                distro: payload.distro.clone(), 
-                                version: payload.version.clone(), 
-                                vmtype: payload.vmtype.clone().to_string(), 
-                                sig: payload.sig.clone(), 
-                                recovery_id: payload.recovery_id, 
-                                dst: peer.ip_address().to_string() 
+                                task_id: inner_task_id.clone(), 
+                                name: inner_payload.name.clone(), 
+                                distro: inner_payload.distro.clone(), 
+                                version: inner_payload.version.clone(), 
+                                vmtype: inner_payload.vmtype.clone().to_string(), 
+                                sig: inner_payload.sig.clone(), 
+                                recovery_id: inner_payload.recovery_id, 
+                                dst: p.ip_address().to_string() 
                             }
                         )
                     ).await?;
 
                     Ok::<_, std::io::Error>(QuorumResult::Unit(()))
                 }
-            )
-        }).collect::<Vec<_>>();
+            );
 
-        self.futures.extend(futures);
+            self.futures.push(future);
+        }
+
 
         Ok(())
     }
