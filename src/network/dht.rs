@@ -129,6 +129,7 @@ pub struct Remote {
     static_: bool
 }
 
+#[allow(private_interfaces)]
 impl Remote {
     pub fn from_map(id: String, fields: RemoteFields) -> Self {
         Self {
