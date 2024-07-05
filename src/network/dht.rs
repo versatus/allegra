@@ -554,7 +554,7 @@ impl QuorumManager {
             let inner_task_id = task_id.clone();
             let future = tokio::spawn(
                 async move {
-                    log::info!("publishing payload for {task_id} to {}", p.ip_address().to_string());
+                    log::info!("publishing payload for {inner_task_id} to {}", p.ip_address().to_string());
                     let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
                     let event_id = Uuid::new_v4().to_string();
                     let _ = publisher.publish(
