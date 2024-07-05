@@ -1,13 +1,13 @@
+use crate::allegra_rpc::{InstanceGetSshDetails, InstanceExposeServiceParams, InstanceAddPubkeyParams, InstanceDeleteParams, InstanceStopParams, InstanceStartParams, InstanceCreateParams};
 use crate::cli::commands::AllegraCommands;
-use crate::params::{Payload, InstanceCreateParams, InstanceStopParams, InstanceStartParams, InstanceDeleteParams, InstanceGetSshDetails, InstanceAddPubkeyParams, InstanceExposePortParams};
-use crate::rpc::VmmClient;
+use crate::params::Payload;
+use crate::allegra_rpc::vmm_client::VmmClient;
 use std::io::Read;
-use std::net::SocketAddr;
 use std::collections::HashMap;
-use ethers_core::k256::elliptic_curve::SecretKey;
+use std::io::Write;
+use alloy::signers::k256::elliptic_curve::SecretKey;
+use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use sha3::{Digest, Sha3_256};
-use tarpc::client;
-use tarpc::tokio_serde::formats::Json;
 use ethers_core::{
     k256::ecdsa::{
         Signature, RecoveryId, SigningKey
@@ -15,6 +15,11 @@ use ethers_core::{
 };
 use bip39::{Mnemonic, Language};
 use serde::{Serialize, Deserialize};
+use tokio::net::TcpStream;
+use ssh2::Session;
+use std::fs::File;
+use tonic::transport::{Channel, Endpoint};
+use termion::{async_stdin, raw::IntoRawMode};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WalletInfo {
@@ -79,9 +84,9 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     name: name.clone(),
                     distro: distro.clone(), 
                     version: version.clone(), 
-                    vmtype: vmtype.clone(),
+                    vmtype: vmtype.clone().to_string(),
                     sig: String::default(), 
-                    recovery_id: u8::default(),
+                    recovery_id: u32::default(),
                 }
             )
         }
@@ -92,7 +97,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     console,
                     stateless,
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -101,7 +106,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                 InstanceStopParams {
                     name: name.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
@@ -112,7 +117,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     force,
                     interactive,
                     sig: String::default(),
-                    recovery_id: u8::default(),
+                    recovery_id: u32::default(),
                 }
             )
         }
@@ -122,26 +127,41 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     name: name.clone(),
                     pubkey: pubkey.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
-        AllegraCommands::ExposePorts { ref name, ref port, .. } => {
+        AllegraCommands::ExposeService { ref name, ref port, ref service_type, .. } => {
+            let port: Vec<u32> = port.par_iter().map(|n| {
+                *n as u32
+            }).collect();
+
+            let service_type: Vec<i32> = service_type.par_iter().filter_map(|service| {
+                service.clone().try_into().map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                }).ok()
+            }).collect();
+
             Box::new(
-                InstanceExposePortParams {
+                InstanceExposeServiceParams {
                     name: name.clone(),
                     port: port.clone(),
+                    service_type: service_type.clone(),
                     sig: String::default(),
-                    recovery_id: u8::default()
+                    recovery_id: u32::default()
                 }
             )
         }
-        AllegraCommands::GetSshDetails { ref name, .. } => {
+        AllegraCommands::GetSshDetails { ref name, ref keypath, ref owner, ref username } => {
             Box::new(
                 InstanceGetSshDetails {
-                    name: name.clone(),
-                    sig: String::default(),
-                    recovery_id: u8::default()
+                    owner: owner.to_string(),
+                    name: name.to_string(),
+                    keypath: keypath.clone(), 
+                    username: username.clone()
                 }
             )
         }
@@ -274,25 +294,122 @@ fn generate_signature(
     return Ok((signature, recovery_id))
 }
 
-pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient> {
-    //TODO(asmith): Replace SocketAddr with environment variable or default
-    let addr: SocketAddr = "127.0.0.1:29292".parse().map_err(|e| {
+pub async fn create_allegra_rpc_client_to_addr(dst: &str) -> std::io::Result<VmmClient<Channel>> {
+    log::info!("attempting to create allegra rpc client to address {}", dst);
+    let endpoint = format!("http://{}", dst); 
+    let vmclient = VmmClient::connect(endpoint).await.map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             e
         )
     })?;
-    let mut client_transport = tarpc::serde_transport::tcp::connect(addr, Json::default);
-    client_transport.config_mut().max_frame_length(usize::MAX);
-    let vmclient = VmmClient::new(
-        client::Config::default(),
-        client_transport.await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?
-    ).spawn();
 
     Ok(vmclient)
+}
+
+pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient<Channel>> {
+    let vmclient = VmmClient::connect("http://127.0.0.1:50051").await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e
+        )
+    })?;
+
+    Ok(vmclient)
+}
+
+pub async fn enter_ssh_session(
+    rpc_client: &mut VmmClient<Channel>,
+    params: InstanceGetSshDetails,
+) -> std::io::Result<()> {
+    let resp = rpc_client.get_ssh_details(
+        tonic::Request::new(
+            params.clone()
+        )
+    ).await.map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )
+    })?;
+
+    log::info!("{:?}", resp);
+    if let Some(ssh_details) = resp.into_inner().ssh_details {
+        log::info!("{:?}", ssh_details);
+        let tcp = TcpStream::connect(format!("{}:{}", ssh_details.ip, ssh_details.port)).await?;
+        let mut session = Session::new()?; 
+
+        log::info!("starting session...");
+        session.set_tcp_stream(tcp);
+        log::info!("tcp stream set...");
+        session.handshake()?;
+        log::info!("handshake completed...");
+        log::info!("attempting to read keypath file");
+        let pk = if let Some(keypath) = params.keypath {
+            let mut key_file = File::open(&keypath)?;
+            let mut pk = String::new();
+            key_file.read_to_string(&mut pk)?;
+            pk
+        } else {
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "keypath is required if attempting to enter an SSH session"
+                )
+            )
+        };
+
+        //TODO: allow entering username
+        let username = "root";
+        log::info!("authorizing user");
+        session.userauth_pubkey_memory(&username, None, &pk, None)?;
+
+        if !session.authenticated() {
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Authentication Failed"
+                )
+            )
+        }
+
+        log::info!("session authenticated establishing channel");
+        let mut channel = session.channel_session()?;
+        log::info!("channel established, requesting shell");
+        channel.request_pty("xterm", None, None)?;
+        channel.handle_extended_data(ssh2::ExtendedData::Merge)?;
+        channel.shell()?;
+        log::info!("shell acquired, establishing stdin and stdout");
+
+        let stdout = std::io::stdout();
+        let mut stdout = stdout.lock().into_raw_mode()?;
+        let mut stdin = async_stdin();
+
+        let mut buf_in = Vec::new();
+
+        while !channel.eof() {
+            let bytes_available = channel.read_window().available;
+            if bytes_available > 0 {
+                let mut buffer = vec![0; bytes_available as usize];
+                channel.read_exact(&mut buffer)?;
+                stdout.write(&buffer)?;
+                stdout.flush()?;
+            }
+
+            stdin.read_to_end(&mut buf_in)?;
+            buf_in.clear();
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        channel.wait_close()?;
+        return Ok(())
+    }
+
+    return Err(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unable to find ssh details for {}", params.name),
+        )
+    )
 }
