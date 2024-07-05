@@ -58,6 +58,253 @@ impl Peer {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthType {
+    #[serde(rename = "tls")]
+    Tls,
+    #[serde(rename = "file access")]
+    FileAccess,
+    #[serde(rename = "candid")]
+    Candid,
+    #[serde(rename = "pos")]
+    Pos,
+    #[serde(rename = "pki")]
+    Pki,
+    #[serde(rename = "rbac")]
+    Rbac,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    SimpleStream,
+    Lxd,
+    #[serde(other)]
+    Other
+}
+
+#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
+#[getset(get = "pub")]
+struct RemoteFields {
+    #[serde(rename = "Addr")]
+    ip_addr: String,
+    #[serde(rename = "AuthType")]
+    auth_type: Option<AuthType>,
+    #[serde(rename = "Domain")]
+    domain: Option<String>,
+    #[serde(rename = "Project")]
+    project: Option<String>,
+    #[serde(rename = "Protocol")]
+    protocol: Option<Protocol>,
+    #[serde(rename = "Public")]
+    public: bool,
+    #[serde(rename = "Global")]
+    global: bool,
+    #[serde(rename = "Static")]
+    static_: bool
+}
+
+
+#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
+#[getset(get = "pub")]
+pub struct Remote {
+    id: String,
+    #[serde(rename = "Addr")]
+    ip_addr: String,
+    #[serde(rename = "AuthType")]
+    auth_type: Option<AuthType>,
+    #[serde(rename = "Domain")]
+    domain: Option<String>,
+    #[serde(rename = "Project")]
+    project: Option<String>,
+    #[serde(rename = "Protocol")]
+    protocol: Option<Protocol>,
+    #[serde(rename = "Public")]
+    public: bool,
+    #[serde(rename = "Global")]
+    global: bool,
+    #[serde(rename = "Static")]
+    static_: bool
+}
+
+impl Remote {
+    pub fn from_map(id: String, fields: RemoteFields) -> Self {
+        Self {
+            id,
+            ip_addr: fields.ip_addr().clone(),
+            auth_type: fields.auth_type().clone(),
+            domain: fields.domain().clone(),
+            project: fields.project().clone(),
+            protocol: fields.protocol().clone(),
+            public: fields.public().clone(),
+            global: fields.global().clone(),
+            static_: fields.static_().clone()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrustType {
+    Client,
+    Metrics
+}
+
+#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
+#[getset(get = "pub")]
+pub struct TrustEntry {
+    #[serde(rename = "name")]
+    id: String,
+    #[serde(rename = "type")]
+    type_: TrustType,
+    restricted: bool,
+    projects: Vec<String>,
+    certificate: String,
+    fingerprint: String,
+}
+
+#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
+#[getset(get = "pub")]
+pub struct TrustToken {
+    #[serde(rename = "ClientName")]
+    id: String,
+    #[serde(rename = "Token")]
+    token: String,
+    #[serde(rename = "ExpiresAt")]
+    expires_at: String,
+}
+
+#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
+#[getset(get = "pub")]
+pub struct TrustStore {
+    remotes: HashMap<String, Remote>,
+    trust_entries: HashMap<String, TrustEntry>,
+    trust_tokens: HashMap<String, TrustToken>,
+}
+
+impl TrustStore {
+    pub fn new() -> std::io::Result<Self> {
+        let trust_entries = Self::update_trust_entries()?;
+        let remotes = Self::update_remotes()?;
+        let trust_tokens = Self::update_trust_tokens()?;
+
+        Ok(Self { trust_tokens, trust_entries, remotes })
+    }
+
+    fn update_trust_entries() -> std::io::Result<HashMap<String, TrustEntry>> {
+        let trust_entries_output = std::process::Command::new("lxc")
+            .arg("config")
+            .arg("trust")
+            .arg("list")
+            .arg("-f")
+            .arg("json")
+            .output()?;
+
+        if trust_entries_output.status.success() {
+            let trust_entries: Vec<TrustEntry> = serde_json::from_slice(
+                &trust_entries_output.stdout
+            ).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            let trust_entries = trust_entries.par_iter().map(|t| {
+                (t.id().to_string(), t.clone()) 
+            }).collect();
+            return Ok(trust_entries)
+        } else {
+            let err = std::str::from_utf8(&trust_entries_output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err
+                )
+            )
+        }
+    }
+
+    fn update_remotes() -> std::io::Result<HashMap<String, Remote>> {
+        let remotes_output = std::process::Command::new("lxc")
+            .arg("remote")
+            .arg("list")
+            .arg("-f")
+            .arg("json")
+            .output()?;
+
+        if remotes_output.status.success() {
+            let remotes_fields: HashMap<String, RemoteFields> = serde_json::from_slice(&remotes_output.stdout).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+
+            let remotes: HashMap<String, Remote> = remotes_fields.par_iter().map(|(id, fields)| {
+                (id.clone(), Remote::from_map(id.clone(), fields.clone()))
+            }).collect();
+
+            return Ok(remotes)
+        } else {
+            let err = std::str::from_utf8(&remotes_output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err
+                )
+            )
+        }
+    }
+
+    fn update_trust_tokens() -> std::io::Result<HashMap<String, TrustToken>> {
+        let trust_tokens_output = std::process::Command::new("lxc")
+            .arg("config")
+            .arg("trust")
+            .arg("list-tokens")
+            .arg("-f")
+            .arg("json")
+            .output()?;
+
+        if trust_tokens_output.status.success() {
+            let trust_tokens: Vec<TrustToken> = serde_json::from_slice(&trust_tokens_output.stdout)?; 
+            let trust_tokens: HashMap<String, TrustToken> = trust_tokens.par_iter().map(|tt| {
+                (tt.id().clone(), tt.clone())
+            }).collect();
+
+            return Ok(trust_tokens)
+        } else {
+            let err = std::str::from_utf8(&trust_tokens_output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err
+                )
+            )
+
+        }
+    }
+}
+
 #[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quorum {
     #[getset(get_copy="pub", get="pub", get_mut)]
@@ -91,17 +338,6 @@ pub enum QuorumResult {
     Other(String),
 }
 
-#[derive(Getters, MutGetters, Serialize, Deserialize)]
-#[getset(get = "pub", get_copy = "pub", get_mut)]
-pub struct TrustStore {
-    #[serde(rename = "type")]
-    type_: String,
-    restricted: bool,
-    projects: Vec<String>,
-    certificate: String,
-    certificate_tokens: HashMap<String, String>
-}
-
 #[derive(Getters, MutGetters)]
 #[getset(get = "pub", get_copy = "pub", get_mut)]
 pub struct QuorumManager {
@@ -113,6 +349,7 @@ pub struct QuorumManager {
     instance_hashring: AnchorHash<Namespace, Quorum, RandomState>,
     subscriber: QuorumSubscriber,
     publisher: GenericPublisher,
+    trust_store: TrustStore,
     futures: FuturesUnordered<JoinHandle<std::io::Result<QuorumResult>>>
 }
 
@@ -139,6 +376,7 @@ impl QuorumManager {
         let publisher = GenericPublisher::new(publisher_uri).await?;
         let subscriber = QuorumSubscriber::new(subscriber_uri).await?;
         let node = Node::new(peer_info);
+        let trust_store = TrustStore::new()?;
         
         Ok(Self {
             node,
@@ -149,6 +387,7 @@ impl QuorumManager {
             instance_hashring,
             publisher,
             subscriber,
+            trust_store,
             futures: FuturesUnordered::new()
         })
     }
@@ -158,6 +397,7 @@ impl QuorumManager {
     ) -> std::io::Result<()> {
         let mut election_interval = interval(Duration::from_secs(21600));
         let mut heartbeat_interval = interval(Duration::from_secs(20));
+        let mut check_remotes_interval = interval(Duration::from_secs(60));
         loop {
             tokio::select! {
                 result = self.subscriber.receive() => {
@@ -196,9 +436,15 @@ impl QuorumManager {
                     log::info!("leader election event triggered: {:?}", leader_election);
                     let _ = self.elect_leader();
                 },
-                heartbeat = heartbeat_interval.tick() => {
+                _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Quorum is still alive...");
-                }
+                },
+                _check_remotes = check_remotes_interval.tick() => {
+                    log::info!("checking if all peers have a remote connection...");
+                    if let Err(e) = self.check_remotes().await {
+                        log::info!("Error attempting to check remotes: {e}");
+                    }
+                },
                 _ = tokio::signal::ctrl_c() => {
                     break;
                 }
@@ -813,6 +1059,13 @@ impl QuorumManager {
         )
     }
 
+    pub async fn update_trust_store(&mut self) -> std::io::Result<()> {
+        let trust_store = TrustStore::new()?;
+        self.trust_store = trust_store;
+
+        Ok(())
+    }
+
     pub async fn share_cert(
         &mut self, 
         peer: &Peer, 
@@ -840,8 +1093,16 @@ impl QuorumManager {
                 )
             };
 
+            self.update_trust_store().await?;
+
+            let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Unable to find peer_id in trust tokens despite success in call to lxc config trust add --name {}", peer_id)
+                )
+            )?.token().to_string();
+
             let quorum_id = self.get_local_quorum_membership()?.to_string();
-            let cert = Self::extract_cert(&cert)?;
             log::info!("Cert: {cert}");
             let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
             let event_id = uuid::Uuid::new_v4().to_string();
@@ -878,6 +1139,53 @@ impl QuorumManager {
 
 
         log::info!("Completed self.share_cert call...");
+        Ok(())
+    }
+
+    pub async fn check_remotes(&mut self) -> std::io::Result<()> {
+        log::info!("Checking to ensure all local quorum members are remotes...");
+        let local_quorum_id = self.get_local_quorum_membership()?;
+        let local_quorum = self.get_quorum_by_id(&local_quorum_id).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find local quorum"
+            )
+        )?.clone(); 
+        let local_quorum_members = local_quorum.peers();
+        for peer in local_quorum_members {
+            if peer != self.node().peer_info() {
+                log::info!("checking trust store for peer {}", peer.wallet_address_hex());
+                if !self.trust_store.remotes().contains_key(&peer.wallet_address_hex()) {
+                    log::info!("peer {} not in trust store... checking trust tokens", peer.wallet_address_hex());
+                    match self.trust_store.trust_tokens().get(&peer.wallet_address_hex()) {
+                        Some(token) => {
+                            log::info!("found peer {} trust token, sharing...", peer.wallet_address_hex());
+                            let event_id = Uuid::new_v4().to_string();
+                            let task_id = TaskId::new(Uuid::new_v4().to_string());
+                            let event = NetworkEvent::ShareCert { 
+                                event_id,
+                                task_id,
+                                peer: self.node().peer_info().clone(),
+                                cert: token.token().clone(),
+                                quorum_id: local_quorum_id.to_string(),
+                                dst: peer.clone() 
+                            };
+                            self.publisher_mut().publish(
+                                Box::new(NetworkTopic),
+                                Box::new(event)
+                            ).await?;
+                            log::info!("Successfully shared trust token with peer {}...", peer.wallet_address_hex());
+                        }
+                        None => {
+                            log::info!("peer {} has no trust token, calling self.share_cert()...", peer.wallet_address_hex());
+                            self.share_cert(peer).await?;
+                            log::info!("successfully called self.share_cert() to create and share a trust token with peer {}...", peer.wallet_address_hex());
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
