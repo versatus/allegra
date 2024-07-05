@@ -20,7 +20,7 @@ use alloy::primitives::Address;
 
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
-use std::{net::SocketAddr, result::Result};
+use std::{collections::HashSet, net::SocketAddr, result::Result};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use hex::FromHex;
@@ -30,6 +30,7 @@ pub struct VmmService {
     pub network: String,
     pub port: u16,
     pub local_peer: Peer,
+    pub task_log: HashSet<TaskId>,
     pub publisher: Arc<Mutex<GenericPublisher>>,
     pub subscriber: Arc<Mutex<RpcResponseSubscriber>>,
 }
@@ -308,16 +309,15 @@ impl Vmm for VmmService {
     ) -> Result<Response<VmResponse>, Status> {
         let params = request.into_inner();
         let task_id = generate_task_id(params.clone())?;
-
-        self.check_responsibility(params.clone(), task_id.clone()).await?;
-
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            Status::from_error(Box::new(e))
-        })?;
         let payload_hash = get_payload_hash(
             params.into_payload().as_bytes()
         );
-        let owner = recover_owner_address(payload_hash, params.sig, recovery_id)?;
+        let recovery_id = params.recovery_id.to_be_bytes()[3];
+        let owner = recover_owner_address(payload_hash, params.sig.clone(), recovery_id)?;
+
+        if !self.task_log.contains(&task_id) {
+            self.check_responsibility(params.clone(), task_id.clone()).await?;
+        }
 
         self.update_task_status(task_id.clone(), owner).await?;
 
