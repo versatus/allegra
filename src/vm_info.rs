@@ -306,7 +306,7 @@ impl VmDevice {
 pub struct VmState {
     status: String,
     status_code: i32,
-    disk: VmDisk,
+    disk: Option<VmDisk>,
     memory: VmMemory,
     network: Option<VmNetwork>,
     pid: i32,
@@ -323,7 +323,7 @@ impl VmState {
         self.status_code
     }
 
-    pub fn disk(&self) -> VmDisk {
+    pub fn disk(&self) -> Option<VmDisk> {
         self.disk.clone()
     }
 

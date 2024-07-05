@@ -18,10 +18,10 @@ use crate::{
     }, publish::{
         GenericPublisher,
         StateTopic
-    }, startup::self, subscribe::{LibrettoSubscriber, VmmSubscriber}, vm_info::{
+    }, subscribe::{LibrettoSubscriber, VmmSubscriber}, vm_info::{
         VmInfo, 
         VmList
-    }
+    }, startup
 };
 
 use crate::allegra_rpc::{
