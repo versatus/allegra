@@ -30,7 +30,7 @@ pub struct VmmService {
     pub network: String,
     pub port: u16,
     pub local_peer: Peer,
-    pub task_log: HashSet<TaskId>,
+    pub task_log: Arc<Mutex<HashSet<TaskId>>>,
     pub publisher: Arc<Mutex<GenericPublisher>>,
     pub subscriber: Arc<Mutex<RpcResponseSubscriber>>,
 }
@@ -315,10 +315,12 @@ impl Vmm for VmmService {
         let recovery_id = params.recovery_id.to_be_bytes()[3];
         let owner = recover_owner_address(payload_hash, params.sig.clone(), recovery_id)?;
 
-        if !self.task_log.contains(&task_id) {
+        let mut guard = self.task_log.lock().await;
+        if !guard.contains(&task_id) {
             self.check_responsibility(params.clone(), task_id.clone()).await?;
+            guard.insert(task_id.clone());
         }
-
+        drop(guard);
         self.update_task_status(task_id.clone(), owner).await?;
 
         return Ok(
