@@ -1126,7 +1126,7 @@ impl VmManager {
     }
 
     pub async fn sync_instance(
-        _vmlist: VmList,
+        vmlist: VmList,
         namespace: String,
     ) -> std::io::Result<()> {
         log::info!("Attempting to sync instance {namespace}");

@@ -15,7 +15,9 @@ pub enum AllegraCommands {
         #[arg(long, short, default_value="~/.ssh/id_rsa")]
         keypath: String,
         #[arg(long, short, default_value="root")]
-        username: String 
+        username: String, 
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "wallet")]
     Wallet {
@@ -47,7 +49,9 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         path: Option<String>,
         #[arg(long, short)]
-        kp_index: Option<usize>
+        kp_index: Option<usize>,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "start")]
     Start {
@@ -66,7 +70,9 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         path: Option<String>,
         #[arg(long, short)]
-        kp_index: Option<usize>
+        kp_index: Option<usize>,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "stop")]
     Stop {
@@ -81,7 +87,9 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         path: Option<String>,
         #[arg(long, short)]
-        kp_index: Option<usize>
+        kp_index: Option<usize>,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "add-pubkey")]
     AddPubkey {
@@ -98,7 +106,9 @@ pub enum AllegraCommands {
         #[arg(long, short='p')]
         path: Option<String>,
         #[arg(long, short='i')]
-        kp_index: Option<usize>
+        kp_index: Option<usize>,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "delete")]
     Delete {
@@ -117,7 +127,9 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         path: Option<String>,
         #[arg(long, short)]
-        kp_index: Option<usize>
+        kp_index: Option<usize>,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "expose-service")]
     ExposeService {
@@ -136,7 +148,9 @@ pub enum AllegraCommands {
         #[arg(long)]
         path: Option<String>,
         #[arg(long, short)]
-        kp_index: Option<usize>
+        kp_index: Option<usize>,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "get-ssh")]
     GetSshDetails {
@@ -147,14 +161,18 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         keypath: Option<String>,
         #[arg(long, short)]
-        username: Option<String>
+        username: Option<String>,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     },
     #[command(name = "poll-task")]
     PollTask {
         #[arg(long, short)]
         owner: String,
         #[arg(long, short)]
-        task_id: String
+        task_id: String,
+        #[arg(long, short)]
+        endpoint: Option<String>,
     }
 }
 

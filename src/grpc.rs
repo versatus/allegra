@@ -245,6 +245,9 @@ impl VmmService {
         _params: InstanceGetSshDetails,
         _namespace: Namespace
     ) -> std::io::Result<Response<VmResponse>> {
+        // check responsibility...
+        // if responsible, get port map for instance
+        // if not, request details from the node responsible.
         todo!()
     }
 
