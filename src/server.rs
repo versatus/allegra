@@ -141,7 +141,7 @@ async fn main() -> std::io::Result<()> {
         local_peer: local_peer.clone(),
         network: lxd_network_interface,
         port: next_port,
-        task_log: HashSet::new(),
+        task_log: Arc::new(Mutex::new(HashSet::new())),
         publisher: publisher.clone(),
         subscriber: subscriber.clone()
     };
