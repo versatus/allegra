@@ -23,7 +23,12 @@ async fn main() -> std::io::Result<()> {
 
     let dir = load_or_get_vmm_filesystem(None).await?; 
     log::info!("Acquired filesystem to monitor: {dir}...");
-    let dir_current_state = std::fs::read_dir(dir.clone());
+    let dir_current_state: Vec<String> = std::fs::read_dir(dir.clone())?.into_iter().filter_map(|p| {
+        match p {
+            Ok(path) => Some(path.path().display().to_string()),
+            _ => None
+        }
+    }).collect();
     log::info!("Current state of dir to monitor: {:?}", dir_current_state);
     let publisher = FilesystemPublisher::new("127.0.0.1:5555").await?;
     let monitor = tokio::spawn(async move {
