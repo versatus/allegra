@@ -1277,11 +1277,11 @@ impl QuorumManager {
             self.peers.insert(*peer.wallet_address(), peer.clone());
             log::warn!("self.peers.len() = {}", self.peers.len());
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
-                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) && (Some(&dst_peer) != received_from) {
+                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) && (Some(&dst_peer.clone()) != received_from) {
                     //log::warn!("informing: {:?} of new peer", peer_wallet_address);
                     log::warn!("{} != {}", dst_peer.wallet_address_hex(), peer.wallet_address_hex());
                     log::warn!("{} != {}", dst_peer.wallet_address_hex(), self.node.peer_info().wallet_address_hex());
-                    log::warn!("{:?} != {:?}", Some(dst_peer), received_from.wallet_address_hex());
+                    log::warn!("{:?} != {:?}", Some(dst_peer.clone()), received_from);
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
