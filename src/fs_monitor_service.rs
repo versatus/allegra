@@ -3,7 +3,6 @@ use allegra::helpers::load_or_get_vmm_filesystem;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    /*
     simple_logger::init_with_level(log::Level::Info)
         .map_err(|e| {
             std::io::Error::new(
@@ -11,7 +10,6 @@ async fn main() -> std::io::Result<()> {
                 e.to_string()
             )
         })?;
-    */
 
     log::info!("Creating LibrettoClient...");
     let client = LibrettoClient::new("127.0.0.1:5556", "127.0.0.1:5556").await?;

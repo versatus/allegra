@@ -3,7 +3,7 @@ use tokio::task::spawn;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Warn)
+    simple_logger::init_with_level(log::Level::Info)
         .map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,

@@ -403,15 +403,12 @@ impl QuorumManager {
                 result = self.subscriber.receive() => {
                     match result {
                         Ok(messages) => {
-                            //log::warn!("Received {} messages", messages.len());
-                            for m in messages {
-                                //log::info!("attempting to handle message: {:?}", m);
+                            for m in messages.clone() {
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
                                     log::error!("self.handle_quorum_message(m): {e}: message: {m:?}");
                                 }
-                                //log::info!("Completed self.handle_quorum message call");
                             }
-                            //log::info!("handled all available messages");
+                            log::info!("handled all available {} messages", messages.len());
                         }
                         Err(e) => log::error!("self.subscriber.receive() Error: {e}")
                     }

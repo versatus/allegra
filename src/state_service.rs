@@ -2,7 +2,6 @@ use allegra::{helpers::{load_or_get_publisher_uri, load_or_get_subscriber_uri, l
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /*
     simple_logger::init_with_level(log::Level::Info)
         .map_err(|e| {
             std::io::Error::new(
@@ -10,7 +9,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 e.to_string()
             )
         })?;
-    */
 
     let pd_endpoints = load_or_get_pd_endpoints(None).await?;
     log::info!("Established pd_endpoints");
