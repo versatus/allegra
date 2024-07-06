@@ -82,7 +82,8 @@ async fn main() -> std::io::Result<()> {
     for peer in to_dial {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let event = QuorumEvent::NewPeer { event_id, task_id, peer: peer.clone()};
+        let received_from = local_peer.clone();
+        let event = QuorumEvent::NewPeer { event_id, task_id, peer: peer.clone(), received_from: received_from.clone()};
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
@@ -96,7 +97,8 @@ async fn main() -> std::io::Result<()> {
             task_id,
             peer_id: local_peer.wallet_address_hex().clone(), 
             peer_address: local_peer.ip_address().to_string(), 
-            dst: peer.ip_address().to_string()
+            dst: peer.ip_address().to_string(),
+            received_from: received_from.clone(),
         };
         guard.publish(
             Box::new(NetworkTopic),
@@ -106,7 +108,7 @@ async fn main() -> std::io::Result<()> {
 
     let event_id = Uuid::new_v4().to_string();
     let task_id = TaskId::new(Uuid::new_v4().to_string());
-    let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone() };
+    let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone(), received_from: received_from.clone() };
     log::info!("publishing event to add self to quorum...");
     guard.publish(
         Box::new(QuorumTopic),

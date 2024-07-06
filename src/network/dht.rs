@@ -461,9 +461,9 @@ impl QuorumManager {
             QuorumEvent::Expand { .. } => todo!(),
             QuorumEvent::Consolidate { .. } => todo!(),
             QuorumEvent::RequestSshDetails { .. } => todo!(),
-            QuorumEvent::NewPeer { event_id, task_id, peer } => {
+            QuorumEvent::NewPeer { event_id, task_id, peer, received_from } => {
                 //log::info!("Received NewPeer quorum message: {event_id}: {task_id}");
-                self.handle_new_peer_message(&peer).await?;
+                self.handle_new_peer_message(&peer, &received_from).await?;
                 log::info!("Successfully completed self.handle_new_peer_message call for QuorumEvent::NewPeer message...");
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
@@ -907,9 +907,10 @@ impl QuorumManager {
 
     async fn handle_new_peer_message(
         &mut self, 
-        peer: &Peer
+        peer: &Peer,
+        received_from: &Peer
     ) -> std::io::Result<()> {
-        self.add_peer(peer).await?;
+        self.add_peer(peer, Some(received_from)).await?;
 
         Ok(())
     }
@@ -1007,7 +1008,7 @@ impl QuorumManager {
         });
 
         for (_, peer) in self.peers.clone() {
-            self.add_peer(&peer).await?;
+            self.add_peer(&peer, None).await?;
         }
 
         for (namespace, _) in self.instances.clone() {
@@ -1242,7 +1243,7 @@ impl QuorumManager {
         Ok(())
     }
 
-    pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
+    pub async fn add_peer(&mut self, peer: &Peer, received_from: Option<&Peer>) -> std::io::Result<()> {
         let q = self.peer_hashring.get_resource(peer.wallet_address().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1275,7 +1276,7 @@ impl QuorumManager {
             log::info!("self.peers does not contain peer key, adding");
             self.peers.insert(*peer.wallet_address(), peer.clone());
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
-                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) {
+                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) && (Some(&dst_peer) != received_from) {
                     log::warn!("informing: {:?} of new peer", peer_wallet_address);
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
@@ -1287,6 +1288,7 @@ impl QuorumManager {
                         dst: dst_peer.ip_address().to_string(),
                         task_id,
                         event_id,
+                        received_from: self.node().peer_info().clone()
                     };
 
 
@@ -1306,7 +1308,8 @@ impl QuorumManager {
                         task_id,
                         peer_id: dst_peer.wallet_address_hex(),
                         peer_address: dst_peer.ip_address().to_string(), 
-                        dst: peer.ip_address().to_string() 
+                        dst: peer.ip_address().to_string(),
+                        received_from: self.node().peer_info().clone()
                     };
 
                     self.publisher_mut().publish(

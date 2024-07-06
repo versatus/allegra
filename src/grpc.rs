@@ -267,6 +267,26 @@ impl VmmService {
         //log::info!("Generating event ID for NewPeer QuorumEvent...");
         let event_id = Uuid::new_v4().to_string();
 
+        let header = peer.header.ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "MessageHeader required for new peer message..."
+            )
+        )?;
+        let received_from = Peer::new(
+            Address::from_hex(header.peer_id).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?,
+            header.peer_address.parse().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        );
         //TODO(asmith): Replace with node signature, and recover the address
         //log::info!("acquiring peer address...");
         let peer_id = Address::from_hex(&peer.new_peer_id).map_err(|e| {
@@ -287,14 +307,17 @@ impl VmmService {
         );
 
         //log::info!("Constructing QuorumEvent::NewPeer...");
-        let event = QuorumEvent::NewPeer { event_id, task_id, peer };
+        let event = QuorumEvent::NewPeer { event_id, task_id, peer, received_from };
 
         let mut guard = self.publisher.lock().await;
+
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
         ).await?;
+
         drop(guard);
+
         log::info!("Published QuorumEvent::NewPeer...");
 
         Ok(())
