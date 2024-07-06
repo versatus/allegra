@@ -1075,65 +1075,72 @@ impl QuorumManager {
     ) -> std::io::Result<()> {
         log::info!("Attempting to share certificate with peer: {}", &peer.wallet_address_hex()); 
         let peer_id = peer.wallet_address_hex();
+        let is_local_peer = if peer_id == self.node().peer_info().wallet_address_hex() {
+            true
+        } else {
+            false
+        };
 
-        let output = std::process::Command::new("lxc")
-            .arg("config")
-            .arg("trust")
-            .arg("add")
-            .arg("--name")
-            .arg(&peer_id)
-            .output()?;
+        if !is_local_peer {
+            let output = std::process::Command::new("lxc")
+                .arg("config")
+                .arg("trust")
+                .arg("add")
+                .arg("--name")
+                .arg(&peer_id)
+                .output()?;
 
-        if output.status.success() {
-            log::info!("Successfully created token for peer {}", &peer.wallet_address().to_string());
-            let cert = match std::str::from_utf8(&output.stdout) {
-                Ok(res) => res.to_string(),
-                Err(e) => return Err(
+            if output.status.success() {
+                log::info!("Successfully created token for peer {}", &peer.wallet_address().to_string());
+                let cert = match std::str::from_utf8(&output.stdout) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e
+                        )
+                    )
+                };
+
+                self.update_trust_store().await?;
+
+                let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Unable to find peer_id in trust tokens despite success in call to lxc config trust add --name {}", peer_id)
+                    )
+                )?.token().to_string();
+
+                let quorum_id = self.get_local_quorum_membership()?.to_string();
+                let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let event = NetworkEvent::ShareCert { 
+                    peer: self.node().peer_info().clone(), 
+                    cert,
+                    task_id,
+                    event_id,
+                    quorum_id,
+                    dst: peer.clone() 
+                };
+
+                self.publisher.publish(
+                    Box::new(NetworkTopic),
+                    Box::new(event)
+                ).await?;
+            } else {
+                let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
                         e
                     )
+                })?;
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Unable to add client certificate to trust store for peer {}: {}", &peer.wallet_address_hex(), &stderr)
+                    )
                 )
-            };
-
-            self.update_trust_store().await?;
-
-            let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Unable to find peer_id in trust tokens despite success in call to lxc config trust add --name {}", peer_id)
-                )
-            )?.token().to_string();
-
-            let quorum_id = self.get_local_quorum_membership()?.to_string();
-            let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let event = NetworkEvent::ShareCert { 
-                peer: self.node().peer_info().clone(), 
-                cert,
-                task_id,
-                event_id,
-                quorum_id,
-                dst: peer.clone() 
-            };
-
-            self.publisher.publish(
-                Box::new(NetworkTopic),
-                Box::new(event)
-            ).await?;
-        } else {
-            let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Unable to add client certificate to trust store for peer {}: {}", &peer.wallet_address_hex(), &stderr)
-                )
-            )
+            }
         }
         Ok(())
     }
