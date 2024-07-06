@@ -436,6 +436,7 @@ impl QuorumManager {
                 },
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Quorum is still alive...");
+                    // Send heartbeat to quorum members...
                 },
                 _check_remotes = check_remotes_interval.tick() => {
                     log::info!("checking if all peers have a remote connection...");
