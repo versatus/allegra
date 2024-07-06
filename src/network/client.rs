@@ -63,7 +63,7 @@ impl NetworkClient {
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let _resp = client.create_vm(
+                let resp = client.create_vm(
                     tonic::Request::new(
                         create_instance_message
                     )
