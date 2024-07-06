@@ -79,10 +79,10 @@ async fn main() -> std::io::Result<()> {
 
     let mut guard = publisher.lock().await;
 
+    let received_from = local_peer.clone();
     for peer in to_dial {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let received_from = local_peer.clone();
         let event = QuorumEvent::NewPeer { event_id, task_id, peer: peer.clone(), received_from: received_from.clone()};
         guard.publish(
             Box::new(QuorumTopic), 
