@@ -403,7 +403,7 @@ impl QuorumManager {
                 result = self.subscriber.receive() => {
                     match result {
                         Ok(messages) => {
-                            log::warn!("Received {} messages", messages.len());
+                            //log::warn!("Received {} messages", messages.len());
                             for m in messages {
                                 //log::info!("attempting to handle message: {:?}", m);
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
@@ -1217,7 +1217,7 @@ impl QuorumManager {
                         e
                     )
                 })?;
-                log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
+                //log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
                 //self.share_cert(peer).await?;
                 //log::info!("Successfully completed self.shared_cert call in self.accept_cert method...");
                 return Ok(())
@@ -1236,7 +1236,7 @@ impl QuorumManager {
                 )
             }
         } else {
-            log::warn!("Local quorum does not have {} as peer...", peer.wallet_address_hex());
+            //log::warn!("Local quorum does not have {} as peer...", peer.wallet_address_hex());
         }
 
         log::info!("Completed self.accept_cert method returning...");
@@ -1265,7 +1265,7 @@ impl QuorumManager {
         )?;
 
         quorum.add_peer(peer);
-        log::info!("quorum.size() = {}", quorum.size());
+        log::warn!("quorum.size() = {}", quorum.size());
 
         if quorum.clone().size() >= 50 {
             log::info!("quorum exceeds maximum size, time to reshuffle quorums");
@@ -1275,9 +1275,13 @@ impl QuorumManager {
         if !self.peers.contains_key(peer.wallet_address()) {
             log::info!("self.peers does not contain peer key, adding");
             self.peers.insert(*peer.wallet_address(), peer.clone());
+            log::warn!("self.peers.len() = {}", self.peers.len());
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
                 if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) && (Some(&dst_peer) != received_from) {
-                    log::warn!("informing: {:?} of new peer", peer_wallet_address);
+                    //log::warn!("informing: {:?} of new peer", peer_wallet_address);
+                    log::warn!("{} != {}", dst_peer.wallet_address_hex(), peer.wallet_address_hex());
+                    log::warn!("{} != {}", dst_peer.wallet_address_hex(), self.node.peer_info().wallet_address_hex());
+                    log::warn!("{} != {}", dst_peer.wallet_address_hex(), received_from.wallet_address_hex());
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
@@ -1301,7 +1305,7 @@ impl QuorumManager {
                         uuid::Uuid::new_v4().to_string()
                     );
 
-                    log::warn!("informing: {:?} of existing peer: {dst_peer:?}", peer.wallet_address_hex());
+                    //log::warn!("informing: {:?} of existing peer: {dst_peer:?}", peer.wallet_address_hex());
                     let event_id = uuid::Uuid::new_v4().to_string();
                     let new_peer_event = NetworkEvent::NewPeer { 
                         event_id,
