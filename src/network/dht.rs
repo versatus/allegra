@@ -1149,6 +1149,7 @@ impl QuorumManager {
         )?.clone(); 
         let local_quorum_members = local_quorum.peers();
         for peer in local_quorum_members {
+            log::info!("checking if peer {}: {} is remote...", peer.wallet_address_hex(), peer.ip_address().to_string());
             if peer != self.node().peer_info() {
                 log::info!("checking trust store for peer {}", peer.wallet_address_hex());
                 if !self.trust_store.remotes().contains_key(&peer.wallet_address_hex()) {
@@ -1170,7 +1171,7 @@ impl QuorumManager {
                                 Box::new(NetworkTopic),
                                 Box::new(event)
                             ).await?;
-                            log::info!("Successfully shared trust token with peer {}...", peer.wallet_address_hex());
+                            log::info!("Successfully shared trust token with peer {}: {}...", peer.wallet_address_hex(), peer.ip_address().to_string());
                         }
                         None => {
                             log::info!("peer {} has no trust token, calling self.share_cert()...", peer.wallet_address_hex());
@@ -1200,7 +1201,7 @@ impl QuorumManager {
         //log::info!("Quorum peers: {:?}", quorum_peers);
         if quorum_peers.contains(peer) {
             log::info!("peer is member of local quorum, add certificate...");
-            log::info!("Cert: {cert}");
+            //log::info!("Cert: {cert}");
             let output = std::process::Command::new("lxc")
                 .arg("remote")
                 .arg("add")
