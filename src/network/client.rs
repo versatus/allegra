@@ -57,6 +57,7 @@ impl NetworkClient {
     async fn handle_networking_event(&mut self, event: NetworkEvent) -> std::io::Result<()> {
         match event {
             NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, .. } => {
+                log::info!("Received Create event, sending to {dst}");
                 let create_instance_message = InstanceCreateParams {
                     name, distro, version, vmtype, sig, recovery_id: recovery_id.into()
                 };
@@ -71,7 +72,9 @@ impl NetworkClient {
                         std::io::ErrorKind::Other,
                         e.to_string()
                     )
-                })?.into_inner();
+                });
+
+                log::info!("Received valid response to Create message sent to {dst}: {}", resp.is_ok());
             }
             NetworkEvent::NewPeer { 
                 peer_id, peer_address, dst, ..
@@ -98,7 +101,7 @@ impl NetworkClient {
                         e.to_string()
                     )
                 });
-                log::info!("Received valid response to NewPeer message sent to {dst}: {:?}", resp.is_ok());
+                log::info!("Received valid response to NewPeer message sent to {dst}: {}", resp.is_ok());
             }
             NetworkEvent::ExposeService { 
                 name, sig, recovery_id, port, service_type, dst, ..
