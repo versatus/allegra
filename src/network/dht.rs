@@ -406,17 +406,18 @@ impl QuorumManager {
                         Ok(messages) => {
                             log::info!("Received {} messages", messages.len());
                             for m in messages {
-                                log::info!("attempting to handle message: {:?}", m);
+                                //log::info!("attempting to handle message: {:?}", m);
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
                                     log::error!("self.handle_quorum_message(m): {e}: message: {m:?}");
                                 }
-                                log::info!("Completed self.handle_quorum message call");
+                                //log::info!("Completed self.handle_quorum message call");
                             }
-                            log::info!("handled all available messages");
+                            //log::info!("handled all available messages");
                         }
                         Err(e) => log::error!("self.subscriber.receive() Error: {e}")
                     }
                 },
+                /*
                 Some(quorum_result) = self.futures.next() => {
                     match quorum_result {
                         Ok(Ok(QuorumResult::Unit(()))) => {
@@ -440,6 +441,7 @@ impl QuorumManager {
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Quorum is still alive...");
                 },
+                */
                 _check_remotes = check_remotes_interval.tick() => {
                     log::info!("checking if all peers have a remote connection...");
                     if let Err(e) = self.check_remotes().await {
@@ -1094,7 +1096,9 @@ impl QuorumManager {
                 )
             };
 
+            log::info!("Trust Store before: {:?}", self.trust_store);
             self.update_trust_store().await?;
+            log::info!("Trust Store after: {:?}", self.trust_store);
 
             let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
                 std::io::Error::new(
@@ -1121,6 +1125,7 @@ impl QuorumManager {
                 Box::new(NetworkTopic),
                 Box::new(event)
             ).await?;
+
             log::info!("Successfully published event...");
 
         } else {
@@ -1306,7 +1311,7 @@ impl QuorumManager {
                         uuid::Uuid::new_v4().to_string()
                     );
 
-                    log::warn!("informing: {:?} of existing peers", peer.wallet_address_hex());
+                    log::warn!("informing: {:?} of existing peer: {dst_peer:?}", peer.wallet_address_hex());
                     let event_id = uuid::Uuid::new_v4().to_string();
                     let new_peer_event = NetworkEvent::NewPeer { 
                         event_id,

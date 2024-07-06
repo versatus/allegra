@@ -29,6 +29,7 @@ pub async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    /*
     simple_logger::init_with_level(log::Level::Info)
         .map_err(|e| {
             std::io::Error::new(
@@ -36,7 +37,7 @@ async fn main() -> std::io::Result<()> {
                 e.to_string()
             )
         })?;
-
+    */
     log::info!("logger set up");
 
     let wallet_address = load_or_create_ethereum_address(None).await?; 
