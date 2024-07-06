@@ -80,10 +80,24 @@ async fn main() -> std::io::Result<()> {
     let mut guard = publisher.lock().await;
 
     let received_from = local_peer.clone();
+
+    let event_id = Uuid::new_v4().to_string();
+    let task_id = TaskId::new(Uuid::new_v4().to_string());
+    let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone(), received_from: received_from.clone() };
+
+    log::info!("publishing event to add self to quorum...");
+
+    guard.publish(
+        Box::new(QuorumTopic),
+        Box::new(event),
+    ).await?;
+
     for peer in to_dial {
+
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
         let event = QuorumEvent::NewPeer { event_id, task_id, peer: peer.clone(), received_from: received_from.clone()};
+
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
@@ -106,14 +120,6 @@ async fn main() -> std::io::Result<()> {
         ).await?;
     }
 
-    let event_id = Uuid::new_v4().to_string();
-    let task_id = TaskId::new(Uuid::new_v4().to_string());
-    let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone(), received_from: received_from.clone() };
-    log::info!("publishing event to add self to quorum...");
-    guard.publish(
-        Box::new(QuorumTopic),
-        Box::new(event),
-    ).await?;
     drop(guard);
 
     let next_port = 2222;

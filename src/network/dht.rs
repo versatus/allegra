@@ -1311,14 +1311,13 @@ impl QuorumManager {
                         Box::new(new_peer_event)
                     ).await?;
 
+                    if local_quorum_member {
+                        self.share_cert(&peer).await?;
+                    }
                 }
             }
-
-            if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
-                self.share_cert(&peer).await?;
-            }
-
         } 
+
 
         Ok(())
     }
