@@ -1,4 +1,5 @@
 use std::{collections::{HashMap, HashSet}, net::SocketAddr};
+use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
@@ -17,7 +18,7 @@ use crate::{
         InstanceGetSshDetails, 
         InstanceStartParams, 
         InstanceStopParams
-    }, dht::{Peer, Quorum}, grpc_light::generate_task_id, helpers::{
+    }, dht::{Peer, Quorum, QuorumSyncEvent}, grpc_light::generate_task_id, helpers::{
             recover_namespace, 
             recover_owner_address
         }, params::{
@@ -376,6 +377,15 @@ pub enum NetworkEvent {
         task_id: TaskId,
         quorums: Vec<Quorum>,
         instances: Vec<Instance>,
+    },
+    SyncInstanceToLeader {
+        event_id: String,
+        original_event_id: String,
+        requestor: Peer,
+        task_id: TaskId,
+        namespace: Namespace,
+        event: QuorumSyncEvent,
+        dst: Peer,
     }
 }
 
@@ -564,6 +574,18 @@ pub enum QuorumEvent {
         task_id: TaskId,
         peer: Peer,
         cert: String,
+    },
+    SyncInstanceEvent {
+        event_id: String,
+        task_id: TaskId,
+        namespace: Namespace,
+        event: LibrettoEvent,
+    },
+    SyncInstanceInterval {
+        event_id: String,
+        task_id: TaskId,
+        namespace: Namespace,
+        last_sync: Option<u64>,
     }
 }
 

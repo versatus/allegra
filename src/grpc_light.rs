@@ -162,8 +162,8 @@ impl Vmm for LightVmmService {
 
     async fn sync(
         &self,
-        request: Request<tonic::Streaming<SyncMessage>>
-    ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
+        request: Request<SyncMessage>
+    ) -> Result<Response<crate::allegra_rpc::Ack>, Status> {
         todo!()
     }
     

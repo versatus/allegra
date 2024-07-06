@@ -1,12 +1,16 @@
 use std::any::Any;
 use std::str::FromStr;
 use clap::ValueEnum;
+use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
+use crate::account::Namespace;
+use crate::dht::Peer;
 use crate::vm_types::VmType;
 use crate::allegra_rpc::{
     GetTaskStatusRequest, InstanceAddPubkeyParams as ProtoAddPubkey, InstanceCreateParams as ProtoCreate, InstanceDeleteParams as ProtoDelete, InstanceExposeServiceParams as ProtoExpose, InstanceGetSshDetails as ProtoGetSsh, InstanceStartParams as ProtoStart, InstanceStopParams as ProtoStop, ServiceType as ProtoServiceType
 };
+use crate::vmm::Instance;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 pub enum ServiceType {
@@ -335,7 +339,8 @@ pub enum Params {
     AddPubkey(InstanceAddPubkeyParams),
     Delete(InstanceDeleteParams),
     ExposeService(InstanceExposeServiceParams),
-    GetSshDetails(InstanceGetSshDetails)
+    GetSshDetails(InstanceGetSshDetails),
+    SyncInstance(InstanceSyncDetails),
 }
 
 
@@ -397,6 +402,12 @@ pub struct InstanceGetSshDetails {
     pub name: String,
     pub keypath: Option<String>,
     pub username: Option<String>
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InstanceSyncDetails {
+    pub event: LibrettoEvent,
+    pub instance: Option<Instance>
 }
 
 pub struct InstanceSshSession {

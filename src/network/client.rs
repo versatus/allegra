@@ -3,9 +3,11 @@ use uuid::Uuid;
 use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
-        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage
-    }, create_allegra_rpc_client_to_addr, dht::Peer, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
+        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, SyncEvent, SyncMessage
+    }, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
+use base64::Engine as _;
+use tonic::IntoStreamingRequest as _;
 
 pub struct NetworkClient {
     local_peer: Peer,
@@ -255,6 +257,36 @@ impl NetworkClient {
             }
             NetworkEvent::BootstrapResponse { event_id, original_event_id, task_id, quorums, instances } => {
                 log::info!("Received Bootstrap Response event");
+            }
+            NetworkEvent::SyncInstanceToLeader { event_id, original_event_id, requestor, task_id, namespace, event, dst } => {
+                let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
+                let header = MessageHeader {
+                    peer_id: requestor.wallet_address_hex(),
+                    peer_address: requestor.ip_address().to_string(),
+                    message_id: Uuid::new_v4().to_string(),
+                };
+
+                let (event_type, event_data) = match event {
+                    QuorumSyncEvent::LibrettoEvent(libretto_event) => {
+                        (SyncEvent::LibrettoEvent, base64::engine::general_purpose::STANDARD.encode(&serde_json::to_vec(&libretto_event)?)) 
+                    }
+                    QuorumSyncEvent::IntervalEvent(last_sync) => {
+                        (SyncEvent::IntervalEvent, base64::engine::general_purpose::STANDARD.encode(&serde_json::to_vec(&last_sync)?))
+                    }
+                };
+                let sync_message = SyncMessage {
+                    header: Some(header),
+                    namespace: namespace.to_string(),
+                    event_type: event_type.into(),
+                    event_data: Some(event_data)
+                };
+
+                let resp = client.sync(
+                    tonic::Request::new(
+                        sync_message
+                    )
+                ).await;
+                log::info!("Sent SyncMessage request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
             }
         }
 

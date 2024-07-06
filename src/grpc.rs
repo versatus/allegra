@@ -571,8 +571,8 @@ impl Vmm for VmmService {
 
     async fn sync(
         &self,
-        _request: Request<tonic::Streaming<SyncMessage>>
-    ) -> Result<Response<crate::allegra_rpc::TransferStatus>, Status> {
+        _request: Request<SyncMessage>
+    ) -> Result<Response<crate::allegra_rpc::Ack>, Status> {
         let mut _namespace = String::new();
         todo!()
     }

@@ -5,8 +5,7 @@ use crate::{
         TaskId, 
         TaskStatus
     }, event::{
-        StateEvent, 
-        VmmEvent
+        QuorumEvent, StateEvent, VmmEvent
     }, helpers::{
         get_payload_hash, 
         recover_namespace, 
@@ -16,12 +15,11 @@ use crate::{
     }, params::{
         Payload, ServiceType
     }, publish::{
-        GenericPublisher,
-        StateTopic
-    }, subscribe::{LibrettoSubscriber, VmmSubscriber}, vm_info::{
+        GenericPublisher, QuorumTopic, StateTopic
+    }, startup, subscribe::{LibrettoSubscriber, VmmSubscriber}, vm_info::{
         VmInfo, 
         VmList
-    }, startup
+    }
 };
 
 use crate::allegra_rpc::{
@@ -53,6 +51,7 @@ use rayon::iter::{
 };
 use tokio::task::JoinHandle;
 use serde::{Serialize, Deserialize};
+use uuid::Uuid;
 use std::pin::Pin;
 use crate::statics::*;
 use crate::consts::*;
@@ -635,8 +634,9 @@ impl VmManager {
             }
             VmManagerMessage::SyncInstance { namespace, .. } => {
                 log::info!("received SyncInstance message, attempting to sync instance");
-                let vmlist = self.vmlist.clone();
-                let future = Box::pin(Self::sync_instance(vmlist, namespace));
+                let publisher_uri = self.publisher.peer_addr()?;
+                let publisher = GenericPublisher::new(&publisher_uri).await?;
+                let future = Box::pin(Self::sync_instance_interval(namespace, publisher, None));
                 self.sync_futures.push(future);
                 return Ok(())
             }
@@ -659,15 +659,19 @@ impl VmManager {
             VmmAction::Copy => {
                 self.refresh_vmlist().await?;
                 let vmlist = self.vmlist.clone();
+                let publisher_uri = self.publisher.peer_addr()?;
+                let publisher = GenericPublisher::new(&publisher_uri).await?;
                 let future = Box::pin(
-                    Self::sync_instance(
+                    Self::sync_instance_libretto_event(
                         vmlist,
                         event.instance_name().clone().ok_or(
                             std::io::Error::new(
                                 std::io::ErrorKind::Other,
                                 "Instance namespace not included in event"
                             )
-                        )?
+                        )?,
+                        event,
+                        publisher
                     )
                 );
                 self.sync_futures.push(future);
@@ -1124,13 +1128,40 @@ impl VmManager {
 
         Ok(())
     }
-
-    pub async fn sync_instance(
-        vmlist: VmList,
+    
+    pub async fn sync_instance_interval(
         namespace: String,
+        mut publisher: GenericPublisher,
+        last_sync: Option<u64>
     ) -> std::io::Result<()> {
         log::info!("Attempting to sync instance {namespace}");
-        todo!()
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let quorum_event = QuorumEvent::SyncInstanceInterval { event_id, task_id, namespace: Namespace::new(namespace), last_sync }; 
+        publisher.publish(
+            Box::new(QuorumTopic),
+            Box::new(quorum_event)
+        ).await?;
+
+        Ok(())
+    }
+
+    pub async fn sync_instance_libretto_event(
+        _vmlist: VmList,
+        namespace: String,
+        event: LibrettoEvent,
+        mut publisher: GenericPublisher
+    ) -> std::io::Result<()> {
+        log::info!("Attempting to sync instance {namespace}");
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let quorum_event = QuorumEvent::SyncInstanceEvent { event_id, task_id, namespace: Namespace::new(namespace), event }; 
+        publisher.publish(
+            Box::new(QuorumTopic),
+            Box::new(quorum_event)
+        ).await?;
+        
+        Ok(())
     }
 
     pub async fn move_instance(

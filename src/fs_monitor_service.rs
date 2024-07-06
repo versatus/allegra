@@ -12,7 +12,9 @@ async fn main() -> std::io::Result<()> {
         })?;
 
     log::info!("Creating LibrettoClient...");
-    let client = LibrettoClient::new("127.0.0.1:5556", "127.0.0.1:5555").await?;
+    let subscriber_uri = "127.0.0.1:5556";
+    let publisher_uri = "127.0.0.1:5555";
+    let client = LibrettoClient::new(subscriber_uri, publisher_uri).await?;
     log::info!("Setting up event handler for Libretto...");
     let event_handler = tokio::spawn(
         async move {
@@ -30,7 +32,7 @@ async fn main() -> std::io::Result<()> {
         }
     }).collect();
     log::info!("Current state of dir to monitor: {:?}", dir_current_state);
-    let publisher = FilesystemPublisher::new("127.0.0.1:5555").await?;
+    let publisher = FilesystemPublisher::new(publisher_uri).await?;
     let monitor = tokio::spawn(async move {
         let _ = monitor_directory(
             &dir,

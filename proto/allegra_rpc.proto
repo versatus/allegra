@@ -14,6 +14,11 @@ enum ServiceType {
     CUSTOM = 8;
 }
 
+enum SyncEvent {
+    LIBRETTO_EVENT = 0;
+    INTERVAL_EVENT = 1;
+}
+
 message SshDetails {
   string ip = 1;
   uint32 port = 2;
@@ -112,7 +117,8 @@ message PongMessage {
 message SyncMessage {
     MessageHeader header = 1;
     string namespace = 2;
-    uint64 last_update = 3;
+    SyncEvent event_type = 3;
+    optional string event_data = 4;
 }
 
 message MigrateMessage {
@@ -170,7 +176,7 @@ service Vmm {
   rpc GetSshDetails(InstanceGetSshDetails) returns (VmResponse);
   rpc Register(NewPeerMessage) returns (Ack);
   rpc Ping(PingMessage) returns (PongMessage);
-  rpc Sync(stream SyncMessage) returns (TransferStatus);
+  rpc Sync(SyncMessage) returns (Ack);
   rpc Migrate(stream MigrateMessage) returns (TransferStatus);
   rpc GetPort(GetPortMessage) returns (PortResponse);
   rpc NodeCertificate(NodeCertMessage) returns (Ack);

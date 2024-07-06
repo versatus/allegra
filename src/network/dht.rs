@@ -1,6 +1,7 @@
 use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr};
 use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
+use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use futures::StreamExt;
@@ -16,13 +17,9 @@ use crate::{
         NetworkEvent, 
         QuorumEvent, 
         VmmEvent
-    }, network::node::Node, 
-        params::{
-            InstanceCreateParams, Params, InstanceStartParams,
-            InstanceStopParams, InstanceGetSshDetails, InstanceExposeServiceParams,
-            InstanceDeleteParams, InstanceAddPubkeyParams
-        }, 
-        publish::{
+    }, network::node::Node, node::NodeState, params::{
+            InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, Params
+        }, publish::{
             GenericPublisher, NetworkTopic, VmManagerTopic
         }, subscribe::QuorumSubscriber
 };
@@ -33,6 +30,12 @@ use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
 use getset::{Getters, MutGetters};
 use crate::statics::BOOTSTRAP_QUORUM;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum QuorumSyncEvent {
+    LibrettoEvent(LibrettoEvent),
+    IntervalEvent(Option<u64>)
+}
 
 #[derive(Debug, Clone, Getters, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Peer {
@@ -477,6 +480,14 @@ impl QuorumManager {
                 self.accept_cert(&peer, &cert).await?;
                 log::info!("Successfully completed self.accept_cert call for QuorumEvent::CheckAcceptCert message...");
             }
+            QuorumEvent::SyncInstanceEvent { event_id, task_id, namespace, event} => {
+                log::info!("Received SyncInstanceEvent quorum message for namespace: {}", namespace.to_string());
+                self.attempt_sync_instance(event_id, namespace, QuorumSyncEvent::LibrettoEvent(event)).await?;
+            }
+            QuorumEvent::SyncInstanceInterval { event_id, task_id, namespace, last_sync } => {
+                log::info!("Received SyncInstanceInterval quorum message for namespace: {}", namespace.to_string());
+                self.attempt_sync_instance(event_id, namespace, QuorumSyncEvent::IntervalEvent(last_sync)).await?;
+            }
         }
 
         Ok(())
@@ -585,6 +596,95 @@ impl QuorumManager {
 
 
         Ok(())
+    }
+
+    async fn attempt_sync_instance(&mut self, original_event_id: String, namespace: Namespace, event: QuorumSyncEvent) -> std::io::Result<()> {
+        let instance_quorum = self.get_instance_quorum_membership(&namespace).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Unable to acquire quuorum membership for instance {}", namespace.to_string())
+            )
+        )?;
+
+        let local_quorum = self.get_local_quorum_membership()?;
+
+        if local_quorum == instance_quorum {
+            log::info!("local quorum is responsible for instance {}", namespace.to_string());
+            let node_state = self.node().state().clone();
+            match node_state {
+                NodeState::Leader => {
+                    log::info!("local node is the leader, start sync...");
+
+                    let local_peers = self.get_local_peers().clone().ok_or(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "unable to acquire quorum peers..."
+                        )
+                    )?.clone();
+
+                    let inner_namespace = namespace.clone();
+                    let future = tokio::spawn(async move {
+                        for peer in local_peers {
+                            let output = tokio::process::Command::new("lxc")
+                                .arg("copy")
+                                .arg(inner_namespace.to_string())
+                                .arg(format!("{}:{}", peer.wallet_address_hex(), inner_namespace.to_string()))
+                                .arg("--refresh")
+                                .arg("--mode")
+                                .arg("pull")
+                                .output().await?;
+                            
+                            if output.status.success() {
+                                log::info!("Successfully synced: {} with {}", inner_namespace.to_string(), peer.wallet_address_hex());
+                            } else {
+                                let err = std::str::from_utf8(&output.stderr).map_err(|e| {
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        e
+                                    )
+                                })?;
+                                log::error!("Error attempting to sync {} with {}: {err}", inner_namespace.to_string(), peer.wallet_address_hex());
+                            }
+                        }
+
+                        Ok::<_, std::io::Error>(QuorumResult::Unit(()))
+                    });
+
+                    self.futures.push(future);
+                }
+                NodeState::Follower => {
+                    log::info!("local node is not the leader, inform leader of sync event...");
+                    let leader = self.node().current_leader().clone().ok_or(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "quorum currently has no leader"
+                        )
+                    )?;
+
+                    log::info!("Discovered leader: {}, inform leader of sync event...", leader.wallet_address_hex());
+
+                    let event_id = Uuid::new_v4().to_string();
+                    let task_id = TaskId::new(Uuid::new_v4().to_string());
+                    let requestor = self.node().peer_info().clone();
+                    self.publisher_mut().publish(
+                        Box::new(NetworkTopic),
+                        Box::new(NetworkEvent::SyncInstanceToLeader {
+                            event_id,
+                            original_event_id,
+                            requestor,
+                            task_id,
+                            namespace: namespace.clone(),
+                            event,
+                            dst: leader
+                        })
+                    ).await?;
+                }
+            }
+
+            return Ok(())
+        }
+
+        return Ok(())
     }
 
     async fn handle_start_payload(
