@@ -465,6 +465,7 @@ impl QuorumManager {
             QuorumEvent::NewPeer { event_id, task_id, peer } => {
                 //log::info!("Received NewPeer quorum message: {event_id}: {task_id}");
                 self.handle_new_peer_message(&peer).await?;
+                log::info!("Successfully completed self.handle_new_peer_message call for QuorumEvent::NewPeer message...");
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
                 //log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
@@ -473,9 +474,10 @@ impl QuorumManager {
                     &payload,
                     task_id
                 ).await?;
+                log::info!("Successfully completed self.handle_check_responsibility_message call for QuorumEvent::CheckResponsibility message...");
             }
             QuorumEvent::CheckAcceptCert { peer, cert, event_id, task_id } => {
-                log::info!("Received CheckAcceptCert quorum message for peer {peer:?}: {event_id}: {task_id}");
+                //log::info!("Received CheckAcceptCert quorum message for peer {peer:?}: {event_id}: {task_id}");
                 self.accept_cert(&peer, &cert).await?;
                 log::info!("Successfully completed self.accept_cert call for QuorumEvent::CheckAcceptCert message...");
             }
@@ -908,8 +910,6 @@ impl QuorumManager {
         &mut self, 
         peer: &Peer
     ) -> std::io::Result<()> {
-
-        //log::info!("Attempting to handle NewPeer event...");
         self.add_peer(peer).await?;
 
         Ok(())
@@ -1096,9 +1096,7 @@ impl QuorumManager {
                 )
             };
 
-            log::info!("Trust Store before: {:?}", self.trust_store);
             self.update_trust_store().await?;
-            log::info!("Trust Store after: {:?}", self.trust_store);
 
             let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
                 std::io::Error::new(
@@ -1108,7 +1106,6 @@ impl QuorumManager {
             )?.token().to_string();
 
             let quorum_id = self.get_local_quorum_membership()?.to_string();
-            log::info!("Cert: {cert}");
             let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
             let event_id = uuid::Uuid::new_v4().to_string();
             let event = NetworkEvent::ShareCert { 
@@ -1120,14 +1117,10 @@ impl QuorumManager {
                 dst: peer.clone() 
             };
 
-            log::info!("Created event to ShareCert with {}... Publishing event...", peer.wallet_address());
             self.publisher.publish(
                 Box::new(NetworkTopic),
                 Box::new(event)
             ).await?;
-
-            log::info!("Successfully published event...");
-
         } else {
             let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
                 std::io::Error::new(
@@ -1142,9 +1135,6 @@ impl QuorumManager {
                 )
             )
         }
-
-
-        log::info!("Completed self.share_cert call...");
         Ok(())
     }
 
@@ -1205,6 +1195,7 @@ impl QuorumManager {
         // Check if peer is member of same quorum as local node
         //log::info!("checking if certificate from peer: {:?} is for local quorum member...", peer);
         let qid = self.get_local_quorum_membership()?;
+        log::info!("Local node is member of quorum {}", qid.to_string());
         let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
         //log::info!("Quorum peers: {:?}", quorum_peers);
         if quorum_peers.contains(peer) {
@@ -1243,6 +1234,8 @@ impl QuorumManager {
                     )
                 )
             }
+        } else {
+            log::warn!("Local quorum does not have {} as peer...", peer.wallet_address_hex());
         }
 
         log::info!("Completed self.accept_cert method returning...");
@@ -1250,7 +1243,6 @@ impl QuorumManager {
     }
 
     pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
-        //log::info!("Attempting to add peer: {:?} to DHT", peer);
         let q = self.peer_hashring.get_resource(peer.wallet_address().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1258,14 +1250,12 @@ impl QuorumManager {
             )
         )?.clone();
 
-        //log::info!("checking if new peer is member in local quorum");
         let local_quorum_member = if q.id() == &self.get_local_quorum_membership()? {
             true
         } else {
             false
         };
 
-        //log::info!("acquiring quorum that new peer is a member of");
         let quorum = self.quorums.get_mut(&q.id().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1273,7 +1263,6 @@ impl QuorumManager {
             )
         )?;
 
-        //log::info!("quorum.size() = {}", quorum.size());
         quorum.add_peer(peer);
         log::info!("quorum.size() = {}", quorum.size());
 
@@ -1285,7 +1274,6 @@ impl QuorumManager {
         if !self.peers.contains_key(peer.wallet_address()) {
             log::info!("self.peers does not contain peer key, adding");
             self.peers.insert(*peer.wallet_address(), peer.clone());
-            log::info!("added new peer to self.peers");
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
                 if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) {
                     log::warn!("informing: {:?} of new peer", peer_wallet_address);
