@@ -34,13 +34,13 @@ impl NetworkClient {
                 Ok(messages) = self.subscriber.receive() => {
                     log::info!("received {} messages", messages.len());
                     for message in messages {
-                        log::info!("Attempting to handle message: {:?}", message);
+                        //log::info!("Attempting to handle message: {:?}", message);
                         if let Err(e) = self.handle_networking_event(message.clone()).await {
                             log::error!("self.handle_networking_event(message): {e}: message: {message:?}");
                         }
-                        log::info!("Completed message handling");
+                        //log::info!("Completed message handling");
                     }
-                    log::info!("handled all messages awaiting next batch...");
+                    //log::info!("handled all messages awaiting next batch...");
                 },
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Network client is still alive");
@@ -83,22 +83,22 @@ impl NetworkClient {
                     message_id: uuid::Uuid::new_v4().to_string(),
                 };
 
-                log::info!("constructed message header");
+                //log::info!("constructed message header");
                 let new_peer_message = NewPeerMessage {
                     header: Some(header),
                     new_peer_id: peer_id,
                     new_peer_address: peer_address,
                 };
 
-                log::info!("constructed new_peer message");
+                //log::info!("constructed new_peer message");
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
                 let resp = client.register(new_peer_message).await.map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
                         e.to_string()
                     )
-                })?.into_inner();
-                log::info!("Response to NewPeer message sent to {dst}: {:?}", resp);
+                });
+                log::info!("Received valid response to NewPeer message sent to {dst}: {:?}", resp.is_ok());
             }
             NetworkEvent::ExposeService { 
                 name, sig, recovery_id, port, service_type, dst, ..
@@ -227,11 +227,11 @@ impl NetworkClient {
                     request_id
                 };
 
-                log::info!("Attempting to create allegra rpc client to {dst:?}");
+                //log::info!("Attempting to create allegra rpc client to {dst:?}");
                 let mut client = create_allegra_rpc_client_to_addr(
                     &dst.ip_address().to_string()
                 ).await?;
-                log::info!("Attempting to send node certificate");
+                //log::info!("Attempting to send node certificate");
                 let resp = client.node_certificate(
                     tonic::Request::new(
                         node_cert_message
@@ -241,8 +241,8 @@ impl NetworkClient {
                         std::io::ErrorKind::Other,
                         e
                     )
-                })?.into_inner();
-                log::info!("Sent ShareCert request to {}: {}: response: {:?}", peer.wallet_address_hex(), peer.ip_address(), resp);
+                });
+                log::info!("Sent ShareCert request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
             }
             NetworkEvent::CastLeaderElectionVote { .. } => {
                 todo!()

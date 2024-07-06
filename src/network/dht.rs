@@ -30,7 +30,6 @@ use conductor::subscriber::SubStream;
 use conductor::publisher::PubStream;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
-use futures::StreamExt;
 use getset::{Getters, MutGetters};
 use crate::statics::BOOTSTRAP_QUORUM;
 
@@ -404,19 +403,20 @@ impl QuorumManager {
                 result = self.subscriber.receive() => {
                     match result {
                         Ok(messages) => {
-                            log::info!("Received {} messages", messages.len());
+                            //log::warn!("Received {} messages", messages.len());
                             for m in messages {
-                                log::info!("attempting to handle message: {:?}", m);
+                                //log::info!("attempting to handle message: {:?}", m);
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
                                     log::error!("self.handle_quorum_message(m): {e}: message: {m:?}");
                                 }
-                                log::info!("Completed self.handle_quorum message call");
+                                //log::info!("Completed self.handle_quorum message call");
                             }
-                            log::info!("handled all available messages");
+                            //log::info!("handled all available messages");
                         }
                         Err(e) => log::error!("self.subscriber.receive() Error: {e}")
                     }
                 },
+                /*
                 Some(quorum_result) = self.futures.next() => {
                     match quorum_result {
                         Ok(Ok(QuorumResult::Unit(()))) => {
@@ -440,11 +440,12 @@ impl QuorumManager {
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Quorum is still alive...");
                 },
+                */
                 _check_remotes = check_remotes_interval.tick() => {
-                    log::info!("checking if all peers have a remote connection...");
-                    if let Err(e) = self.check_remotes().await {
-                        log::info!("Error attempting to check remotes: {e}");
-                    }
+                    //log::info!("checking if all peers have a remote connection...");
+                    //if let Err(e) = self.check_remotes().await {
+                    //    log::info!("Error attempting to check remotes: {e}");
+                    //}
                 },
                 _ = tokio::signal::ctrl_c() => {
                     break;
@@ -460,9 +461,10 @@ impl QuorumManager {
             QuorumEvent::Expand { .. } => todo!(),
             QuorumEvent::Consolidate { .. } => todo!(),
             QuorumEvent::RequestSshDetails { .. } => todo!(),
-            QuorumEvent::NewPeer { event_id, task_id, peer } => {
+            QuorumEvent::NewPeer { event_id, task_id, peer, received_from } => {
                 //log::info!("Received NewPeer quorum message: {event_id}: {task_id}");
-                self.handle_new_peer_message(&peer).await?;
+                self.handle_new_peer_message(&peer, &received_from).await?;
+                log::info!("Successfully completed self.handle_new_peer_message call for QuorumEvent::NewPeer message...");
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
                 //log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
@@ -471,9 +473,10 @@ impl QuorumManager {
                     &payload,
                     task_id
                 ).await?;
+                log::info!("Successfully completed self.handle_check_responsibility_message call for QuorumEvent::CheckResponsibility message...");
             }
             QuorumEvent::CheckAcceptCert { peer, cert, event_id, task_id } => {
-                log::info!("Received CheckAcceptCert quorum message for peer {peer:?}: {event_id}: {task_id}");
+                log::warn!("Received CheckAcceptCert quorum message for peer {}: {}", peer.wallet_address_hex(), peer.ip_address().to_string());
                 self.accept_cert(&peer, &cert).await?;
                 log::info!("Successfully completed self.accept_cert call for QuorumEvent::CheckAcceptCert message...");
             }
@@ -904,11 +907,10 @@ impl QuorumManager {
 
     async fn handle_new_peer_message(
         &mut self, 
-        peer: &Peer
+        peer: &Peer,
+        received_from: &Peer
     ) -> std::io::Result<()> {
-
-        //log::info!("Attempting to handle NewPeer event...");
-        self.add_peer(peer).await?;
+        self.add_peer(peer, Some(received_from)).await?;
 
         Ok(())
     }
@@ -1006,7 +1008,7 @@ impl QuorumManager {
         });
 
         for (_, peer) in self.peers.clone() {
-            self.add_peer(&peer).await?;
+            self.add_peer(&peer, None).await?;
         }
 
         for (namespace, _) in self.instances.clone() {
@@ -1073,73 +1075,74 @@ impl QuorumManager {
     ) -> std::io::Result<()> {
         log::info!("Attempting to share certificate with peer: {}", &peer.wallet_address_hex()); 
         let peer_id = peer.wallet_address_hex();
+        let is_local_peer = if peer_id == self.node().peer_info().wallet_address_hex() {
+            true
+        } else {
+            false
+        };
 
-        let output = std::process::Command::new("lxc")
-            .arg("config")
-            .arg("trust")
-            .arg("add")
-            .arg("--name")
-            .arg(&peer_id)
-            .output()?;
+        log::warn!("is_local_peer = {is_local_peer}");
+        if !is_local_peer {
+            let output = std::process::Command::new("lxc")
+                .arg("config")
+                .arg("trust")
+                .arg("add")
+                .arg("--name")
+                .arg(&peer_id)
+                .output()?;
 
-        if output.status.success() {
-            log::info!("Successfully created token for peer {}", &peer.wallet_address().to_string());
-            let cert = match std::str::from_utf8(&output.stdout) {
-                Ok(res) => res.to_string(),
-                Err(e) => return Err(
+            if output.status.success() {
+                log::info!("Successfully created token for peer {}", &peer.wallet_address().to_string());
+                let cert = match std::str::from_utf8(&output.stdout) {
+                    Ok(res) => res.to_string(),
+                    Err(e) => return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e
+                        )
+                    )
+                };
+
+                self.update_trust_store().await?;
+
+                let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Unable to find peer_id in trust tokens despite success in call to lxc config trust add --name {}", peer_id)
+                    )
+                )?.token().to_string();
+
+                let quorum_id = self.get_local_quorum_membership()?.to_string();
+                let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let event = NetworkEvent::ShareCert { 
+                    peer: self.node().peer_info().clone(), 
+                    cert,
+                    task_id,
+                    event_id,
+                    quorum_id,
+                    dst: peer.clone() 
+                };
+
+                self.publisher.publish(
+                    Box::new(NetworkTopic),
+                    Box::new(event)
+                ).await?;
+            } else {
+                let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
                         e
                     )
+                })?;
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Unable to add client certificate to trust store for peer {}: {}", &peer.wallet_address_hex(), &stderr)
+                    )
                 )
-            };
-
-            self.update_trust_store().await?;
-
-            let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Unable to find peer_id in trust tokens despite success in call to lxc config trust add --name {}", peer_id)
-                )
-            )?.token().to_string();
-
-            let quorum_id = self.get_local_quorum_membership()?.to_string();
-            log::info!("Cert: {cert}");
-            let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let event = NetworkEvent::ShareCert { 
-                peer: self.node().peer_info().clone(), 
-                cert,
-                task_id,
-                event_id,
-                quorum_id,
-                dst: peer.clone() 
-            };
-
-            log::info!("Created event to ShareCert with {}... Publishing event...", peer.wallet_address());
-            self.publisher.publish(
-                Box::new(NetworkTopic),
-                Box::new(event)
-            ).await?;
-            log::info!("Successfully published event...");
-
-        } else {
-            let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Unable to add client certificate to trust store for peer {}: {}", &peer.wallet_address_hex(), &stderr)
-                )
-            )
+            }
         }
-
-
-        log::info!("Completed self.share_cert call...");
         Ok(())
     }
 
@@ -1154,6 +1157,7 @@ impl QuorumManager {
         )?.clone(); 
         let local_quorum_members = local_quorum.peers();
         for peer in local_quorum_members {
+            log::info!("checking if peer {}: {} is remote...", peer.wallet_address_hex(), peer.ip_address().to_string());
             if peer != self.node().peer_info() {
                 log::info!("checking trust store for peer {}", peer.wallet_address_hex());
                 if !self.trust_store.remotes().contains_key(&peer.wallet_address_hex()) {
@@ -1175,7 +1179,7 @@ impl QuorumManager {
                                 Box::new(NetworkTopic),
                                 Box::new(event)
                             ).await?;
-                            log::info!("Successfully shared trust token with peer {}...", peer.wallet_address_hex());
+                            log::info!("Successfully shared trust token with peer {}: {}...", peer.wallet_address_hex(), peer.ip_address().to_string());
                         }
                         None => {
                             log::info!("peer {} has no trust token, calling self.share_cert()...", peer.wallet_address_hex());
@@ -1200,11 +1204,10 @@ impl QuorumManager {
         // Check if peer is member of same quorum as local node
         //log::info!("checking if certificate from peer: {:?} is for local quorum member...", peer);
         let qid = self.get_local_quorum_membership()?;
+        log::info!("Local node is member of quorum {}", qid.to_string());
         let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
-        //log::info!("Quorum peers: {:?}", quorum_peers);
+        log::warn!("quorum_peers.contains(peer) = {}", quorum_peers.contains(peer));
         if quorum_peers.contains(peer) {
-            log::info!("peer is member of local quorum, add certificate...");
-            log::info!("Cert: {cert}");
             let output = std::process::Command::new("lxc")
                 .arg("remote")
                 .arg("add")
@@ -1220,9 +1223,6 @@ impl QuorumManager {
                         e
                     )
                 })?;
-                log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
-                self.share_cert(peer).await?;
-                log::info!("Successfully completed self.shared_cert call in self.accept_cert method...");
                 return Ok(())
             } else {
                 let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -1238,14 +1238,15 @@ impl QuorumManager {
                     )
                 )
             }
+        } else {
+            log::warn!("Local quorum does not have {} as peer...", peer.wallet_address_hex());
         }
 
         log::info!("Completed self.accept_cert method returning...");
         Ok(())
     }
 
-    pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
-        //log::info!("Attempting to add peer: {:?} to DHT", peer);
+    pub async fn add_peer(&mut self, peer: &Peer, received_from: Option<&Peer>) -> std::io::Result<()> {
         let q = self.peer_hashring.get_resource(peer.wallet_address().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1253,14 +1254,13 @@ impl QuorumManager {
             )
         )?.clone();
 
-        //log::info!("checking if new peer is member in local quorum");
         let local_quorum_member = if q.id() == &self.get_local_quorum_membership()? {
             true
         } else {
             false
         };
 
-        //log::info!("acquiring quorum that new peer is a member of");
+        log::warn!("local quorum member = {}", &local_quorum_member);
         let quorum = self.quorums.get_mut(&q.id().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1268,9 +1268,8 @@ impl QuorumManager {
             )
         )?;
 
-        //log::info!("quorum.size() = {}", quorum.size());
         quorum.add_peer(peer);
-        log::info!("quorum.size() = {}", quorum.size());
+        log::warn!("quorum.size() = {}", quorum.size());
 
         if quorum.clone().size() >= 50 {
             log::info!("quorum exceeds maximum size, time to reshuffle quorums");
@@ -1280,10 +1279,9 @@ impl QuorumManager {
         if !self.peers.contains_key(peer.wallet_address()) {
             log::info!("self.peers does not contain peer key, adding");
             self.peers.insert(*peer.wallet_address(), peer.clone());
-            log::info!("added new peer to self.peers");
+            log::warn!("self.peers.len() = {}", self.peers.len());
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
-                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) {
-                    log::warn!("informing: {:?} of new peer", peer_wallet_address);
+                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) && (Some(&dst_peer.clone()) != received_from) {
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
@@ -1294,6 +1292,7 @@ impl QuorumManager {
                         dst: dst_peer.ip_address().to_string(),
                         task_id,
                         event_id,
+                        received_from: self.node().peer_info().clone()
                     };
 
 
@@ -1306,14 +1305,14 @@ impl QuorumManager {
                         uuid::Uuid::new_v4().to_string()
                     );
 
-                    log::warn!("informing: {:?} of existing peers", peer.wallet_address_hex());
                     let event_id = uuid::Uuid::new_v4().to_string();
                     let new_peer_event = NetworkEvent::NewPeer { 
                         event_id,
                         task_id,
                         peer_id: dst_peer.wallet_address_hex(),
                         peer_address: dst_peer.ip_address().to_string(), 
-                        dst: peer.ip_address().to_string() 
+                        dst: peer.ip_address().to_string(),
+                        received_from: self.node().peer_info().clone()
                     };
 
                     self.publisher_mut().publish(
@@ -1323,13 +1322,11 @@ impl QuorumManager {
 
                 }
             }
+            if local_quorum_member {
+                self.share_cert(&peer).await?;
+            }
         } 
 
-        if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
-            log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
-            self.share_cert(&peer).await?;
-            log::info!("Completed self.share_cert call succeffully");
-        }
 
         Ok(())
     }

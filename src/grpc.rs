@@ -197,21 +197,18 @@ impl VmmService {
 
         log::info!("Attempting to handle node certificate message");
         let event_id = Uuid::new_v4().to_string();
-        log::info!("Generated event id");
         let task_id = generate_task_id(node_cert.clone()).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
-        log::info!("Generated task id");
         let address = Address::from_hex(node_cert.peer_id).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
-        log::info!("parsed address from hex");
         let event = QuorumEvent::CheckAcceptCert { 
             event_id, 
             task_id, 
@@ -226,9 +223,7 @@ impl VmmService {
             ), 
             cert: node_cert.cert 
         };
-        log::info!("created QuorumEvent::CheckAcceptCert");
         let mut guard = self.publisher.lock().await;
-        log::info!("Acquired publisher guard...");
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
@@ -257,25 +252,45 @@ impl VmmService {
         peer: NewPeerMessage
     ) -> std::io::Result<()> {
         // Send to quorum management service
-        log::info!("Generating task ID for NewPeer QuorumEvent...");
+        //log::info!("Generating task ID for NewPeer QuorumEvent...");
         let task_id = generate_task_id(peer.clone()).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
-        log::info!("Generating event ID for NewPeer QuorumEvent...");
+        //log::info!("Generating event ID for NewPeer QuorumEvent...");
         let event_id = Uuid::new_v4().to_string();
 
+        let header = peer.header.ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "MessageHeader required for new peer message..."
+            )
+        )?;
+        let received_from = Peer::new(
+            Address::from_hex(header.peer_id).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?,
+            header.peer_address.parse().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?
+        );
         //TODO(asmith): Replace with node signature, and recover the address
-        log::info!("acquiring peer address...");
+        //log::info!("acquiring peer address...");
         let peer_id = Address::from_hex(&peer.new_peer_id).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
-        log::info!("Constructing peer...");
+        //log::info!("Constructing peer...");
         let peer = Peer::new(
             peer_id, 
             peer.new_peer_address.parse().map_err(|e| {
@@ -285,16 +300,20 @@ impl VmmService {
                 )
             })?
         );
-        log::info!("Constructing QuorumEvent::NewPeer...");
-        let event = QuorumEvent::NewPeer { event_id, task_id, peer };
 
-        log::info!("Publishing event...");
+        //log::info!("Constructing QuorumEvent::NewPeer...");
+        let event = QuorumEvent::NewPeer { event_id, task_id, peer, received_from };
+
         let mut guard = self.publisher.lock().await;
+
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)
         ).await?;
+
         drop(guard);
+
+        log::info!("Published QuorumEvent::NewPeer...");
 
         Ok(())
 
@@ -506,15 +525,15 @@ impl Vmm for VmmService {
     ) -> Result<Response<Ack>, Status> {
         log::info!("Received register request...");
         let new_peer = request.into_inner();
-        log::info!("converted request into NewPeerMessage...");
+        //log::info!("converted request into NewPeerMessage...");
         let header = new_peer.clone().header;
-        log::info!("extracted request header...");
+        //log::info!("extracted request header...");
         let request_id = uuid::Uuid::new_v4();
-        log::info!("constructed request id...");
+        //log::info!("constructed request id...");
 
-        log::info!("calling self.add_peer...");
+        //log::info!("calling self.add_peer...");
         self.add_peer(new_peer).await?;
-        log::info!("successfully executed request...");
+        log::info!("successfully executed register request...");
 
         return Ok(
             Response::new(
@@ -580,19 +599,20 @@ impl Vmm for VmmService {
     ) -> Result<Response<Ack>, Status> {
         log::info!("Received node_certificate call...");
         let message = request.into_inner().clone();
-        log::info!("Converted request into inner type...");
+        //log::info!("Converted request into inner type...");
         let request_id = message.request_id.clone();
-        log::info!("Attempting to handle node certificate message...");
+        //log::info!("Attempting to handle node certificate message...");
         self.handle_node_certificate_message(message).await?;
+        log::info!("server handled node certificate message...");
 
-        log::info!("Crafting response to request...");
+        //log::info!("Crafting response to request...");
         let message_id = Uuid::new_v4().to_string();
         let header = MessageHeader {
             peer_id: self.local_peer.wallet_address_hex(),
             peer_address: self.local_peer.ip_address().to_string(),
             message_id
         };
-        log::info!("Returning response...");
+        //log::info!("Returning response...");
         Ok(Response::new(
                 Ack {
                     header: Some(header),

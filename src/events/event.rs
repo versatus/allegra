@@ -263,6 +263,7 @@ pub enum NetworkEvent {
     NewPeer {
         event_id: String,
         task_id: TaskId,
+        received_from: Peer,
         peer_id: String,
         peer_address: String,
         dst: String,
@@ -555,7 +556,8 @@ pub enum QuorumEvent {
     NewPeer {
         event_id: String,
         task_id: TaskId,
-        peer: Peer
+        peer: Peer,
+        received_from: Peer,
     },
     CheckAcceptCert {
         event_id: String,

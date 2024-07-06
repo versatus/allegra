@@ -36,7 +36,6 @@ async fn main() -> std::io::Result<()> {
                 e.to_string()
             )
         })?;
-
     log::info!("logger set up");
 
     let wallet_address = load_or_create_ethereum_address(None).await?; 
@@ -61,59 +60,6 @@ async fn main() -> std::io::Result<()> {
         )
     );
 
-    let to_dial = if let Ok(bootstrap_nodes) = load_bootstrap_node(None).await {
-        bootstrap_nodes.par_iter().filter_map(|(wallet, ip)| {
-            let bootstrap_peer = Peer::new(
-                wallet.clone(), ip.clone() 
-            );
-
-            if bootstrap_peer != local_peer {
-                log::warn!("bootstrap peer: {:?} is not local peer, dialing...", &bootstrap_peer);
-                Some(bootstrap_peer)
-            } else {
-                None
-            }
-        }).collect::<Vec<Peer>>()
-    } else {
-        vec![]
-    };
-
-    let mut guard = publisher.lock().await;
-
-    for peer in to_dial {
-        let event_id = Uuid::new_v4().to_string();
-        let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let event = QuorumEvent::NewPeer { event_id, task_id, peer: peer.clone()};
-        guard.publish(
-            Box::new(QuorumTopic), 
-            Box::new(event)
-        ).await?;
-
-        let event_id = Uuid::new_v4().to_string();
-        let task_id = TaskId::new(Uuid::new_v4().to_string());
-        log::warn!("Sending network event to Bootstrap new peer");
-        let event = NetworkEvent::NewPeer { 
-            event_id,
-            task_id,
-            peer_id: local_peer.wallet_address_hex().clone(), 
-            peer_address: local_peer.ip_address().to_string(), 
-            dst: peer.ip_address().to_string()
-        };
-        guard.publish(
-            Box::new(NetworkTopic),
-            Box::new(event)
-        ).await?;
-    }
-
-    let event_id = Uuid::new_v4().to_string();
-    let task_id = TaskId::new(Uuid::new_v4().to_string());
-    let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone() };
-    log::info!("publishing event to add self to quorum...");
-    guard.publish(
-        Box::new(QuorumTopic),
-        Box::new(event),
-    ).await?;
-    drop(guard);
 
     let next_port = 2222;
     log::info!("established network port");
@@ -179,14 +125,83 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("set up reflection service for grpc server...");
 
-    Server::builder().add_service(vmmserver)
-        .add_service(reflection_service)
-        .serve(addr).await.map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
+    let server_handle = tokio::spawn(async move {
+        Server::builder().add_service(vmmserver)
+            .add_service(reflection_service)
+            .serve(addr).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        Ok::<(), std::io::Error>(())
+    });
+
+
+    let to_dial = if let Ok(bootstrap_nodes) = load_bootstrap_node(None).await {
+        bootstrap_nodes.par_iter().filter_map(|(wallet, ip)| {
+            let bootstrap_peer = Peer::new(
+                wallet.clone(), ip.clone() 
+            );
+
+            if bootstrap_peer != local_peer {
+                log::warn!("bootstrap peer: {:?} is not local peer, dialing...", &bootstrap_peer);
+                Some(bootstrap_peer)
+            } else {
+                None
+            }
+        }).collect::<Vec<Peer>>()
+    } else {
+        vec![]
+    };
+
+    let mut guard = publisher.lock().await;
+
+    let received_from = local_peer.clone();
+
+    let event_id = Uuid::new_v4().to_string();
+    let task_id = TaskId::new(Uuid::new_v4().to_string());
+    let event = QuorumEvent::NewPeer { event_id, task_id, peer: local_peer.clone(), received_from: received_from.clone() };
+
+    log::info!("publishing event to add self to quorum...");
+
+    guard.publish(
+        Box::new(QuorumTopic),
+        Box::new(event),
+    ).await?;
+
+    for peer in to_dial {
+
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = QuorumEvent::NewPeer { event_id, task_id, peer: peer.clone(), received_from: received_from.clone()};
+
+        guard.publish(
+            Box::new(QuorumTopic), 
+            Box::new(event)
+        ).await?;
+
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        log::warn!("Sending network event to Bootstrap new peer");
+        let event = NetworkEvent::NewPeer { 
+            event_id,
+            task_id,
+            peer_id: local_peer.wallet_address_hex().clone(), 
+            peer_address: local_peer.ip_address().to_string(), 
+            dst: peer.ip_address().to_string(),
+            received_from: received_from.clone(),
+        };
+        guard.publish(
+            Box::new(NetworkTopic),
+            Box::new(event)
+        ).await?;
+    }
+
+    drop(guard);
+
+    let _ = server_handle.await?;
 
     Ok(())
 }
