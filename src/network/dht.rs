@@ -3,6 +3,7 @@ use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
+use futures::StreamExt;
 use anchorhash::AnchorHash;
 use serde::{Serialize, Deserialize};
 use regex::Regex;
@@ -413,7 +414,6 @@ impl QuorumManager {
                         Err(e) => log::error!("self.subscriber.receive() Error: {e}")
                     }
                 },
-                /*
                 Some(quorum_result) = self.futures.next() => {
                     match quorum_result {
                         Ok(Ok(QuorumResult::Unit(()))) => {
@@ -437,12 +437,11 @@ impl QuorumManager {
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Quorum is still alive...");
                 },
-                */
                 _check_remotes = check_remotes_interval.tick() => {
-                    //log::info!("checking if all peers have a remote connection...");
-                    //if let Err(e) = self.check_remotes().await {
-                    //    log::info!("Error attempting to check remotes: {e}");
-                    //}
+                    log::info!("checking if all peers have a remote connection...");
+                    if let Err(e) = self.check_remotes().await {
+                        log::info!("Error attempting to check remotes: {e}");
+                    }
                 },
                 _ = tokio::signal::ctrl_c() => {
                     break;
@@ -464,7 +463,7 @@ impl QuorumManager {
                 log::info!("Successfully completed self.handle_new_peer_message call for QuorumEvent::NewPeer message...");
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
-                //log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
+                log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
                 self.handle_check_responsibility_message(
                     &namespace,
                     &payload,
@@ -549,36 +548,38 @@ impl QuorumManager {
         }
 
         for p in peers {
-            let publish_to_addr = self.publisher().peer_addr()?;
-            let inner_payload = payload.clone();
-            let inner_task_id = task_id.clone();
-            let future = tokio::spawn(
-                async move {
-                    log::info!("publishing payload for {inner_task_id} to {}", p.ip_address().to_string());
-                    let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
-                    let event_id = Uuid::new_v4().to_string();
-                    let _ = publisher.publish(
-                        Box::new(NetworkTopic),
-                        Box::new(
-                            NetworkEvent::Create { 
-                                event_id, 
-                                task_id: inner_task_id.clone(), 
-                                name: inner_payload.name.clone(), 
-                                distro: inner_payload.distro.clone(), 
-                                version: inner_payload.version.clone(), 
-                                vmtype: inner_payload.vmtype.clone().to_string(), 
-                                sig: inner_payload.sig.clone(), 
-                                recovery_id: inner_payload.recovery_id, 
-                                dst: p.ip_address().to_string() 
-                            }
-                        )
-                    ).await?;
+            if p != self.node().peer_info().clone() {
+                let publish_to_addr = self.publisher().peer_addr()?;
+                let inner_payload = payload.clone();
+                let inner_task_id = task_id.clone();
+                let future = tokio::spawn(
+                    async move {
+                        log::info!("publishing payload for {inner_task_id} to {}", p.ip_address().to_string());
+                        let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
+                        let event_id = Uuid::new_v4().to_string();
+                        let _ = publisher.publish(
+                            Box::new(NetworkTopic),
+                            Box::new(
+                                NetworkEvent::Create { 
+                                    event_id, 
+                                    task_id: inner_task_id.clone(), 
+                                    name: inner_payload.name.clone(), 
+                                    distro: inner_payload.distro.clone(), 
+                                    version: inner_payload.version.clone(), 
+                                    vmtype: inner_payload.vmtype.clone().to_string(), 
+                                    sig: inner_payload.sig.clone(), 
+                                    recovery_id: inner_payload.recovery_id, 
+                                    dst: p.ip_address().to_string() 
+                                }
+                            )
+                        ).await?;
 
-                    Ok::<_, std::io::Error>(QuorumResult::Unit(()))
-                }
-            );
+                        Ok::<_, std::io::Error>(QuorumResult::Unit(()))
+                    }
+                );
 
-            self.futures.push(future);
+                self.futures.push(future);
+            }
         }
 
 
@@ -1144,6 +1145,8 @@ impl QuorumManager {
     }
 
     pub async fn check_remotes(&mut self) -> std::io::Result<()> {
+        log::info!("Updating trust store...");
+        self.update_trust_store().await?;
         log::info!("Checking to ensure all local quorum members are remotes...");
         let local_quorum_id = self.get_local_quorum_membership()?;
         let local_quorum = self.get_quorum_by_id(&local_quorum_id).ok_or(

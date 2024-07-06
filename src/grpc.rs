@@ -336,6 +336,7 @@ impl Vmm for VmmService {
 
         let mut guard = self.task_log.lock().await;
         if !guard.contains(&task_id) {
+            log::info!("task log does not contain task_id: {:?}", &task_id);
             self.check_responsibility(params.clone(), task_id.clone()).await?;
             guard.insert(task_id.clone());
         }
