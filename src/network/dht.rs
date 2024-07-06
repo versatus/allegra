@@ -1252,6 +1252,7 @@ impl QuorumManager {
             false
         };
 
+        log::warn!("local quorum member = {}", &local_quorum_member);
         let quorum = self.quorums.get_mut(&q.id().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1311,10 +1312,10 @@ impl QuorumManager {
                         Box::new(new_peer_event)
                     ).await?;
 
-                    if local_quorum_member {
-                        self.share_cert(&peer).await?;
-                    }
                 }
+            }
+            if local_quorum_member {
+                self.share_cert(&peer).await?;
             }
         } 
 
