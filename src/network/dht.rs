@@ -30,7 +30,6 @@ use conductor::subscriber::SubStream;
 use conductor::publisher::PubStream;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
-use futures::StreamExt;
 use getset::{Getters, MutGetters};
 use crate::statics::BOOTSTRAP_QUORUM;
 
@@ -443,10 +442,10 @@ impl QuorumManager {
                 },
                 */
                 _check_remotes = check_remotes_interval.tick() => {
-                    log::info!("checking if all peers have a remote connection...");
-                    if let Err(e) = self.check_remotes().await {
-                        log::info!("Error attempting to check remotes: {e}");
-                    }
+                    //log::info!("checking if all peers have a remote connection...");
+                    //if let Err(e) = self.check_remotes().await {
+                    //    log::info!("Error attempting to check remotes: {e}");
+                    //}
                 },
                 _ = tokio::signal::ctrl_c() => {
                     break;
@@ -1218,8 +1217,8 @@ impl QuorumManager {
                     )
                 })?;
                 log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
-                self.share_cert(peer).await?;
-                log::info!("Successfully completed self.shared_cert call in self.accept_cert method...");
+                //self.share_cert(peer).await?;
+                //log::info!("Successfully completed self.shared_cert call in self.accept_cert method...");
                 return Ok(())
             } else {
                 let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -1320,9 +1319,9 @@ impl QuorumManager {
         } 
 
         if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
-            log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
-            self.share_cert(&peer).await?;
-            log::info!("Completed self.share_cert call succeffully");
+            //log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
+            //self.share_cert(&peer).await?;
+            //log::info!("Completed self.share_cert call succeffully");
         }
 
         Ok(())
