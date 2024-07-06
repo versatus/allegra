@@ -1281,7 +1281,7 @@ impl QuorumManager {
                     //log::warn!("informing: {:?} of new peer", peer_wallet_address);
                     log::warn!("{} != {}", dst_peer.wallet_address_hex(), peer.wallet_address_hex());
                     log::warn!("{} != {}", dst_peer.wallet_address_hex(), self.node.peer_info().wallet_address_hex());
-                    log::warn!("{} != {}", dst_peer.wallet_address_hex(), received_from.wallet_address_hex());
+                    log::warn!("{:?} != {:?}", Some(dst_peer), received_from.wallet_address_hex());
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
