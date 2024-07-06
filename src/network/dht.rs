@@ -1273,10 +1273,6 @@ impl QuorumManager {
             log::warn!("self.peers.len() = {}", self.peers.len());
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
                 if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) && (Some(&dst_peer.clone()) != received_from) {
-                    //log::warn!("informing: {:?} of new peer", peer_wallet_address);
-                    log::warn!("{} != {}", dst_peer.wallet_address_hex(), peer.wallet_address_hex());
-                    log::warn!("{} != {}", dst_peer.wallet_address_hex(), self.node.peer_info().wallet_address_hex());
-                    log::warn!("{:?} != {:?}", Some(dst_peer.clone()), received_from);
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
@@ -1300,7 +1296,6 @@ impl QuorumManager {
                         uuid::Uuid::new_v4().to_string()
                     );
 
-                    //log::warn!("informing: {:?} of existing peer: {dst_peer:?}", peer.wallet_address_hex());
                     let event_id = uuid::Uuid::new_v4().to_string();
                     let new_peer_event = NetworkEvent::NewPeer { 
                         event_id,
@@ -1318,13 +1313,12 @@ impl QuorumManager {
 
                 }
             }
-        } 
 
-        if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
-            //log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
-            self.share_cert(&peer).await?;
-            //log::info!("Completed self.share_cert call succeffully");
-        }
+            if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
+                self.share_cert(&peer).await?;
+            }
+
+        } 
 
         Ok(())
     }
