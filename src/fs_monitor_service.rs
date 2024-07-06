@@ -12,7 +12,7 @@ async fn main() -> std::io::Result<()> {
         })?;
 
     log::info!("Creating LibrettoClient...");
-    let client = LibrettoClient::new("127.0.0.1:5556", "127.0.0.1:5556").await?;
+    let client = LibrettoClient::new("127.0.0.1:5556", "127.0.0.1:5555").await?;
     log::info!("Setting up event handler for Libretto...");
     let event_handler = tokio::spawn(
         async move {
