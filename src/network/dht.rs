@@ -403,7 +403,7 @@ impl QuorumManager {
                 result = self.subscriber.receive() => {
                     match result {
                         Ok(messages) => {
-                            log::info!("Received {} messages", messages.len());
+                            log::warn!("Received {} messages", messages.len());
                             for m in messages {
                                 //log::info!("attempting to handle message: {:?}", m);
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
