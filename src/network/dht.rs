@@ -1081,6 +1081,7 @@ impl QuorumManager {
             false
         };
 
+        log::warn!("is_local_peer = {is_local_peer}");
         if !is_local_peer {
             let output = std::process::Command::new("lxc")
                 .arg("config")
