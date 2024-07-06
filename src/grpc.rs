@@ -197,21 +197,18 @@ impl VmmService {
 
         log::info!("Attempting to handle node certificate message");
         let event_id = Uuid::new_v4().to_string();
-        //log::info!("Generated event id");
         let task_id = generate_task_id(node_cert.clone()).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
-        //log::info!("Generated task id");
         let address = Address::from_hex(node_cert.peer_id).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 e
             )
         })?;
-        //log::info!("parsed address from hex");
         let event = QuorumEvent::CheckAcceptCert { 
             event_id, 
             task_id, 
@@ -226,9 +223,7 @@ impl VmmService {
             ), 
             cert: node_cert.cert 
         };
-        //log::info!("created QuorumEvent::CheckAcceptCert");
         let mut guard = self.publisher.lock().await;
-        //log::info!("Acquired publisher guard...");
         guard.publish(
             Box::new(QuorumTopic), 
             Box::new(event)

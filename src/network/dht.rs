@@ -476,7 +476,7 @@ impl QuorumManager {
                 log::info!("Successfully completed self.handle_check_responsibility_message call for QuorumEvent::CheckResponsibility message...");
             }
             QuorumEvent::CheckAcceptCert { peer, cert, event_id, task_id } => {
-                //log::info!("Received CheckAcceptCert quorum message for peer {peer:?}: {event_id}: {task_id}");
+                log::warn!("Received CheckAcceptCert quorum message for peer {}: {}", peer.wallet_address_hex(), peer.ip_address().to_string());
                 self.accept_cert(&peer, &cert).await?;
                 log::info!("Successfully completed self.accept_cert call for QuorumEvent::CheckAcceptCert message...");
             }
@@ -1198,10 +1198,8 @@ impl QuorumManager {
         let qid = self.get_local_quorum_membership()?;
         log::info!("Local node is member of quorum {}", qid.to_string());
         let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
-        //log::info!("Quorum peers: {:?}", quorum_peers);
+        log::warn!("quorum_peers.contains(peer) = {}", quorum_peers.contains(peer));
         if quorum_peers.contains(peer) {
-            log::info!("peer is member of local quorum, add certificate...");
-            //log::info!("Cert: {cert}");
             let output = std::process::Command::new("lxc")
                 .arg("remote")
                 .arg("add")
@@ -1217,9 +1215,6 @@ impl QuorumManager {
                         e
                     )
                 })?;
-                //log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
-                //self.share_cert(peer).await?;
-                //log::info!("Successfully completed self.shared_cert call in self.accept_cert method...");
                 return Ok(())
             } else {
                 let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
@@ -1236,7 +1231,7 @@ impl QuorumManager {
                 )
             }
         } else {
-            //log::warn!("Local quorum does not have {} as peer...", peer.wallet_address_hex());
+            log::warn!("Local quorum does not have {} as peer...", peer.wallet_address_hex());
         }
 
         log::info!("Completed self.accept_cert method returning...");
@@ -1327,7 +1322,7 @@ impl QuorumManager {
 
         if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
             //log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
-            //self.share_cert(&peer).await?;
+            self.share_cert(&peer).await?;
             //log::info!("Completed self.share_cert call succeffully");
         }
 
