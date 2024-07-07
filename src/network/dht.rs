@@ -651,33 +651,42 @@ impl QuorumManager {
                     });
 
                     self.futures.push(future);
+                    log::info!("Created future to sync instance with all remotes... Awaiting completion without blocking...");
                 }
                 NodeState::Follower => {
-                    log::info!("local node is not the leader, inform leader of sync event...");
-                    let leader = self.node().current_leader().clone().ok_or(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "quorum currently has no leader"
-                        )
-                    )?;
+                    log::info!("local node is a follower, not leader...");
+                    match event {
+                        QuorumSyncEvent::LibrettoEvent(e) => {
+                            log::info!("Libretto event {e:?}... Inform leader...");
+                            let leader = self.node().current_leader().clone().ok_or(
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "quorum currently has no leader"
+                                )
+                            )?;
 
-                    log::info!("Discovered leader: {}, inform leader of sync event...", leader.wallet_address_hex());
+                            log::info!("Discovered leader: {}, inform leader of sync event...", leader.wallet_address_hex());
 
-                    let event_id = Uuid::new_v4().to_string();
-                    let task_id = TaskId::new(Uuid::new_v4().to_string());
-                    let requestor = self.node().peer_info().clone();
-                    self.publisher_mut().publish(
-                        Box::new(NetworkTopic),
-                        Box::new(NetworkEvent::SyncInstanceToLeader {
-                            event_id,
-                            original_event_id,
-                            requestor,
-                            task_id,
-                            namespace: namespace.clone(),
-                            event,
-                            dst: leader
-                        })
-                    ).await?;
+                            let event_id = Uuid::new_v4().to_string();
+                            let task_id = TaskId::new(Uuid::new_v4().to_string());
+                            let requestor = self.node().peer_info().clone();
+                            self.publisher_mut().publish(
+                                Box::new(NetworkTopic),
+                                Box::new(NetworkEvent::SyncInstanceToLeader {
+                                    event_id,
+                                    original_event_id,
+                                    requestor,
+                                    task_id,
+                                    namespace: namespace.clone(),
+                                    event: QuorumSyncEvent::LibrettoEvent(e),
+                                    dst: leader
+                                })
+                            ).await?;
+                        }
+                        QuorumSyncEvent::IntervalEvent(i) => {
+                            log::info!("Only leader triggers syncs for IntervalEvents... Ignore...");
+                        }
+                    }
                 }
             }
 

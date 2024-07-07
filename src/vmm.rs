@@ -16,7 +16,10 @@ use crate::{
         Payload, ServiceType
     }, publish::{
         GenericPublisher, QuorumTopic, StateTopic
-    }, startup, subscribe::{LibrettoSubscriber, VmmSubscriber}, vm_info::{
+    }, startup, subscribe::{
+        LibrettoSubscriber, 
+        VmmSubscriber
+    }, vm_info::{
         VmInfo, 
         VmList
     }
@@ -49,10 +52,11 @@ use rayon::iter::{
     ParallelExtend, 
     ParallelIterator
 };
-use tokio::task::JoinHandle;
+use tokio::{task::JoinHandle, time::{interval, Interval, Duration}};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use std::pin::Pin;
+use getset::Getters;
 use crate::statics::*;
 use crate::consts::*;
 
@@ -64,6 +68,29 @@ pub struct Instance {
     last_snapshot: Option<u64>,
     last_sync: Option<u64>,
     // Add other metadata like quorum owned, access trie, etc.
+}
+
+#[derive(Getters)]
+#[getset(get = "pub")]
+pub struct SyncInterval {
+    pub interval: Interval,
+    pub namespace: Namespace,
+    pub tick_counter: u64,
+    pub last_sync: Option<u64>,
+}
+
+impl SyncInterval {
+    #[async_recursion::async_recursion]
+    pub async fn tick(mut self) -> std::io::Result<Self> {
+        self.interval.tick().await;
+        self.tick_counter += 1;
+
+        if self.tick_counter <= 1 {
+            self = self.tick().await?;
+        }
+
+        return Ok(self)
+    }
 }
 
 impl Instance {
@@ -339,6 +366,7 @@ pub struct VmManager {
     next_port: u16,
     handles: FuturesUnordered<JoinHandle<std::io::Result<VmmResult>>>,
     sync_futures: FuturesUnordered<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>,
+    sync_intervals: FuturesUnordered<Pin<Box<dyn Future<Output = std::io::Result<SyncInterval>> + Send>>>,
     vmlist: VmList,
     publisher: GenericPublisher,
     pub subscriber: VmmSubscriber,
@@ -401,6 +429,7 @@ impl VmManager {
         log::info!("instantiated GenericPublisher publishing to 127.0.0.1:5555");
         log::info!("Returning VmManager");
         let fs_monitor = LibrettoSubscriber::new("127.0.0.1:5556").await?;
+        let sync_intervals = FuturesUnordered::new();
 
         Ok(Self {
             network: network.to_string(),
@@ -410,7 +439,8 @@ impl VmManager {
             sync_futures,
             subscriber,
             publisher,
-            fs_monitor
+            fs_monitor,
+            sync_intervals
         })
     }
 
@@ -498,6 +528,17 @@ impl VmManager {
                             log::error!("error handling future {e}");
                         }
                     }
+                },
+                Some(Ok(sync_interval)) = self.sync_intervals.next() => {
+                    let namespace = sync_interval.namespace();
+                    let last_sync = sync_interval.last_sync();
+                    let publisher_uri = self.publisher.peer_addr()?;
+                    let publisher = GenericPublisher::new(&publisher_uri).await?;
+                    let sync_future = Self::sync_instance_interval(
+                        namespace.to_string(), publisher, last_sync.clone()
+                    );
+                    self.sync_futures.push(Box::pin(sync_future));
+                    self.sync_intervals.push(sync_interval.tick());
                 },
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(180)) => {
                     log::info!("refreshing vm list");
@@ -1126,6 +1167,15 @@ impl VmManager {
 
         log::info!("published event {} to topic {}", event_id.to_string(), StateTopic);
 
+        let sync_interval = SyncInterval {
+            namespace: namespace.clone(),
+            interval: interval(Duration::from_secs(900)), 
+            tick_counter: 0,
+            last_sync: None,
+        };
+
+        self.sync_intervals.push(sync_interval.tick());
+
         Ok(())
     }
     
@@ -1137,7 +1187,12 @@ impl VmManager {
         log::info!("Attempting to sync instance {namespace}");
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let quorum_event = QuorumEvent::SyncInstanceInterval { event_id, task_id, namespace: Namespace::new(namespace), last_sync }; 
+        let quorum_event = QuorumEvent::SyncInstanceInterval { 
+            event_id,
+            task_id,
+            namespace: Namespace::new(namespace),
+            last_sync 
+        }; 
         publisher.publish(
             Box::new(QuorumTopic),
             Box::new(quorum_event)
