@@ -230,7 +230,8 @@ impl From<VmmEvent> for VmManagerMessage {
                 version,
                 vmtype,
                 sig,
-                recovery_id
+                recovery_id,
+                sync
             } => {
                 let params = InstanceCreateParams {
                     name, 
@@ -238,7 +239,8 @@ impl From<VmmEvent> for VmManagerMessage {
                     version, 
                     vmtype: vmtype.to_string(),
                     sig, 
-                    recovery_id: recovery_id.into()
+                    recovery_id: recovery_id.into(),
+                    sync
                 };
                 VmManagerMessage::NewInstance { 
                     params,
@@ -449,6 +451,21 @@ impl VmManager {
         stop_rx: &mut tokio::sync::mpsc::Receiver<()>
     ) -> std::io::Result<()> {
         log::info!("Starting VmManager");
+        log::info!("Loading instances...");
+        self.refresh_vmlist().await?;
+        log::info!("Setting sync intervals...");
+        let vm_list = self.vmlist.clone().vms();
+        for vm in vm_list {
+            let namespace = vm.name();
+            let sync_interval = SyncInterval {
+                namespace: Namespace::new(namespace),
+                interval: interval(Duration::from_secs(900)),
+                tick_counter: 0,
+                last_sync: None,
+            };
+
+            self.sync_intervals.push(sync_interval.tick());
+        }
         loop {
             tokio::select! {
                 messages = self.subscriber.receive() => {

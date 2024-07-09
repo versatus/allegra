@@ -7,7 +7,6 @@ use crate::{
     }, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 use base64::Engine as _;
-use tonic::IntoStreamingRequest as _;
 
 pub struct NetworkClient {
     local_peer: Peer,
@@ -58,10 +57,10 @@ impl NetworkClient {
 
     async fn handle_networking_event(&mut self, event: NetworkEvent) -> std::io::Result<()> {
         match event {
-            NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, .. } => {
+            NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, sync, .. } => {
                 log::info!("Received Create event, sending to {dst}");
                 let create_instance_message = InstanceCreateParams {
-                    name, distro, version, vmtype, sig, recovery_id: recovery_id.into()
+                    name, distro, version, vmtype, sig, recovery_id: recovery_id.into(), sync: Some(sync)
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
@@ -150,7 +149,7 @@ impl NetworkClient {
                 let start_message = InstanceStartParams { name, sig, recovery_id: recovery_id as u32, console, stateless };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.start_vm(
+                let _resp = client.start_vm(
                     tonic::Request::new(
                         start_message
                     )
@@ -167,7 +166,7 @@ impl NetworkClient {
                 let delete_message = InstanceDeleteParams { name, force, interactive, sig, recovery_id: recovery_id as u32 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.delete_vm(
+                let _resp = client.delete_vm(
                     tonic::Request::new(
                         delete_message
                     )
@@ -184,7 +183,7 @@ impl NetworkClient {
                 let add_pubkey_message = InstanceAddPubkeyParams { name, sig, recovery_id: recovery_id as u32, pubkey };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.set_ssh_pubkey(
+                let _resp = client.set_ssh_pubkey(
                     tonic::Request::new(
                         add_pubkey_message
                     )

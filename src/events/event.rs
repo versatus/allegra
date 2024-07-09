@@ -1,9 +1,8 @@
-use std::{collections::{HashMap, HashSet}, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr};
 use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
-use uuid::Uuid;
 use crate::{
     account::{
         ExposedPort,
@@ -214,6 +213,7 @@ pub enum VmmEvent {
         vmtype: VmType,
         sig: String,
         recovery_id: u8,
+        sync: Option<bool>
     },
     Start {
         event_id: String,
@@ -279,6 +279,7 @@ pub enum NetworkEvent {
         sig: String,
         recovery_id: u8,
         dst: String,
+        sync: bool
     },
     ExposeService {
         event_id: String,
@@ -652,7 +653,8 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             recovery_id,
             dst: value.0.ip_address().to_string(),
             event_id,
-            task_id
+            task_id,
+            sync: value.1.sync()
         })
     }
 }

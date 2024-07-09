@@ -471,7 +471,7 @@ impl QuorumManager {
                 self.handle_check_responsibility_message(
                     &namespace,
                     &payload,
-                    task_id
+                    task_id,
                 ).await?;
                 log::info!("Successfully completed self.handle_check_responsibility_message call for QuorumEvent::CheckResponsibility message...");
             }
@@ -553,7 +553,8 @@ impl QuorumManager {
                         version: payload.version.clone(), 
                         vmtype: payload.vmtype.clone(), 
                         sig: payload.sig.clone(), 
-                        recovery_id: payload.recovery_id 
+                        recovery_id: payload.recovery_id,
+                        sync: Some(payload.sync)
                     }
                 )
             ).await?;
@@ -581,7 +582,8 @@ impl QuorumManager {
                                     vmtype: inner_payload.vmtype.clone().to_string(), 
                                     sig: inner_payload.sig.clone(), 
                                     recovery_id: inner_payload.recovery_id, 
-                                    dst: p.ip_address().to_string() 
+                                    dst: p.ip_address().to_string(),
+                                    sync: inner_payload.sync
                                 }
                             )
                         ).await?;

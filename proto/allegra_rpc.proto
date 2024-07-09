@@ -37,6 +37,7 @@ message InstanceCreateParams {
   string vmtype = 4;
   string sig = 5;
   uint32 recovery_id = 6;
+  optional bool sync = 7;
 }
 
 message InstanceStartParams {

@@ -87,6 +87,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     vmtype: vmtype.clone().to_string(),
                     sig: String::default(), 
                     recovery_id: u32::default(),
+                    sync: Some(false),
                 }
             )
         }

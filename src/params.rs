@@ -4,8 +4,6 @@ use clap::ValueEnum;
 use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
-use crate::account::Namespace;
-use crate::dht::Peer;
 use crate::vm_types::VmType;
 use crate::allegra_rpc::{
     GetTaskStatusRequest, InstanceAddPubkeyParams as ProtoAddPubkey, InstanceCreateParams as ProtoCreate, InstanceDeleteParams as ProtoDelete, InstanceExposeServiceParams as ProtoExpose, InstanceGetSshDetails as ProtoGetSsh, InstanceStartParams as ProtoStart, InstanceStopParams as ProtoStop, ServiceType as ProtoServiceType
@@ -124,7 +122,12 @@ impl TryFrom<ProtoCreate> for InstanceCreateParams {
                     std::io::ErrorKind::Other,
                     e
                 )
-            })?
+            })?,
+            sync: match value.sync {
+                Some(true) => true,
+                Some(false) => false,
+                None => false
+            }
         })
     }
 }
@@ -352,6 +355,7 @@ pub struct InstanceCreateParams {
     pub vmtype: VmType,
     pub sig: String,
     pub recovery_id: u8,
+    pub sync: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
