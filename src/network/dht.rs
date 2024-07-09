@@ -598,6 +598,84 @@ impl QuorumManager {
         Ok(())
     }
 
+    async fn attempt_stop_instance(peer_id: String, namespace: String) -> std::io::Result<()> {
+        let stop_output = tokio::process::Command::new("lxc")
+            .arg("stop")
+            .arg(format!("{}:{}", peer_id, namespace))
+            .output().await?;
+
+        if stop_output.status.success() {
+            return Ok(())
+        } else {
+            let err = std::str::from_utf8(&stop_output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err
+                )
+            )
+        }
+    }
+
+    async fn attempt_copy_instance(peer_id: String, namespace: String) -> std::io::Result<()> {
+        let copy_output = tokio::process::Command::new("lxc")
+            .arg("copy")
+            .arg(namespace.clone())
+            .arg(format!("{}:{}", peer_id.clone(), namespace.clone()))
+            .arg("--refresh")
+            .arg("--mode")
+            .arg("pull")
+            .output().await?;
+                            
+        if copy_output.status.success() {
+            log::info!("Successfully synced: {} with {}", namespace, peer_id);
+            return Ok(())
+        } else {
+            let err = std::str::from_utf8(&copy_output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            log::error!("Error attempting to sync {} with {}: {err}", namespace, peer_id);
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err
+                )
+            )
+        }
+    }
+
+    async fn attempt_start_instance(peer_id: String, namespace: String) -> std::io::Result<()> {
+        let start_output = tokio::process::Command::new("lxc")
+            .arg("start")
+            .arg(format!("{}:{}", peer_id, namespace))
+            .output().await?;
+
+        if start_output.status.success() {
+            return Ok(())
+        } else {
+            let err = std::str::from_utf8(&start_output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    err
+                )
+            )
+        }
+    }
+
     async fn attempt_sync_instance(&mut self, original_event_id: String, namespace: Namespace, event: QuorumSyncEvent) -> std::io::Result<()> {
         let instance_quorum = self.get_instance_quorum_membership(&namespace).ok_or(
             std::io::Error::new(
@@ -625,26 +703,9 @@ impl QuorumManager {
                     let inner_namespace = namespace.clone();
                     let future = tokio::spawn(async move {
                         for peer in local_peers {
-                            let output = tokio::process::Command::new("lxc")
-                                .arg("copy")
-                                .arg(inner_namespace.to_string())
-                                .arg(format!("{}:{}", peer.wallet_address_hex(), inner_namespace.to_string()))
-                                .arg("--refresh")
-                                .arg("--mode")
-                                .arg("pull")
-                                .output().await?;
-                            
-                            if output.status.success() {
-                                log::info!("Successfully synced: {} with {}", inner_namespace.to_string(), peer.wallet_address_hex());
-                            } else {
-                                let err = std::str::from_utf8(&output.stderr).map_err(|e| {
-                                    std::io::Error::new(
-                                        std::io::ErrorKind::Other,
-                                        e
-                                    )
-                                })?;
-                                log::error!("Error attempting to sync {} with {}: {err}", inner_namespace.to_string(), peer.wallet_address_hex());
-                            }
+                            Self::attempt_stop_instance(peer.wallet_address_hex(), inner_namespace.to_string()).await?;
+                            Self::attempt_copy_instance(peer.wallet_address_hex(), inner_namespace.to_string()).await?;
+                            Self::attempt_start_instance(peer.wallet_address_hex(), inner_namespace.to_string()).await?;
                         }
 
                         Ok::<_, std::io::Error>(QuorumResult::Unit(()))

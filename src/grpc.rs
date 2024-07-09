@@ -571,10 +571,25 @@ impl Vmm for VmmService {
 
     async fn sync(
         &self,
-        _request: Request<SyncMessage>
+        request: Request<SyncMessage>
     ) -> Result<Response<crate::allegra_rpc::Ack>, Status> {
         let mut _namespace = String::new();
-        todo!()
+        log::info!("syncing currently occurs on intervals...");
+        let header = MessageHeader {
+            peer_id: self.local_peer.wallet_address_hex(),
+            peer_address: self.local_peer.ip_address().to_string(),
+            message_id: uuid::Uuid::new_v4().to_string()
+        };
+        let response = Ack {
+            header: Some(header),
+            request_id: request.into_inner().header.ok_or(
+                Status::failed_precondition(
+                    "sync message had no header"
+                )
+            )?.message_id.clone()
+        };
+
+        return Ok(Response::new(response))
     }
     
     async fn migrate(
