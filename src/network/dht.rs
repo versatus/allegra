@@ -1452,43 +1452,52 @@ impl QuorumManager {
         peer: &Peer,
         server_config: &str
     ) -> std::io::Result<()> {
-        let mut file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(NGINX_CONFIG_PATH).await?;
-
-        file.write_all(server_config.as_bytes()).await?;
-
-        log::info!("wrote to nginx config file");
-        let output = std::process::Command::new("sudo")
-            .args(["nginx", "-t"])
-            .output()?;
-
-        if !output.status.success() {
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "nginx config has a syntax error"
-                )
+        let leader = self.node().current_leader().clone().ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "quorum currently has no leader"
             )
-        }
-        log::info!("confirmed nginx config file free of syntax errors...");
+        )?;
 
-        let output = std::process::Command::new("sudo")
-            .args(["systemctl", "reload", "nginx"])
-            .output()?;
+        if peer == &leader {
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(NGINX_CONFIG_PATH).await?;
 
-        if !output.status.success() {
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "could not reload nginx after updating config"
+            file.write_all(server_config.as_bytes()).await?;
+
+            log::info!("wrote to nginx config file");
+            let output = std::process::Command::new("sudo")
+                .args(["nginx", "-t"])
+                .output()?;
+
+            if !output.status.success() {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "nginx config has a syntax error"
+                    )
                 )
-            )
-        }
+            }
+            log::info!("confirmed nginx config file free of syntax errors...");
 
-        log::info!("reloaded nginx...");
+            let output = std::process::Command::new("sudo")
+                .args(["systemctl", "reload", "nginx"])
+                .output()?;
+
+            if !output.status.success() {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "could not reload nginx after updating config"
+                    )
+                )
+            }
+
+            log::info!("reloaded nginx...");
+        }
 
         Ok(())
     }
