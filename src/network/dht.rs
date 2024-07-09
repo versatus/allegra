@@ -704,6 +704,7 @@ impl QuorumManager {
     }
 
     async fn attempt_sync_instance(&mut self, original_event_id: String, namespace: Namespace, event: QuorumSyncEvent) -> std::io::Result<()> {
+        log::info!("Attempting to sync instance {} with quorum", namespace.to_string());
         let instance_quorum = self.get_instance_quorum_membership(&namespace).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,

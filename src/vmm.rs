@@ -461,12 +461,13 @@ impl VmManager {
         for vm in vm_list {
             let namespace = vm.name();
             let sync_interval = SyncInterval {
-                namespace: Namespace::new(namespace),
+                namespace: Namespace::new(namespace.clone()),
                 interval: interval(Duration::from_secs(900)),
                 tick_counter: 0,
                 last_sync: None,
             };
 
+            log::info!("Created sync interval for {:?}", namespace);
             self.sync_intervals.push(sync_interval.tick());
         }
         loop {
@@ -550,6 +551,7 @@ impl VmManager {
                     }
                 },
                 Some(Ok(sync_interval)) = self.sync_intervals.next() => {
+                    log::info!("Sync interval reached...");
                     let namespace = sync_interval.namespace();
                     let last_sync = sync_interval.last_sync();
                     let publisher_uri = self.publisher.peer_addr()?;
@@ -557,7 +559,9 @@ impl VmManager {
                     let sync_future = Self::sync_instance_interval(
                         namespace.to_string(), publisher, last_sync.clone()
                     );
+                    log::info!("Adding sync future to futures...");
                     self.sync_futures.push(Box::pin(sync_future));
+                    log::info!("updating sync interval for {:?}", namespace);
                     self.sync_intervals.push(sync_interval.tick());
                 },
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(180)) => {
