@@ -3,8 +3,8 @@ use uuid::Uuid;
 use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
-        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, SyncEvent, SyncMessage
-    }, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
+        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, ServerConfigMessage, SyncEvent, SyncMessage
+    }, create_allegra_rpc_client, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 use base64::Engine as _;
 
@@ -286,6 +286,26 @@ impl NetworkClient {
                     )
                 ).await;
                 log::info!("Sent SyncMessage request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
+            }
+            NetworkEvent::ShareServerConfig { event_id, task_id, dst, received_from, server_config } => {
+                let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
+                let header = MessageHeader {
+                    peer_id: received_from.wallet_address_hex(),
+                    peer_address: received_from.ip_address().to_string(),
+                    message_id: Uuid::new_v4().to_string()
+                };
+                let message = ServerConfigMessage {
+                    header: Some(header),
+                    request_id: task_id.to_string(),
+                    server_config
+                };
+
+                let resp = client.server_config(
+                    tonic::Request::new(
+                        message
+                    )
+                ).await;
+                log::info!("Sent AcceptServerConfig request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
             }
         }
 

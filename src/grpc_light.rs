@@ -3,7 +3,7 @@ use crate::{
     account::{
         Namespace, TaskId
     }, allegra_rpc::{
-        vmm_server::Vmm, Ack, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage, NodeCertMessage, PingMessage, PongMessage, PortResponse, ServiceType, SyncMessage, VmResponse
+        vmm_server::Vmm, Ack, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage, NodeCertMessage, PingMessage, PongMessage, PortResponse, ServerConfigMessage, ServiceType, SyncMessage, VmResponse
     }, create_allegra_rpc_client_to_addr, params::Payload
 };
 
@@ -184,6 +184,13 @@ impl Vmm for LightVmmService {
     async fn node_certificate(
         &self,
         request: Request<NodeCertMessage>
+    ) -> Result<Response<Ack>, Status> {
+        todo!()
+    }
+    
+    async fn server_config(
+        &self,
+        request: Request<ServerConfigMessage>,
     ) -> Result<Response<Ack>, Status> {
         todo!()
     }

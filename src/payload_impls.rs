@@ -1,6 +1,6 @@
 use crate::{
     allegra_rpc::{
-        GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, NewPeerMessage, NodeCertMessage
+        GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, NewPeerMessage, NodeCertMessage, ServerConfigMessage
     }, params::Payload
 };
 
@@ -142,6 +142,19 @@ impl Payload for NodeCertMessage {
             "peerId": self.peer_id,
             "peerAddress": self.peer_address,
             "certificate": self.cert
+        }).to_string()
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+}
+
+impl Payload for ServerConfigMessage {
+    fn into_payload(&self) -> String {
+        serde_json::json!({
+            "command": "syncServerConfig",
+            "serverConfig": self.server_config
         }).to_string()
     }
 

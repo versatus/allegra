@@ -269,6 +269,13 @@ pub enum NetworkEvent {
         peer_address: String,
         dst: String,
     },
+    ShareServerConfig {
+        event_id: String,
+        task_id: TaskId,
+        dst: Peer,
+        received_from: Peer,
+        server_config: String,
+    },
     Create {
         event_id: String,
         task_id: TaskId,
@@ -587,6 +594,12 @@ pub enum QuorumEvent {
         task_id: TaskId,
         namespace: Namespace,
         last_sync: Option<u64>,
+    },
+    CheckAcceptServerConfig {
+        event_id: String,
+        task_id: TaskId,
+        peer: Peer,
+        server_config: String,
     }
 }
 

@@ -64,9 +64,12 @@ use crate::consts::*;
 pub struct Instance {
     namespace: Namespace,
     vminfo: VmInfo,
+    //(Internal Port, (Host Port, Service))
     port_map: HashMap<u16, (u16, ServiceType)>,
     last_snapshot: Option<u64>,
     last_sync: Option<u64>,
+    // Add State (Running, Stopped, etc.)
+    // Add Nginx
     // Add other metadata like quorum owned, access trie, etc.
 }
 

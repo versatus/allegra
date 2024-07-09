@@ -2,7 +2,7 @@ use crate::{
     account::{
         Namespace, TaskId, TaskStatus
     }, allegra_rpc::{
-        vmm_server::Vmm, Ack, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage, NodeCertMessage, PingMessage, PongMessage, PortResponse, SyncMessage, VmResponse
+        vmm_server::Vmm, Ack, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage, NodeCertMessage, PingMessage, PongMessage, PortResponse, ServerConfigMessage, SyncMessage, VmResponse
     }, dht::Peer, event::{
         QuorumEvent, 
         TaskStatusEvent
@@ -230,6 +230,64 @@ impl VmmService {
         ).await?;
 
         log::info!("published QuorumEvent::CheckAcceptCert");
+        drop(guard);
+
+        Ok(())
+    }
+
+    async fn handle_server_config_message(
+        &self,
+        server_config: ServerConfigMessage
+    ) -> std::io::Result<()> {
+        log::info!("Attempting to handle server config message");
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = generate_task_id(server_config.clone()).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        let wallet_address = Address::from_hex(server_config.header.clone().ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "server config missing header"
+                )
+            )?.peer_id
+        ).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        let ip_address = server_config.header.ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "server config missing header"
+            )
+        )?.peer_address.parse().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+
+        let event = QuorumEvent::CheckAcceptServerConfig {
+            event_id,
+            task_id,
+            peer: Peer::new(
+                wallet_address,
+                ip_address
+            ),
+            server_config: server_config.server_config
+        };
+
+        let mut guard = self.publisher.lock().await;
+        guard.publish(
+            Box::new(QuorumTopic),
+            Box::new(event)
+        ).await?;
         drop(guard);
 
         Ok(())
@@ -629,6 +687,30 @@ impl Vmm for VmmService {
             message_id
         };
         //log::info!("Returning response...");
+        Ok(Response::new(
+                Ack {
+                    header: Some(header),
+                    request_id
+                }
+            )
+        )
+    }
+
+    async fn server_config(
+        &self,
+        request: Request<ServerConfigMessage>
+    ) -> Result<Response<Ack>, Status> {
+        let message = request.into_inner().clone();
+        let request_id = message.request_id.clone();
+        self.handle_server_config_message(message).await?;
+
+        let message_id = Uuid::new_v4().to_string();
+        let header = MessageHeader {
+            peer_id: self.local_peer.wallet_address_hex(),
+            peer_address: self.local_peer.ip_address().to_string(),
+            message_id
+        };
+
         Ok(Response::new(
                 Ack {
                     header: Some(header),

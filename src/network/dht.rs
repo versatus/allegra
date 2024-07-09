@@ -13,7 +13,7 @@ use crate::{
     account::{
         Namespace,
         TaskId
-    }, event::{
+    }, consts::NGINX_CONFIG_PATH, event::{
         NetworkEvent, 
         QuorumEvent, 
         VmmEvent
@@ -26,7 +26,7 @@ use crate::{
 
 use conductor::subscriber::SubStream;
 use conductor::publisher::PubStream;
-use tokio::task::JoinHandle;
+use tokio::{io::AsyncWriteExt, task::JoinHandle};
 use tokio::time::{interval, Duration};
 use getset::{Getters, MutGetters};
 use crate::statics::BOOTSTRAP_QUORUM;
@@ -488,6 +488,10 @@ impl QuorumManager {
                 log::info!("Received SyncInstanceInterval quorum message for namespace: {}", namespace.to_string());
                 self.attempt_sync_instance(event_id, namespace, QuorumSyncEvent::IntervalEvent(last_sync)).await?;
             }
+            QuorumEvent::CheckAcceptServerConfig { event_id, task_id, peer, server_config } => {
+                log::info!("Received CheckAcceptServerConfig quorum message");
+                self.accept_server_config(&peer, &server_config).await?;
+            }
         }
 
         Ok(())
@@ -678,6 +682,27 @@ impl QuorumManager {
         }
     }
 
+    async fn attempt_share_server_config(dst: Peer, requestor: Peer, publisher_uri: &str) -> std::io::Result<()> {
+        let mut file = tokio::fs::read_to_string(NGINX_CONFIG_PATH).await?;
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let server_config_event = NetworkEvent::ShareServerConfig {
+            event_id,
+            task_id,
+            dst,
+            received_from: requestor,
+            server_config: file
+        };
+
+        let mut publisher = GenericPublisher::new(publisher_uri).await?;
+        publisher.publish(
+            Box::new(NetworkTopic),
+            Box::new(server_config_event)
+        ).await?;
+
+        Ok(())
+    }
+
     async fn attempt_sync_instance(&mut self, original_event_id: String, namespace: Namespace, event: QuorumSyncEvent) -> std::io::Result<()> {
         let instance_quorum = self.get_instance_quorum_membership(&namespace).ok_or(
             std::io::Error::new(
@@ -702,12 +727,15 @@ impl QuorumManager {
                         )
                     )?.clone();
 
+                    let local_peer = self.node().peer_info().clone();
+                    let publisher_uri = self.publisher.peer_addr()?;
                     let inner_namespace = namespace.clone();
                     let future = tokio::spawn(async move {
                         for peer in local_peers {
                             Self::attempt_stop_instance(peer.wallet_address_hex(), inner_namespace.to_string()).await?;
                             Self::attempt_copy_instance(peer.wallet_address_hex(), inner_namespace.to_string()).await?;
                             Self::attempt_start_instance(peer.wallet_address_hex(), inner_namespace.to_string()).await?;
+                            Self::attempt_share_server_config(peer, local_peer.clone(), &publisher_uri).await?; 
                         }
 
                         Ok::<_, std::io::Error>(QuorumResult::Unit(()))
@@ -1416,6 +1444,52 @@ impl QuorumManager {
         }
 
         log::info!("Completed self.accept_cert method returning...");
+        Ok(())
+    }
+
+    pub async fn accept_server_config(
+        &mut self,
+        peer: &Peer,
+        server_config: &str
+    ) -> std::io::Result<()> {
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(NGINX_CONFIG_PATH).await?;
+
+        file.write_all(server_config.as_bytes()).await?;
+
+        log::info!("wrote to nginx config file");
+        let output = std::process::Command::new("sudo")
+            .args(["nginx", "-t"])
+            .output()?;
+
+        if !output.status.success() {
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "nginx config has a syntax error"
+                )
+            )
+        }
+        log::info!("confirmed nginx config file free of syntax errors...");
+
+        let output = std::process::Command::new("sudo")
+            .args(["systemctl", "reload", "nginx"])
+            .output()?;
+
+        if !output.status.success() {
+            return Err(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "could not reload nginx after updating config"
+                )
+            )
+        }
+
+        log::info!("reloaded nginx...");
+
         Ok(())
     }
 
