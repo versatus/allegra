@@ -1114,6 +1114,8 @@ impl VmManager {
         log::info!("recovered owner from signature...");
         let namespace = recover_namespace(owner, &params.name);
         log::info!("recovered namespace from name and owner...");
+
+        // lxc init params.distro:params.version namespace < config 
         let output = std::process::Command::new("lxc")
             .arg("launch")
             .arg(

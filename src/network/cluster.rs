@@ -8,16 +8,14 @@ use std::{
 use tokio::sync::Mutex;
 use lazy_static::lazy_static;
 
-use crate::{dht::Peer, event::{Event, NetworkEvent}};
+use crate::{dht::Peer, event::{Event, NetworkEvent}, Ballot};
 use serde::{Serialize, Deserialize};
 use derive_builder::Builder;
-
-pub struct Ballot;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(setter(into), build_fn(error = "ClusterConfigError"))]
 pub struct ClusterConfig {
-    pub config: Config,
+    pub config: InnerConfig,
     pub storage_pools: Vec<StoragePool>,
     pub networks: Vec<Network>,
     pub profiles: Vec<Profile>,
@@ -26,7 +24,7 @@ pub struct ClusterConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(setter(into), build_fn(error = "ClusterConfigError"))]
-pub struct Config {
+pub struct InnerConfig {
     pub core_https_address: String,
     pub images_auto_update_interval: Option<u32>,
 }
@@ -209,7 +207,7 @@ impl Cluster {
             self.generate_certificate().await?;
             let config = ClusterConfigBuilder::default()
                 .config(
-                    ConfigBuilder::default()
+                    InnerConfigBuilder::default()
                         .core_https_address(self.local_peer.ip_address().to_string())
                         .images_auto_update_interval(Some(15))
                         .build()?

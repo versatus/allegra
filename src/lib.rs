@@ -7,7 +7,6 @@ pub mod api;
 pub mod cli;
 pub mod network;
 pub mod events;
-pub mod dfs;
 pub mod cloud_init;
 pub mod core;
 pub mod types;
