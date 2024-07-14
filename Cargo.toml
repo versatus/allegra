@@ -25,10 +25,6 @@ name = "client"
 path = "src/client.rs"
 
 [[bin]]
-name = "light_server"
-path = "src/light_server.rs"
-
-[[bin]]
 name = "vmm"
 path = "src/vmm_service.rs"
 

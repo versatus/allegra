@@ -1,7 +1,7 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr};
+use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr, time::{SystemTime, UNIX_EPOCH}};
 use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
-use libretto::pubsub::LibrettoEvent;
+use libretto::{dfs::HeartbeatResponse, pubsub::LibrettoEvent};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use futures::StreamExt;
@@ -27,7 +27,7 @@ use crate::{
 use conductor::subscriber::SubStream;
 use conductor::publisher::PubStream;
 use tokio::{io::AsyncWriteExt, task::JoinHandle};
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, Duration, Instant};
 use getset::{Getters, MutGetters};
 use crate::statics::BOOTSTRAP_QUORUM;
 
@@ -354,7 +354,8 @@ pub struct QuorumManager {
     subscriber: QuorumSubscriber,
     publisher: GenericPublisher,
     trust_store: TrustStore,
-    futures: FuturesUnordered<JoinHandle<std::io::Result<QuorumResult>>>
+    futures: FuturesUnordered<JoinHandle<std::io::Result<QuorumResult>>>,
+    heartbeats: HashMap<Peer, Instant>
 }
 
 
@@ -392,7 +393,8 @@ impl QuorumManager {
             publisher,
             subscriber,
             trust_store,
-            futures: FuturesUnordered::new()
+            futures: FuturesUnordered::new(),
+            heartbeats: HashMap::new()
         })
     }
 
@@ -440,6 +442,8 @@ impl QuorumManager {
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Quorum is still alive...");
                     // Send heartbeat to quorum members...
+                    self.heartbeat().await?;
+                    self.check_heartbeats().await?;
                 },
                 _check_remotes = check_remotes_interval.tick() => {
                     log::info!("checking if all peers have a remote connection...");
@@ -1502,6 +1506,76 @@ impl QuorumManager {
 
         Ok(())
     }
+
+    pub async fn heartbeat(&mut self) -> std::io::Result<()> {
+        let local_peers = self.get_local_peers().ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to acquire local peers"
+            )
+        )?.clone();
+        let publisher_uri = self.publisher.peer_addr()?.clone();
+        for peer in local_peers {
+            let requestor = self.node().peer_info().clone();
+            let inner_publisher_uri = publisher_uri.clone();
+            let event_id = Uuid::new_v4().to_string();
+            let task_id = TaskId::new(Uuid::new_v4().to_string());
+            let event = NetworkEvent::Heartbeat { event_id, task_id, peer: peer.clone(), requestor: requestor.clone() };
+
+            let mut publisher = GenericPublisher::new(&inner_publisher_uri).await?;
+
+            publisher.publish(
+                Box::new(NetworkTopic),
+                Box::new(event)
+            ).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn accept_heartbeat(&mut self, peer: &Peer) -> std::io::Result<()> {
+        self.heartbeats.insert(peer.clone(), Instant::now());
+
+        Ok(())
+    }
+
+    pub async fn check_heartbeats(&mut self) -> std::io::Result<()> {
+        let systime = Instant::now();
+        let heartbeats = self.heartbeats.clone();
+        let dead_peers: Vec<&Peer> = heartbeats.par_iter().filter_map(|(p, hb)| {
+            let since = systime.duration_since(*hb);
+            if since > Duration::from_secs(60) {
+                Some(p)
+            } else {
+                None
+            }
+        }).collect();
+
+        for peer in dead_peers {
+            self.remove_peer(peer).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
+        let current_leader = self.node().current_leader().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?.clone();
+
+        if peer == &current_leader {
+            self.peers.remove(&peer.wallet_address()).ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to remove peer"
+                )
+            )?;
+        }
+    }
+
 
     pub async fn add_peer(&mut self, peer: &Peer, received_from: Option<&Peer>) -> std::io::Result<()> {
         let q = self.peer_hashring.get_resource(peer.wallet_address().clone()).ok_or(

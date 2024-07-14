@@ -394,6 +394,12 @@ pub enum NetworkEvent {
         namespace: Namespace,
         event: QuorumSyncEvent,
         dst: Peer,
+    },
+    Heartbeat {
+        event_id: String,
+        task_id: TaskId,
+        peer: Peer,
+        requestor: Peer,
     }
 }
 

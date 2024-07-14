@@ -16,13 +16,14 @@ pub mod network;
 pub mod startup;
 pub mod expose;
 pub mod grpc;
-pub mod grpc_light;
 pub mod events;
 pub mod cluster;
 pub mod publish;
 pub mod subscribe;
 pub mod statics;
 pub mod consts;
+pub mod dfs;
+pub mod cloud_init;
 
 
 pub use cli::commands::*;

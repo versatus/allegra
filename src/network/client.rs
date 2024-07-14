@@ -307,6 +307,15 @@ impl NetworkClient {
                 ).await;
                 log::info!("Sent AcceptServerConfig request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
             }
+            NetworkEvent::Heartbeat { event_id, task_id, peer, requestor } => {
+                /*
+                let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
+                let header = MessageHeader {
+                    peer_id
+                }
+                */
+                todo!()
+            }
         }
 
         Ok(())
