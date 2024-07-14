@@ -17,9 +17,10 @@ use crate::{
         InstanceGetSshDetails, 
         InstanceStartParams, 
         InstanceStopParams
-    }, dht::{Peer, Quorum, QuorumSyncEvent}, grpc_light::generate_task_id, helpers::{
+    }, dht::{Peer, Quorum, QuorumSyncEvent}, helpers::{
             recover_namespace, 
-            recover_owner_address
+            recover_owner_address,
+            generate_task_id
         }, params::{
             HasOwner, Params, ServiceType
         }, publish::GeneralResponseTopic, vm_info::{

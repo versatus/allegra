@@ -1,7 +1,7 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr};
 use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
-use libretto::{dfs::HeartbeatResponse, pubsub::LibrettoEvent};
+use libretto::{pubsub::LibrettoEvent};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use futures::StreamExt;
@@ -1559,21 +1559,23 @@ impl QuorumManager {
     }
 
     pub async fn remove_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
-        let current_leader = self.node().current_leader().map_err(|e| {
+        let current_leader = self.node().current_leader().clone().ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
-                e
+                "unable to find current leader"
             )
-        })?.clone();
+        )?;
 
         if peer == &current_leader {
-            self.peers.remove(&peer.wallet_address()).ok_or(
+            self.peers.remove(peer.wallet_address()).ok_or(
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "unable to remove peer"
                 )
             )?;
         }
+
+        Ok(())
     }
 
 

@@ -4,7 +4,7 @@ use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
         InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, ServerConfigMessage, SyncEvent, SyncMessage
-    }, create_allegra_rpc_client, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
+    }, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 use base64::Engine as _;
 
@@ -194,7 +194,7 @@ impl NetworkClient {
                     )
                 })?.into_inner();
             }
-            NetworkEvent::DistributeCerts { certs, peer, quorum_id, .. } => {
+            NetworkEvent::DistributeCerts { certs,  quorum_id, .. } => {
                 for (peer, cert) in certs {
                     let mut client = create_allegra_rpc_client_to_addr(
                         &peer.ip_address().to_string()
@@ -212,12 +212,9 @@ impl NetworkClient {
                         tonic::Request::new(
                             node_cert_message
                         )
-                    ).await.map_err(|e| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e
-                        )
-                    })?;
+                    ).await;
+
+                    log::info!("Send DistributeCerts request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
                 }
             }
             NetworkEvent::ShareCert { peer, cert, quorum_id, dst, .. } => {
@@ -240,24 +237,19 @@ impl NetworkClient {
                     tonic::Request::new(
                         node_cert_message
                     )
-                ).await.map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                });
+                ).await;
                 log::info!("Sent ShareCert request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
             }
             NetworkEvent::CastLeaderElectionVote { .. } => {
                 todo!()
             }
-            NetworkEvent::BootstrapNewPeer { event_id, task_id, peer, dst } => {
+            NetworkEvent::BootstrapNewPeer { .. } => {
                 log::info!("Received Bootstrap New Peer event");
             }
-            NetworkEvent::BootstrapResponse { event_id, original_event_id, task_id, quorums, instances } => {
+            NetworkEvent::BootstrapResponse { .. } => {
                 log::info!("Received Bootstrap Response event");
             }
-            NetworkEvent::SyncInstanceToLeader { event_id, original_event_id, requestor, task_id, namespace, event, dst } => {
+            NetworkEvent::SyncInstanceToLeader { requestor, namespace, event, dst, .. } => {
                 let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
                 let header = MessageHeader {
                     peer_id: requestor.wallet_address_hex(),
@@ -287,7 +279,7 @@ impl NetworkClient {
                 ).await;
                 log::info!("Sent SyncMessage request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
             }
-            NetworkEvent::ShareServerConfig { event_id, task_id, dst, received_from, server_config } => {
+            NetworkEvent::ShareServerConfig { task_id, dst, received_from, server_config, .. } => {
                 let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
                 let header = MessageHeader {
                     peer_id: received_from.wallet_address_hex(),
@@ -307,7 +299,7 @@ impl NetworkClient {
                 ).await;
                 log::info!("Sent AcceptServerConfig request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
             }
-            NetworkEvent::Heartbeat { event_id, task_id, peer, requestor } => {
+            NetworkEvent::Heartbeat { .. } => {
                 /*
                 let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
                 let header = MessageHeader {

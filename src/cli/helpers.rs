@@ -18,7 +18,7 @@ use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use ssh2::Session;
 use std::fs::File;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Channel};
 use termion::{async_stdin, raw::IntoRawMode};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

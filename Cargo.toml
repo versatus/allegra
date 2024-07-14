@@ -14,39 +14,35 @@ docker = []
 
 [[bin]]
 name = "server"
-path = "src/server.rs"
+path = "src/bin/server.rs"
 
 [[bin]]
 name = "cli"
 path = "src/cli/cli.rs"
 
 [[bin]]
-name = "client"
-path = "src/client.rs"
-
-[[bin]]
 name = "vmm"
-path = "src/vmm_service.rs"
+path = "src/bin/vmm_service.rs"
 
 [[bin]]
 name = "monitor"
-path = "src/fs_monitor_service.rs"
+path = "src/bin/fs_monitor_service.rs"
 
 [[bin]]
 name = "broker"
-path = "src/broker_service.rs"
+path = "src/bin/broker_service.rs"
 
 [[bin]]
 name = "state"
-path = "src/state_service.rs"
+path = "src/bin/state_service.rs"
 
 [[bin]]
 name = "quorum"
-path = "src/quorum_service.rs"
+path = "src/bin/quorum_service.rs"
 
 [[bin]]
 name = "network"
-path = "src/network_service.rs"
+path = "src/bin/network_service.rs"
 
 [dependencies]
 serde = { version = "1.0.199", features = ["derive"] }
