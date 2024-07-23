@@ -4,3 +4,5 @@ config.toml
 logs
 .config
 .images
+.GLUSTER-SETUP.md
+.INSTANCE-LAUNCH.md
