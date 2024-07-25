@@ -2,7 +2,7 @@ use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
     }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::{Payload, ServiceType}, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
-        VmAddress, VmInfo, VmList
+        VmInfo, VmList
     }, vmm::Instance
 };
 use std::str::FromStr;
@@ -104,33 +104,12 @@ pub fn get_instance_ip(name: &str) -> std::io::Result<String> {
         .output()?;
 
     let vminfo = handle_get_instance_ip_output(output, name)?;
-
-    let network = vminfo.state().network().ok_or(
+    Ok(vminfo.get_primary_ip().ok_or(
         std::io::Error::new(
             std::io::ErrorKind::Other,
-            format!("unable to find network for VM {name}")
+            "Unable to acquire IP address for instance"
         )
-    )?;
-
-    let interface = network.enp5s0().ok_or(
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unable to find network interface (enp5s0) for vm {name}")
-        )
-    )?;
-
-    let addresses = interface.addresses();
-
-    let addr = addresses.par_iter().filter(|addr| {
-        addr.family() == "inet"
-    }).collect::<Vec<&VmAddress>>().pop().ok_or(
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unable to find inet family address for vm {name}")
-        )
-    )?;
-
-    Ok(addr.address())
+    )?)
 }
 
 pub fn handle_update_iptables_output_failure(

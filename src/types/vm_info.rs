@@ -1,22 +1,8 @@
 use rayon::iter::{ParallelIterator, IntoParallelIterator};
 use serde::{Serialize, Deserialize};
-
-/*
-Usage:
-  lxc launch [<remote>:]<image> [<remote>:][<name>] [flags]
-
-Examples:
-  lxc launch ubuntu:22.04 u1
-
-  lxc launch ubuntu:22.04 u1 < config.yaml
-      Create and start a container with configuration from config.yaml
-
-  lxc launch ubuntu:22.04 u2 -t aws:t2.micro
-      Create and start a container using the same size as an AWS t2.micro (1 vCPU, 1GiB of RAM)
-
-  lxc launch ubuntu:22.04 v1 --vm -c limits.cpu=4 -c limits.memory=4GiB
-      Create and start a virtual machine with 4 vCPUs and 4GiB of RAM
-*/
+use std::collections::HashMap;
+use chrono::{DateTime, Utc};
+use getset::{Getters, Setters, MutGetters};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SshDetails {
@@ -31,524 +17,454 @@ pub struct VmResponse {
     pub ssh_details: Option<SshDetails>
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct VmInfo {
+    // Basic information
     name: String,
-    description: String,
-    status: String,
-    status_code: i32,
-    created_at: String,
-    last_used_at: String,
-    location: String,
-    #[serde(rename = "type")]
-    vm_type: String,
-    project: String,
-    architecture: String,
-    ephemeral: bool,
-    stateful: bool,
-    profiles: Vec<String>,
-    config: VmConfig,
-    devices: VmDevices,
-    expanded_config: VmConfig,
-    expanded_devices: VmDevices,
-    backups: Option<Vec<String>>,
-    state: VmState,
-    snapshots: Option<Vec<String>>,
+    uuid: String,
+    id: Option<u32>,
+    
+    // State
+    state: DomainState,
+    state_reason: i32,
+    
+    // Resources
+    memory: MemoryInfo,
+    vcpus: VCPUInfo,
+    cpu_time: u64,
+    
+    // Configuration
+    autostart: bool,
+    persistent: bool,
+    
+    // OS and architecture
+    os_type: String,
+    os_arch: String,
+    
+    // Devices
+    devices: DeviceInfo,
+    
+    // Network
+    network_interfaces: Vec<NetworkInterfaceInfo>,
+    
+    // Storage
+    storage_volumes: Vec<StorageVolumeInfo>,
+    
+    // Metadata
+    metadata: Option<String>,
+    
+    // Timestamps
+    creation_time: Option<DateTime<Utc>>,
+    modification_time: Option<DateTime<Utc>>,
+    
+    // Performance
+    cpu_stats: CPUStats,
+    block_stats: HashMap<String, BlockStats>,
+    interface_stats: HashMap<String, InterfaceStats>,
+    
+    // Security
+    security_model: Option<SecurityInfo>,
+    
+    // Snapshot information
+    snapshots: Vec<SnapshotInfo>,
+    
+    // Misc
+    hostname: Option<String>,
+    title: Option<String>,
+    description: Option<String>,
 }
 
 impl VmInfo {
-    pub fn name(&self) -> String {
-        self.name.clone()
-    }
-    
-    pub fn description(&self) -> String {
-        self.description.clone()
-    }
-
-    pub fn status(&self) -> String {
-        self.status.clone()
-    }
-
-    pub fn status_code(&self) -> i32 {
-        self.status_code
-    }
-
-    pub fn created_at(&self) -> String {
-        self.created_at.clone()
-    }
-
-    pub fn last_used_at(&self) -> String { 
-        self.last_used_at.clone()
-    }
-
-    pub fn location(&self) -> String { 
-        self.location.clone()
-    }
-
-    pub fn vm_type(&self) ->  String { 
-        self.vm_type.clone()
-    }
-
-    pub fn project(&self) -> String { 
-        self.project.clone()
-    }
-
-    pub fn architecture(&self) -> String { 
-        self.architecture.clone()
-    }
-
-    pub fn ephemeral(&self) -> bool { 
-        self.ephemeral
-    }
-
-    pub fn stateful(&self) ->  bool { 
-        self.stateful
-    }
-
-    pub fn profiles(&self) -> Vec<String> { 
-        self.profiles.clone()
-    }
-
-    pub fn config(&self) -> VmConfig { 
-        self.config.clone()
-    }
-
-    pub fn devices(&self) -> VmDevices { 
-        self.devices.clone()
-    }
-
-    pub fn expanded_config(&self) -> VmConfig { 
-        self.expanded_config.clone()
-    }
-
-    pub fn expanded_devices(&self) -> VmDevices { 
-        self.expanded_devices.clone()
-    }
-
-    pub fn backups(&self) -> Option<Vec<String>> { 
-        self.backups.clone()
-    }
-
-    pub fn state(&self) -> VmState { 
-        self.state.clone()
-    }
-
-    pub fn snapshots(&self) -> Option<Vec<String>> { 
-        self.snapshots.clone()
+    pub fn get_primary_ip(&self) -> Option<String> {
+        self.network_interfaces().iter().find_map(|interface| {
+            interface.ip_addresses.iter()
+                .find(|ip| ip.type_ == "inet")
+                .map(|ip| ip.address.clone())
+        })
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmConfig {
-    // Add all the necessary fields from the "config" and "expanded_config" objects
-    // For example:
-    #[serde(rename = "image.architecture")]
-    image_architecture: String,
-    #[serde(rename = "image.description")]
-    image_description: String,
-    #[serde(rename = "image.label")]
-    image_label: Option<String>,
-    #[serde(rename = "image.os")]
-    image_os: Option<String>,
-    #[serde(rename = "image.release")]
-    image_release: Option<String>,
-    #[serde(rename = "image.serial")]
-    image_serial: Option<String>,
-    #[serde(rename = "image.type")]
-    image_type: Option<String>,
-    #[serde(rename = "image.version")]
-    image_version: Option<String>,
-    #[serde(rename = "limits.cpu")]
-    limits_cpu: Option<String>,
-    #[serde(rename = "limits.memory")]
-    limits_memory: Option<String>,
-    #[serde(rename = "volatile.base_image")]
-    volatile_base_image: Option<String>,
-    #[serde(rename = "volatile.cloud-init.instance-id")]
-    volatile_cloud_init_instance_id: Option<String>,
-    #[serde(rename = "volatile.eth0.host_name")]
-    volatile_eth0_host_name: Option<String>,
-    #[serde(rename = "volatile.eth0.hwaddr")]
-    volatile_eth0_hwaddr: Option<String>,
-    #[serde(rename = "volatile.last_state.power")]
-    volatile_last_state_power: Option<String>,
-    #[serde(rename = "volatile.uuid")]
-    volatile_uuid: Option<String>,
-    #[serde(rename = "volatile.uuid.generation")]
-    volatile_uuid_generation: Option<String>,
-    #[serde(rename = "volatile.vsock_id")]
-    volatile_vsock_id: Option<String>,
+pub enum DomainState {
+    NoState,
+    Running,
+    Blocked,
+    Paused,
+    Shutdown,
+    Shutoff,
+    Crashed,
+    PMSuspended,
 }
 
-impl VmConfig {
-    pub fn image_architecture(&self) -> String {
-        self.image_architecture.clone()
-    }
-
-    pub fn image_description(&self) -> String {
-        self.image_description.clone()
-    }
-
-    pub fn image_label(&self) -> Option<String> {
-        self.image_label.clone()
-    }
-
-    pub fn image_os(&self) -> Option<String> {
-        self.image_os.clone()
-    }
-
-    pub fn image_release(&self) -> Option<String> {
-        self.image_release.clone()
-    }
-
-    pub fn image_serial(&self) -> Option<String> {
-        self.image_serial.clone()
-    }
-
-    pub fn image_type(&self) -> Option<String> {
-        self.image_type.clone()
-    }
-
-    pub fn image_version(&self) -> Option<String> {
-        self.image_version.clone()
-    }
-
-    pub fn limits_cpu(&self) -> Option<String> {
-        self.limits_cpu.clone()
-    }
-
-    pub fn limits_memory(&self) -> Option<String> {
-        self.limits_memory.clone()
-    }
-
-    pub fn volatile_base_image(&self) -> Option<String> {
-        self.volatile_base_image.clone()
-    }
-
-    pub fn volatile_cloud_init_instance_id(&self) -> Option<String> {
-        self.volatile_cloud_init_instance_id.clone()
-    }
-
-    pub fn volatile_eth0_host_name(&self) -> Option<String> {
-        self.volatile_eth0_host_name.clone()
-    }
-
-    pub fn volatile_eth0_hwaddr(&self) -> Option<String> {
-        self.volatile_eth0_hwaddr.clone()
-    }
-
-    pub fn volatile_last_state_power(&self) -> Option<String> {
-        self.volatile_last_state_power.clone()
-    }
-
-    pub fn volatile_uuid(&self) -> Option<String> {
-        self.volatile_uuid.clone()
-    }
-
-    pub fn volatile_uuid_generation(&self) -> Option<String> {
-        self.volatile_uuid_generation.clone()
-    }
-
-    pub fn volatile_vsock_id(&self) -> Option<String> {
-        self.volatile_vsock_id.clone()
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct MemoryInfo {
+    current: u64,
+    maximum: u64,
+    available: u64,
+    swap_in: u64,
+    swap_out: u64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmDevices {
-    eth0: Option<VmDevice>,
-    root: Option<VmDevice>,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct VCPUInfo {
+    current: u32,
+    maximum: u32,
+    cpu_affinity: Vec<bool>,
 }
 
-impl VmDevices {
-    pub fn eth0(&self) -> Option<VmDevice> {
-        self.eth0.clone()
-    }
-
-    pub fn root(&self) -> Option<VmDevice> {
-        self.root.clone()
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct DeviceInfo {
+    disks: Vec<DiskInfo>,
+    interfaces: Vec<InterfaceInfo>,
+    graphics: Vec<GraphicsInfo>,
+    videos: Vec<VideoInfo>,
+    controllers: Vec<ControllerInfo>,
+    input_devices: Vec<InputDeviceInfo>,
+    sound_devices: Vec<SoundDeviceInfo>,
+    hostdev: Vec<HostDevInfo>,
+    redirdev: Vec<RedirDevInfo>,
+    smart_cards: Vec<SmartCardInfo>,
+    rng: Vec<RNGInfo>,
+    memory_devices: Vec<MemoryDeviceInfo>,
+    tpm: Vec<TPMInfo>,
+    emulator: Option<String>,
+    fs: Vec<FilesystemInfo>,
+    consoles: Vec<ConsoleInfo>,
+    channels: Vec<ChannelInfo>,
+    hubs: Vec<HubInfo>,
+    watchdog: Option<WatchdogInfo>,
+    memballoon: Option<MemBalloonInfo>,
+    nvram: Option<NVRAMInfo>,
+    panic_devices: Vec<PanicDeviceInfo>,
+    shmem: Vec<ShmemInfo>,
+    iommu: Option<IOMMUInfo>,
+    vsock: Option<VSockInfo>,
+    crypto: Vec<CryptoInfo>,
+    memory_backing: Option<MemoryBackingInfo>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmDevice {
-    name: Option<String>,
-    network: Option<String>,
-    #[serde(rename = "type")]
-    device_type: String,
-    path: Option<String>,
-    pool: Option<String>,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct NetworkInterfaceInfo {
+    name: String,
+    mac_address: String,
+    model: String,
+    ip_addresses: Vec<IPAddress>,
 }
 
-impl VmDevice {
-    pub fn name(&self) -> Option<String> {
-        self.name.clone()
-    }
-    
-    pub fn network(&self) -> Option<String> {
-        self.network.clone()
-    }
-
-    pub fn device_type(&self) -> String {
-        self.device_type.clone()
-    }
-
-    pub fn path(&self) -> Option<String> {
-        self.path.clone()
-    }
-
-    pub fn pool(&self) -> Option<String> {
-        self.pool.clone()
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct StorageVolumeInfo {
+    name: String,
+    capacity: u64,
+    allocation: u64,
+    path: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmState {
-    status: String,
-    status_code: i32,
-    disk: Option<VmDisk>,
-    memory: VmMemory,
-    network: Option<VmNetwork>,
-    pid: i32,
-    processes: i32,
-    cpu: VmCpu,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct CPUStats {
+    cpu_time: u64,
+    user_time: u64,
+    system_time: u64,
+    vcpu_time: Vec<u64>,
 }
 
-impl VmState {
-    pub fn status(&self) -> String {
-        self.status.clone()
-    }
-
-    pub fn status_code(&self) -> i32 {
-        self.status_code
-    }
-
-    pub fn disk(&self) -> Option<VmDisk> {
-        self.disk.clone()
-    }
-
-    pub fn memory(&self) -> VmMemory {
-        self.memory.clone()
-    }
-
-    pub fn network(&self) -> Option<VmNetwork> {
-        self.network.clone()
-    }
-
-    pub fn pid(&self) -> i32 {
-        self.pid
-    }
-
-    pub fn processes(&self) -> i32 {
-        self.processes
-    }
-
-    pub fn cpu(&self) -> VmCpu {
-        self.cpu.clone()
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct BlockStats {
+    rd_req: u64,
+    rd_bytes: u64,
+    wr_req: u64,
+    wr_bytes: u64,
+    errors: u64,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmDisk {
-    root: Option<VmDiskUsage>,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct InterfaceStats {
+    rx_bytes: u64,
+    rx_packets: u64,
+    rx_errors: u64,
+    rx_drop: u64,
+    tx_bytes: u64,
+    tx_packets: u64,
+    tx_errors: u64,
+    tx_drop: u64,
 }
 
-impl VmDisk {
-    pub fn root(&self) -> Option<VmDiskUsage> {
-        self.root.clone()
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SecurityInfo {
+    model: String,
+    doi: String,
+    label: String,
 }
 
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmDiskUsage {
-    usage: u64,
-    total: u64,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SnapshotInfo {
+    name: String,
+    description: Option<String>,
+    creation_time: DateTime<Utc>,
+    state: DomainState,
 }
 
-impl VmDiskUsage {
-    pub fn usage(&self) -> u64 {
-        self.usage
-    }
-    
-    pub fn total(&self) -> u64 {
-        self.total
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct DiskInfo {
+    device: String,
+    target: String,
+    source: String,
+    driver: String,
+    bus: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmMemory {
-    usage: u64,
-    usage_peak: u64,
-    total: u64,
-    swap_usage: u64,
-    swap_usage_peak: u64,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct InterfaceInfo {
+    type_: String,
+    mac: String,
+    model: String,
+    source: String,
 }
 
-impl VmMemory {
-    pub fn usage(&self) -> u64 {
-        self.usage
-    }
-    pub fn usage_peak(&self) -> u64 {
-        self.usage_peak
-    }
-    pub fn total(&self) -> u64 {
-        self.total
-    }
-    pub fn swap_usage(&self) -> u64 {
-        self.swap_usage
-    }
-    pub fn swap_usage_peak(&self) -> u64 {
-        self.swap_usage_peak
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct GraphicsInfo {
+    type_: String,
+    port: i32,
+    listen: String,
+    passwd: Option<String>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmNetwork {
-    enp5s0: Option<VmNetworkInterface>,
-    lo: Option<VmNetworkInterface>,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct VideoInfo {
+    model: String,
+    vram: u64,
+    heads: u32,
 }
 
-impl VmNetwork {
-    pub fn enp5s0(&self) -> Option<VmNetworkInterface> {
-        self.enp5s0.clone()
-    }
-
-    pub fn lo(&self) -> Option<VmNetworkInterface> {
-        self.lo.clone()
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct ControllerInfo {
+    type_: String,
+    model: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmNetworkInterface {
-    addresses: Vec<VmAddress>,
-    counters: VmCounters,
-    hwaddr: String,
-    host_name: String,
-    mtu: i32,
-    state: String,
-    #[serde(rename = "type")]
-    interface_type: String,
-}
-
-impl VmNetworkInterface {
-
-    pub fn addresses(&self) -> Vec<VmAddress> {
-        self.addresses.clone()
-    }
-
-    pub fn counters(&self) -> VmCounters {
-        self.counters.clone()
-    }
-
-    pub fn hwaddr(&self) -> String {
-        self.hwaddr.clone()
-    }
-
-    pub fn host_name(&self) -> String {
-        self.host_name.clone()
-    }
-
-    pub fn mtu(&self) -> i32 {
-        self.mtu
-    }
-
-    pub fn state(&self) -> String {
-        self.state.clone()
-    }
-
-    pub fn interface_type(&self) -> String {
-        self.interface_type.clone()
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmAddress {
-    family: String,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct IPAddress {
     address: String,
-    netmask: String,
-    scope: String,
+    prefix: u8,
+    type_: String,
 }
 
-impl VmAddress {
-    pub fn family(&self) -> String {
-        self.family.clone()
-    }
-
-    pub fn address(&self) -> String {
-        self.address.clone()
-    }
-
-    pub fn netmask(&self) -> String {
-        self.netmask.clone()
-    }
-
-    pub fn scope(&self) -> String {
-        self.scope.clone()
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct InputDeviceInfo {
+    type_: String,  // e.g., "tablet", "keyboard"
+    bus: String,    // e.g., "usb", "ps2"
+    model: Option<String>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmCounters {
-    bytes_received: u64,
-    bytes_sent: u64,
-    packets_received: u64,
-    packets_sent: u64,
-    errors_received: u64,
-    errors_sent: u64,
-    packets_dropped_outbound: u64,
-    packets_dropped_inbound: u64,
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SoundDeviceInfo {
+    model: String,  // e.g., "ich6", "ac97"
+    codec: Option<String>,
 }
 
-impl VmCounters {
-    pub fn bytes_received(&self) -> u64 {
-        self.bytes_received
-    }
-    pub fn bytes_sent(&self) -> u64 {
-        self.bytes_sent
-    }
-    pub fn packets_received(&self) -> u64 {
-        self.packets_received
-    }
-    pub fn packets_sent(&self) -> u64 {
-        self.packets_sent
-    }
-    pub fn errors_received(&self) -> u64 {
-        self.errors_received
-    }
-    pub fn errors_sent(&self) -> u64 {
-        self.errors_sent
-    }
-    pub fn packets_dropped_outbound(&self) -> u64 {
-        self.packets_dropped_outbound
-    }
-    pub fn packets_dropped_inbound(&self) -> u64 {
-        self.packets_dropped_inbound
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct HostDevInfo {
+    type_: String,  // e.g., "usb", "pci"
+    source: HostDevSource,
+    mode: String,   // e.g., "subsystem"
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct VmCpu {
-    usage: u64,
+#[derive(Getters, MutGetters, Setters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct RedirDevInfo {
+    bus: String,        // e.g., "usb"
+    type_: String,      // e.g., "spicevmc"
+    server: Option<RedirDevServer>,
+    boot_order: Option<u32>,
+    address: Option<RedirDevAddress>,
 }
 
-impl VmCpu {
-    pub fn usage(&self) -> u64 {
-        self.usage
-    }
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct RedirDevServer {
+    address: Option<String>,
+    port: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct RedirDevAddress {
+    type_: String,      // e.g., "usb"
+    bus: Option<u32>,
+    port: Option<u32>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct HostDevSource {
+    vendor_id: Option<String>,
+    product_id: Option<String>,
+    address: Option<String>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SmartCardInfo {
+    mode: String,  // e.g., "host", "passthrough"
+    type_: String, // e.g., "tcp", "spicevmc"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct RNGInfo {
+    model: String,  // e.g., "virtio"
+    backend_model: String,  // e.g., "random"
+    rate_bytes: Option<u64>,
+    rate_period: Option<u64>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct MemoryDeviceInfo {
+    model: String,  // e.g., "dimm", "nvdimm"
+    size: u64,
+    target_node: Option<u32>,
+    label_size: Option<u64>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct TPMInfo {
+    model: String,  // e.g., "tpm-tis"
+    backend_type: String,  // e.g., "passthrough", "emulator"
+    version: String,  // e.g., "1.2", "2.0"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct FilesystemInfo {
+    type_: String,  // e.g., "mount", "template"
+    access_mode: String,  // e.g., "squash", "passthrough"
+    source: String,
+    target: String,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct ConsoleInfo {
+    type_: String,  // e.g., "pty", "file"
+    target_type: String,  // e.g., "serial", "virtio"
+    target_port: Option<u32>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct ChannelInfo {
+    type_: String,  // e.g., "unix", "spicevmc"
+    target_type: String,  // e.g., "virtio", "guestfwd"
+    target_name: Option<String>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct HubInfo {
+    type_: String,  // e.g., "usb"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct WatchdogInfo {
+    model: String,  // e.g., "i6300esb"
+    action: String,  // e.g., "reset", "poweroff"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct MemBalloonInfo {
+    model: String,  // e.g., "virtio"
+    period: Option<u32>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct NVRAMInfo {
+    model: String,  // e.g., "pvpanic"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct PanicDeviceInfo {
+    model: String,  // e.g., "hyperv", "isa"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct ShmemInfo {
+    name: String,
+    size: Option<u64>,
+    model: String,  // e.g., "ivshmem"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct IOMMUInfo {
+    model: String,  // e.g., "intel"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct VSockInfo {
+    cid: String,
+    auto_cid: Option<bool>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct CryptoInfo {
+    model: String,  // e.g., "virtio"
+    type_: String,  // e.g., "qemu"
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct MemoryBackingInfo {
+    hugepages: Option<HugepagesInfo>,
+    nosharepages: Option<bool>,
+    locked: Option<bool>,
+    source_type: Option<String>,
+    access_mode: Option<String>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct HugepagesInfo {
+    page_size: u64,
+    nodeset: Option<String>,
+}
+
+#[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[serde(transparent)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct VmList {
     vms: Vec<VmInfo>
 }
 
 impl VmList {
-    pub fn vms(&self) -> Vec<VmInfo> {
-        self.vms.clone()
-    }
-
     pub fn get(&self, name: &str) -> Option<VmInfo> {
         let mut info_list = self.vms.clone().into_par_iter().filter(|info| {
             info.name() == name

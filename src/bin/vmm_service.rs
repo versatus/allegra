@@ -1,4 +1,4 @@
-use allegra::vmm::VmManager;
+use allegra::core::vmm::vm_manager::VmManager;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
