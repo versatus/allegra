@@ -1,7 +1,8 @@
 use std::{collections::HashMap, process::Command};
 use crate::allegra_rpc::{InstanceCreateParams, CloudInit as ProtoCloudInit};
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VirtInstall {
     name: String,
     memory: Option<String>,
@@ -53,7 +54,7 @@ pub struct VirtInstall {
     cloud_init: Option<CloudInit>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CloudInit {
     root_password_generate: bool,
     disable: bool,
