@@ -3,7 +3,7 @@ use uuid::Uuid;
 use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
-        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, ServerConfigMessage, SyncEvent, SyncMessage
+        Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, ServerConfigMessage, SyncEvent, SyncMessage
     }, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 use base64::Engine as _;
@@ -57,10 +57,37 @@ impl NetworkClient {
 
     async fn handle_networking_event(&mut self, event: NetworkEvent) -> std::io::Result<()> {
         match event {
-            NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, sync, .. } => {
+            NetworkEvent::Create { 
+                name, distro, version, vmtype, sig, recovery_id, dst, sync,
+                memory, vcpus, cpu, metadata, os_variant, host_device, network,
+                disk, filesystem, controller, input, graphics, sound, video,
+                smartcard, redirdev, memballoon, tpm, rng, panic, shmem, memdev,
+                vsock, iommu, watchdog, serial, parallel, channel, console,
+                install, cdrom, location, pxe, import, boot, idmap, features,
+                clock, launch_security, numatune, boot_dev, unattended, print_xml,
+                dry_run, connect, virt_type, cloud_init, ..
+            } => {
+
                 log::info!("Received Create event, sending to {dst}");
                 let create_instance_message = InstanceCreateParams {
-                    name, distro, version, vmtype, sig, recovery_id: recovery_id.into(), sync, ..Default::default() 
+                    name, distro, version, vmtype, sig, 
+                    recovery_id: recovery_id.into(), sync,
+                    memory, vcpus, cpu, metadata, os_variant,
+                    host_device, network, disk, filesystem, controller,
+                    input, graphics, sound, video, smartcard, redirdev,
+                    memballoon, tpm, rng, panic, shmem, memdev, vsock,
+                    iommu, watchdog, serial, parallel, channel, console,
+                    install, cdrom, location, pxe, import, boot,
+                    idmap,
+                    features: features.into_iter().map(|(name, feature)| {
+                        Features {
+                            name: name.clone(), 
+                            feature: feature.clone(),
+                        }
+                    }).collect(),
+                    clock, launch_security, numatune, boot_dev,
+                    unattended, print_xml, dry_run, connect, virt_type,
+                    cloud_init,
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;

@@ -40,17 +40,111 @@ pub enum AllegraCommands {
         version: String,
         #[arg(long, short='t')]
         vmtype: VmType,
+        #[arg(long)]
+        memory: Option<String>,
+        #[arg(long)]
+        vcpus: Option<String>,
+        #[arg(long)]
+        cpu: Option<String>,
+        #[arg(long)]
+        metadata: Option<String>,
+        #[arg(long)]
+        os_variant: Option<String>,
+        #[arg(long)]
+        host_device: Vec<String>,
+        #[arg(long)]
+        network: Vec<String>,
+        #[arg(long)]
+        disk: Vec<String>,
+        #[arg(long)]
+        filesystem: Vec<String>,
+        #[arg(long)]
+        controller: Vec<String>,
+        #[arg(long)]
+        input: Vec<String>,
+        #[arg(long)]
+        graphics: Option<String>,
+        #[arg(long)]
+        sound: Option<String>,
+        #[arg(long)]
+        video: Option<String>,
+        #[arg(long)]
+        smartcard: Option<String>,
+        #[arg(long)]
+        redirdev: Vec<String>,
+        #[arg(long)]
+        memballoon: Option<String>,
+        #[arg(long)]
+        tpm: Option<String>,
+        #[arg(long)]
+        rng: Option<String>,
+        #[arg(long)]
+        panic: Option<String>,
+        #[arg(long)]
+        shmem: Option<String>,
+        #[arg(long)]
+        memdev: Vec<String>,
+        #[arg(long)]
+        vsock: Option<String>,
+        #[arg(long)]
+        iommu: Option<String>,
+        #[arg(long)]
+        watchdog: Option<String>,
+        #[arg(long)]
+        serial: Vec<String>,
+        #[arg(long)]
+        parallel: Vec<String>,
+        #[arg(long)]
+        channel: Vec<String>,
+        #[arg(long)]
+        console: Vec<String>,
+        #[arg(long)]
+        install: Option<String>,
+        #[arg(long)]
+        cdrom: Option<String>,
+        #[arg(long)]
+        location: Option<String>,
+        #[arg(long)]
+        pxe: bool,
+        #[arg(long)]
+        import: bool,
+        #[arg(long)]
+        boot: Option<String>,
+        #[arg(long)]
+        idmap: Option<String>,
+        #[arg(long)]
+        features: Vec<String>,
+        #[arg(long)]
+        clock: Option<String>,
+        #[arg(long)]
+        launch_security: Option<String>,
+        #[arg(long)]
+        numatune: Option<String>,
+        #[arg(long)]
+        boot_dev: Vec<String>,
+        #[arg(long)]
+        unattended: bool,
+        #[arg(long)]
+        print_xml: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        connect: Option<String>,
+        #[arg(long)]
+        virt_type: Option<String>,
+        #[arg(long)]
+        cloud_init: Option<String>,
         #[arg(long, short)]
         sk: Option<String>,
         #[arg(long, short)]
         mnemonic: Option<String>,
-        #[arg(long, short)]
+        #[arg(long, short='f')]
         from_file: Option<bool>,
-        #[arg(long, short)]
+        #[arg(long, short='p')]
         path: Option<String>,
-        #[arg(long, short)]
+        #[arg(long, short='i')]
         kp_index: Option<usize>,
-        #[arg(long, short)]
+        #[arg(long, short='e')]
         endpoint: Option<String>,
     },
     #[command(name = "start")]

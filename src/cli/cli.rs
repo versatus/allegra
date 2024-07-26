@@ -80,7 +80,14 @@ async fn main() -> std::io::Result<()> {
             }
         }
         AllegraCommands::Create {
-            name, distro, version, vmtype, endpoint, .. 
+            name, distro, version, vmtype, endpoint, memory, vcpus, cpu,
+            metadata, os_variant, host_device, network, disk, filesystem,
+            controller, input, graphics, sound, video, smartcard, redirdev,
+            memballoon, tpm, rng, panic, shmem, memdev, vsock, iommu, watchdog,
+            serial, parallel, channel, console, install, cdrom, location, pxe,
+            import, boot, idmap, features, clock, launch_security, numatune,
+            boot_dev, unattended, print_xml, dry_run, connect, virt_type,
+            cloud_init, .. 
         } => {
             println!("Creating an Allegra Instance {:?}", &name);
             let mut vmclient = create_allegra_rpc_client(endpoint).await?;
@@ -95,7 +102,14 @@ async fn main() -> std::io::Result<()> {
                 sig: hex::encode(&sig.to_bytes()), 
                 recovery_id: recovery_id as u32,
                 sync: Some(false),
-                ..Default::default()
+                memory, vcpus, cpu, os_variant, 
+                metadata, host_device, network, disk, filesystem,
+                controller, input, graphics, sound, video, smartcard, redirdev,
+                memballoon, tpm, rng, panic, shmem, memdev, vsock, iommu,
+                watchdog, serial, parallel, channel, console, install, cdrom,
+                location, pxe, import, boot, idmap, features, clock, launch_security,
+                numatune, boot_dev, unattended, print_xml, dry_run, connect,
+                virt_type, cloud_init
             };
 
             let resp = vmclient.create_vm(params.clone()).await;
