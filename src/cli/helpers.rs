@@ -79,7 +79,7 @@ pub fn generate_new_wallet() -> std::io::Result<WalletInfo> {
 pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Result<(Signature, RecoveryId)> {
     let params: Box<dyn Payload> = match command {
         AllegraCommands::Create { 
-            ref name, ref distro, ref version, ref vmtype, memory, vcpus, cpu,
+            ref name, ref distro, ref version, ref vmtype, ref memory, ref vcpus, ref cpu,
             ref metadata, ref os_variant, ref host_device, ref network, ref disk, ref filesystem,
             ref controller, ref input, ref graphics, ref sound, ref video, ref smartcard, ref redirdev,
             ref memdev, ref tpm, ref rng, ref panic, ref memballoon, ref shmem, ref vsock, ref iommu, ref import,
@@ -109,7 +109,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     sig: String::default(), 
                     recovery_id: u32::default(),
                     sync: Some(false),
-                    memory, vcpus, cpu, metadata: metadata.clone(), os_variant: os_variant.clone(), 
+                    memory: memory.clone(), vcpus: vcpus.clone(), cpu: cpu.clone(), metadata: metadata.clone(), os_variant: os_variant.clone(), 
                     host_device: host_device.clone(),network: network.clone(), 
                     disk: disk.clone(), filesystem: filesystem.clone(), controller: controller.clone(), 
                     input: input.clone(), graphics: graphics.clone(), sound: sound.clone(), video: video.clone(), 
