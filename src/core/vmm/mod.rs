@@ -1,5 +1,5 @@
 pub mod types;
-pub mod vm_managerr;
+pub mod vm_manager;
 pub mod utils;
 pub mod domain;
 pub mod virt_install;

@@ -28,7 +28,7 @@ use crate::{
             VmList
         }, vm_types::VmType, vmm::Instance, voting::Vote
 };
-use crate::params::Payload;
+use crate::payload_impls::Payload;
 use getset::Getters;
 
 macro_rules! impl_into_event {
@@ -213,7 +213,7 @@ pub enum VmmEvent {
         version: String,
         vmtype: VmType,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         sync: Option<bool>
     },
     Start {
@@ -223,21 +223,21 @@ pub enum VmmEvent {
         console: bool, 
         stateless: bool,
         sig: String, 
-        recovery_id: u8
+        recovery_id: u32 
     },
     Stop {
         event_id: String,
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8
+        recovery_id: u32 
     },
     Delete {
         event_id: String,
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         force: bool,
         interactive: bool,
     },
@@ -246,7 +246,7 @@ pub enum VmmEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         port: Vec<u16>,
         service_type: Vec<ServiceType>
     },
@@ -255,7 +255,7 @@ pub enum VmmEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         pubkey: String,
     }
 }
@@ -285,16 +285,16 @@ pub enum NetworkEvent {
         version: String,
         vmtype: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         dst: String,
-        sync: bool
+        sync: Option<bool>
     },
     ExposeService {
         event_id: String,
         task_id: TaskId,
         name: String,
         sig: String, 
-        recovery_id: u8,
+        recovery_id: u32,
         port: Vec<u16>,
         service_type: Vec<ServiceType>,
         dst: String,
@@ -304,7 +304,7 @@ pub enum NetworkEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         console: bool,
         stateless: bool,
         dst: String,
@@ -314,7 +314,7 @@ pub enum NetworkEvent {
         task_id: TaskId,
         name: String, 
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         dst: String,
     },
     Delete {
@@ -324,7 +324,7 @@ pub enum NetworkEvent {
         force: bool,
         interactive: bool,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         dst: String,
     },
     AddPubkey {
@@ -332,7 +332,7 @@ pub enum NetworkEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         pubkey: String,
         dst: String,
     },
@@ -434,7 +434,7 @@ pub enum DnsEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         domain_name: String,
         // Add proof mechanism
     },
@@ -443,7 +443,7 @@ pub enum DnsEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         domain_name: String
     },
 }
@@ -610,7 +610,8 @@ pub enum QuorumEvent {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Getters, Serialize, Deserialize)]
+#[getset(get = "pub")]
 pub struct GeneralResponseEvent {
     event_id: String,
     original_event_id: String,
@@ -674,7 +675,7 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             dst: value.0.ip_address().to_string(),
             event_id,
             task_id,
-            sync: value.1.sync()
+            sync: Some(value.1.sync())
         })
     }
 }

@@ -100,8 +100,8 @@ impl Account {
         self.namespaces.clone()
     }
 
-    pub fn update_namespace(&mut self, namespace: &Namespace, vminfo: Option<VmInfo>) {
-        self.namespaces.insert(namespace.clone(), vminfo);
+    pub fn update_namespace(&mut self, namespace: &Namespace, vminfo: Option<&VmInfo>) {
+        self.namespaces.insert(namespace.clone(), vminfo.cloned());
     }
 
     pub fn update_exposed_ports(&mut self, namespace: &Namespace, exposed_ports: Vec<ExposedPort>) {

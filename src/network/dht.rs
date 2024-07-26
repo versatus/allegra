@@ -1,27 +1,28 @@
 use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr};
 use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
-use libretto::{pubsub::LibrettoEvent};
+use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use futures::StreamExt;
 use anchorhash::AnchorHash;
 use serde::{Serialize, Deserialize};
 use regex::Regex;
+use std::str::FromStr;
 
 use crate::{
     account::{
         Namespace,
         TaskId
-    }, consts::NGINX_CONFIG_PATH, event::{
+    }, allegra_rpc::{
+            InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
+        }, consts::NGINX_CONFIG_PATH, event::{
         NetworkEvent, 
         QuorumEvent, 
         VmmEvent
-    }, network::node::Node, node::NodeState, params::{
-            InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, Params
-        }, publish::{
+    }, network::node::Node, node::NodeState, params::Params, publish::{
             GenericPublisher, NetworkTopic, VmManagerTopic
-        }, subscribe::QuorumSubscriber
+        }, subscribe::QuorumSubscriber, VmType
 };
 
 use conductor::subscriber::SubStream;
@@ -559,10 +560,10 @@ impl QuorumManager {
                         name: payload.name.clone(), 
                         distro: payload.distro.clone(), 
                         version: payload.version.clone(), 
-                        vmtype: payload.vmtype.clone(), 
+                        vmtype: VmType::from_str(&payload.vmtype)?.clone(), 
                         sig: payload.sig.clone(), 
                         recovery_id: payload.recovery_id,
-                        sync: Some(payload.sync)
+                        sync: payload.sync
                     }
                 )
             ).await?;
@@ -1057,8 +1058,11 @@ impl QuorumManager {
                         name: payload.name.clone(),
                         sig: payload.sig.clone(),
                         recovery_id: payload.recovery_id,
-                        port: payload.port.clone(),
-                        service_type: payload.service_type.clone()
+                        port: payload.port.iter().filter_map(|i| {
+                            let i = *i;
+                            i.try_into().ok().clone()
+                        }).collect::<Vec<u16>>().clone(),
+                        service_type: payload.service_type.iter().map(|i| crate::params::ServiceType::from(*i)).collect::<Vec<crate::params::ServiceType>>().clone()
                     }
                 )
             ).await?;
@@ -1082,8 +1086,11 @@ impl QuorumManager {
                                 name: payload.name.clone(),
                                 sig: payload.sig.clone(),
                                 recovery_id: payload.recovery_id,
-                                port: payload.port.clone(),
-                                service_type: payload.service_type.clone(),
+                                port: payload.port.iter().filter_map(|i| {
+                                    let i = *i;
+                                    i.try_into().ok().clone()
+                                }).collect(),
+                                service_type: payload.service_type.iter().map(|i| crate::params::ServiceType::from(*i)).collect::<Vec<crate::params::ServiceType>>().clone(),
                                 dst: peer.ip_address().to_string()
                             }
                         )

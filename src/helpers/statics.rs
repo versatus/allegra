@@ -23,7 +23,7 @@ server {
     pub static ref DEFAULT_PUBLISHER_ADDRESS: &'static str = "127.0.0.1:5555";
     pub static ref TEMP_PATH: &'static str = "/var/snap/lxd/common/lxd/tmp"; 
     pub static ref BOOTSTRAP_QUORUM: Quorum = Quorum::new(); 
-    pub static ref DEFAULT_NETWORK: &'static str = "lxdbr0";
+    pub static ref DEFAULT_NETWORK: &'static str = "virbr0";
     pub static ref SUCCESS: &'static str = "SUCCESS";
     pub static ref FAILURE: &'static str = "FAILURE";
     pub static ref PENDING: &'static str = "PENDING";

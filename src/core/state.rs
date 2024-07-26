@@ -204,7 +204,7 @@ impl StateManager {
             let info = vmlist.get(&namespace.to_string());
             let account = Account::new(
                 owner,
-                vec![(namespace, info)], 
+                vec![(namespace, info.cloned())], 
                 exposed_ports, 
                 vec![(task_id, task_status)]
             );

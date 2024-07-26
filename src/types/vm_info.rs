@@ -1,8 +1,9 @@
-use rayon::iter::{ParallelIterator, IntoParallelIterator};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use getset::{Getters, Setters, MutGetters};
+
+use crate::Namespace;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SshDetails {
@@ -461,14 +462,11 @@ pub struct HugepagesInfo {
 #[serde(transparent)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct VmList {
-    vms: Vec<VmInfo>
+    pub vms: HashMap<Namespace, VmInfo>
 }
 
 impl VmList {
-    pub fn get(&self, name: &str) -> Option<VmInfo> {
-        let mut info_list = self.vms.clone().into_par_iter().filter(|info| {
-            info.name() == name
-        }).collect::<Vec<VmInfo>>();
-        info_list.pop()
+    pub fn get(&self, name: &str) -> Option<&VmInfo> {
+        self.vms.get(&Namespace::new(name.to_string()))
     }
 }

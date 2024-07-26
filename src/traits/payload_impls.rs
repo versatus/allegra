@@ -1,11 +1,13 @@
-use crate::{
-    allegra_rpc::{
+use crate::allegra_rpc::{
         GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, NewPeerMessage, NodeCertMessage, ServerConfigMessage
-    }, params::Payload
 };
 
 use std::any::Any;
 
+pub trait Payload: Any {
+    fn into_payload(&self) -> String;
+    fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
 
 impl Payload for InstanceCreateParams {
     fn into_payload(&self) -> String {

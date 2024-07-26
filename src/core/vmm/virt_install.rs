@@ -1,4 +1,5 @@
 use std::{collections::HashMap, process::Command};
+use crate::allegra_rpc::{InstanceCreateParams, CloudInit as ProtoCloudInit};
 
 #[derive(Debug, Default)]
 pub struct VirtInstall {
@@ -49,7 +50,7 @@ pub struct VirtInstall {
     dry_run: bool,
     connect: Option<String>,
     virt_type: Option<String>,
-    cloud_init: Option<CloudInit>
+    cloud_init: Option<CloudInit>,
 }
 
 #[derive(Debug, Default)]
@@ -62,6 +63,21 @@ pub struct CloudInit {
     root_ssh_key: Option<String>,
     clouduser_ssh_key: Option<String>,
     network_config: Option<String>
+}
+
+impl From<ProtoCloudInit> for CloudInit {
+    fn from(value: ProtoCloudInit) -> Self {
+        Self {
+            root_password_generate: value.root_password_generate,
+            disable: value.disable,
+            root_password_file: value.root_password_file,
+            meta_data: value.meta_data,
+            user_data: value.user_data,
+            root_ssh_key: value.root_ssh_key,
+            clouduser_ssh_key: value.clouduser_ssh_key,
+            network_config: value.network_config
+        }
+    }
 }
 
 impl CloudInit {
@@ -348,7 +364,7 @@ impl VirtInstall {
         self
     }
 
-    pub fn execute(&self) -> std::io::Result<()> {
+    pub fn execute(&self) -> std::io::Result<std::process::Output> {
         let mut command = Command::new("virt-install");
 
         command.arg("--name").arg(&self.name);
@@ -573,13 +589,64 @@ impl VirtInstall {
             }
         }
 
-        let output = command.output()?;
+        command.output()
+    }
+}
 
-        if output.status.success() {
-            Ok(())
-        } else {
-            let error_message = String::from_utf8_lossy(&output.stderr);
-            Err(std::io::Error::new(std::io::ErrorKind::Other, error_message))
+impl From<InstanceCreateParams> for VirtInstall {
+    fn from(value: InstanceCreateParams) -> Self {
+        Self {
+            name: value.name,
+            memory: value.memory,
+            vcpus: value.vcpus, 
+            cpu: value.cpu,
+            metadata: value.metadata,
+            os_variant: value.os_variant, 
+            host_device: value.host_device, 
+            network: value.network, 
+            disk: value.disk, 
+            filesystem: value.filesystem, 
+            controller: value.controller, 
+            input: value.input, 
+            graphics: value.graphics, 
+            sound: value.sound,  
+            video: value.video, 
+            smartcard: value.smartcard, 
+            redirdev: value.redirdev, 
+            memballoon: value.memballoon, 
+            tpm: value.tpm, 
+            rng: value.rng, 
+            panic: value.panic, 
+            shmem: value.shmem, 
+            memdev: value.memdev, 
+            vsock: value.vsock, 
+            iommu: value.iommu, 
+            watchdog: value.watchdog, 
+            serial: value.serial, 
+            parallel: value.parallel, 
+            channel: value.channel, 
+            console: value.console, 
+            install: value.install, 
+            cdrom: value.cdrom, 
+            location: value.location, 
+            pxe: value.pxe,
+            import: value.import,
+            boot: value.boot,
+            idmap: value.idmap,
+            features: value.features.iter().map(|f| (f.name.clone(), f.feature.clone())).collect(),
+            clock: value.clock,
+            launch_security: value.launch_security,
+            numatune: value.numatune,
+            boot_dev: value.boot_dev,
+            unattended: value.unattended,
+            print_xml: value.print_xml,
+            dry_run: value.dry_run,
+            connect: value.connect,
+            virt_type: value.virt_type,
+            cloud_init: match value.cloud_init {
+                Some(ci) => Some(ci.into()),
+                None => None
+            }
         }
     }
 }

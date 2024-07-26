@@ -36,7 +36,6 @@ pub struct Instance {
     port_map: HashMap<u16, (u16, ServiceType)>,
     last_snapshot: Option<u64>,
     last_sync: Option<u64>,
-    // Add State (Running, Stopped, etc.)
     // Add Nginx
     // Add other metadata like quorum owned, access trie, etc.
 }
@@ -211,7 +210,8 @@ impl From<VmmEvent> for VmManagerMessage {
                     vmtype: vmtype.to_string(),
                     sig, 
                     recovery_id: recovery_id.into(),
-                    sync
+                    sync,
+                    ..Default::default()
                 };
                 VmManagerMessage::NewInstance { 
                     params,

@@ -9,8 +9,9 @@ use crate::{
     }, helpers::{
         generate_task_id, get_payload_hash, owner_address_from_string, recover_owner_address
     }, params::{
-        HasOwner, Params, Payload
-    }, publish::{
+        HasOwner, Params
+    }, payload_impls::Payload, 
+    publish::{
         GeneralResponseTopic, GenericPublisher, QuorumTopic, TaskStatusTopic
     }, subscribe::RpcResponseSubscriber
 };
@@ -42,7 +43,7 @@ impl VmmService {
         task_id: TaskId
     ) -> std::io::Result<()> 
     where 
-        P: TryInto<Params, Error = std::io::Error> + 
+        P: Into<Params> + 
         TryInto<Namespace, Error = std::io::Error> + 
         Clone + std::fmt::Debug 
     {
@@ -62,7 +63,7 @@ impl VmmService {
         task_id: TaskId
     ) -> std::io::Result<QuorumEvent> 
     where 
-        P: TryInto<Params, Error = std::io::Error> + 
+        P: Into<Params> + 
         TryInto<Namespace, Error = std::io::Error> + 
         Clone + std::fmt::Debug 
     {
@@ -75,12 +76,7 @@ impl VmmService {
                     format!("unable to convert params to namespace: {e}")
                 )
             })?,
-            payload: params.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("unable to convert params to Params enum: {e}") 
-                )
-            })?,
+            payload: params.into(),
             task_id,
             event_id
         })
@@ -389,8 +385,7 @@ impl Vmm for VmmService {
         let payload_hash = get_payload_hash(
             params.into_payload().as_bytes()
         );
-        let recovery_id = params.recovery_id.to_be_bytes()[3];
-        let owner = recover_owner_address(payload_hash, params.sig.clone(), recovery_id)?;
+        let owner = recover_owner_address(payload_hash, params.sig.clone(), params.recovery_id)?;
 
         let mut guard = self.task_log.lock().await;
         if !guard.contains(&task_id) {

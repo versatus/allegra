@@ -60,7 +60,7 @@ impl NetworkClient {
             NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, sync, .. } => {
                 log::info!("Received Create event, sending to {dst}");
                 let create_instance_message = InstanceCreateParams {
-                    name, distro, version, vmtype, sig, recovery_id: recovery_id.into(), sync: Some(sync)
+                    name, distro, version, vmtype, sig, recovery_id: recovery_id.into(), sync, ..Default::default() 
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;

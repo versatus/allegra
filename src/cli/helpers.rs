@@ -1,6 +1,6 @@
 use crate::allegra_rpc::{InstanceGetSshDetails, InstanceExposeServiceParams, InstanceAddPubkeyParams, InstanceDeleteParams, InstanceStopParams, InstanceStartParams, InstanceCreateParams};
 use crate::cli::commands::AllegraCommands;
-use crate::params::Payload;
+use crate::payload_impls::Payload;
 use crate::allegra_rpc::vmm_client::VmmClient;
 use std::io::Read;
 use std::collections::HashMap;
@@ -88,6 +88,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     sig: String::default(), 
                     recovery_id: u32::default(),
                     sync: Some(false),
+                    ..Default::default()
                 }
             )
         }

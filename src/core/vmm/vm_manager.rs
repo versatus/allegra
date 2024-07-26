@@ -1,6 +1,6 @@
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
-
-use crate::{statics::*, LibrettoSubscriber, SyncInterval, VmmResult, VmmSubscriber};
+use crate::{statics::*, GeneralResponseSubscriber, GeneralResponseTopic, Instance, LibrettoSubscriber, SyncInterval, VirtInstall, VmInfo, VmmResult, VmmSubscriber};
 use crate::{
     update_iptables,
     account::{
@@ -14,9 +14,7 @@ use crate::{
         recover_namespace, 
         recover_owner_address, 
         update_task_status
-    }, params::{
-        Payload, ServiceType
-    }, publish::{
+    }, params:: ServiceType, payload_impls::Payload, publish::{
         GenericPublisher, QuorumTopic, StateTopic
     }, startup,
      vm_info::VmList, VmManagerMessage
@@ -40,9 +38,12 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterato
 use tokio::{task::JoinHandle, time::{interval,Duration}};
 use uuid::Uuid;
 use crate::consts::*;
+use virt::connect::Connect;
 
 
 pub struct VmManager {
+    connection: Connect,
+    // Use a struct for the virbr0
     network: String,
     next_port: u16,
     handles: FuturesUnordered<JoinHandle<std::io::Result<VmmResult>>>,
@@ -57,62 +58,27 @@ pub struct VmManager {
 impl VmManager {
     pub async fn new(next_port: u16) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
-        log::info!("set lxd network interface to {}", &network);
+        log::info!("set network interface to {}", &network);
+        let mut connection = Connect::open(Some("qemu::///system"))
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        log::info!("established connection to qemu");
         let handles = FuturesUnordered::new();
         log::info!("established FuturesUnordered handler");
-        let vmlist = match std::process::Command::new("lxc")
-            .args(["list", "--format", "json"])
-            .output() {
-            Ok(output) => {
-                if output.status.success() {
-                    let vmlist_str = std::str::from_utf8(
-                        &output.stdout
-                    ).map_err(|e| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    })?;
-                    let vmlist = serde_json::from_str(
-                        vmlist_str
-                    ).map_err(|e| { std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    })?;
-                    vmlist
-                } else {
-                    let err = std::str::from_utf8(
-                        &output.stderr
-                    ).map_err(|e| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    })?.to_string();
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            err
-                        )
-                    )
-                }
-            },
-            Err(e) => return Err(e)
-        };
+        let mut publisher = GenericPublisher::new("127.0.0.1:5555").await?;
+        let vmlist = Self::get_vmlist(&mut connection, &mut publisher).await?;
         log::info!("acquired vm list");
 
         let sync_futures = FuturesUnordered::new();
         log::info!("established syncing handler");
         let subscriber = VmmSubscriber::new("127.0.0.1:5556").await?; 
         log::info!("instantiated VmmSubscriber, listening on 127.0.0.1:5556");
-        let publisher = GenericPublisher::new("127.0.0.1:5555").await?;
         log::info!("instantiated GenericPublisher publishing to 127.0.0.1:5555");
         log::info!("Returning VmManager");
         let fs_monitor = LibrettoSubscriber::new("127.0.0.1:5556").await?;
         let sync_intervals = FuturesUnordered::new();
 
         Ok(Self {
+            connection,
             network: network.to_string(),
             next_port,
             handles,
@@ -134,12 +100,11 @@ impl VmManager {
         self.refresh_vmlist().await?;
         log::info!("Setting sync intervals...");
 
-        let vm_list = self.vmlist.clone().vms().to_vec();
+        let vm_list = self.vmlist.vms().clone();
 
-        for vm in vm_list {
-            let namespace = vm.name();
+        for (namespace, _) in vm_list {
             let sync_interval = SyncInterval {
-                namespace: Namespace::new(namespace.clone()),
+                namespace: namespace.clone(),
                 interval: interval(Duration::from_secs(900)),
                 tick_counter: 0,
                 last_sync: None,
@@ -266,51 +231,118 @@ impl VmManager {
     }
 
     pub async fn refresh_vmlist(&mut self) -> std::io::Result<()> {
-        let vmlist = match std::process::Command::new("lxc")
-            .args(["list", "--format", "json"])
-            .output() {
-            Ok(output) => {
-                if output.status.success() {
-                    let vmlist_str = std::str::from_utf8(
-                        &output.stdout
-                    ).map_err(|e| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    })?;
-                    let vmlist = serde_json::from_str(
-                        vmlist_str
-                    ).map_err(|e| { std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    })?;
-                    vmlist
-                } else {
-                    let err = std::str::from_utf8(
-                        &output.stderr
-                    ).map_err(|e| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e.to_string()
-                        )
-                    })?.to_string();
-                    return Err(
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            err
-                        )
-                    )
-                }
-            },
-            Err(e) => return Err(e)
-        };
+        let domains = self.connection.list_all_domains(0)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        
+        let vms: Vec<String> = domains.iter()
+            .filter_map(|domain| {
+                domain.get_name().ok()
+            }).collect();
 
+        let mut events = HashSet::new();
+
+        let vm_info_vec: HashMap<Namespace, VmInfo> = {
+            let mut subscriber = GeneralResponseSubscriber::new(
+                &DEFAULT_SUBSCRIBER_ADDRESS,
+                &GeneralResponseTopic::VmManagerResponseTopic.to_string()
+            ).await?;
+
+            for vm in vms {
+                let event_id = Uuid::new_v4().to_string();
+                let task_id  = TaskId::new(Uuid::new_v4().to_string());
+                let task_status = TaskStatus::Pending;
+                let namespace = Namespace::new(vm.clone());
+                let response_topics = vec![GeneralResponseTopic::VmManagerResponseTopic]; 
+                let event = StateEvent::GetInstance { event_id: event_id.clone(), task_id, task_status, namespace, response_topics };
+                self.publisher.publish(Box::new(StateTopic), Box::new(event)).await?;
+                events.insert(event_id);
+            }
+
+
+            let instances = tokio::time::timeout(
+                tokio::time::Duration::from_secs(60),
+                Self::batch_instance_response(&mut events, &mut subscriber)
+            ).await??;
+
+            instances
+        };
+        let vmlist = VmList { vms: vm_info_vec };
         log::info!("vm list refreshed saving to self.vmlist");
         self.vmlist = vmlist;
 
         Ok(())
+    }
+
+    pub async fn get_vmlist(
+        connection: &mut Connect,
+        publisher: &mut GenericPublisher,
+        ) -> std::io::Result<VmList> {
+        let domains = connection.list_all_domains(0)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        
+        let vms: Vec<String> = domains.iter()
+            .filter_map(|domain| {
+                domain.get_name().ok()
+            }).collect();
+
+        let mut events = HashSet::new();
+
+        let vm_info_vec: HashMap<Namespace, VmInfo> = {
+            let mut subscriber = GeneralResponseSubscriber::new(
+                &DEFAULT_SUBSCRIBER_ADDRESS,
+                &GeneralResponseTopic::VmManagerResponseTopic.to_string()
+            ).await?;
+
+            for vm in vms {
+                let event_id = Uuid::new_v4().to_string();
+                let task_id  = TaskId::new(Uuid::new_v4().to_string());
+                let task_status = TaskStatus::Pending;
+                let namespace = Namespace::new(vm.clone());
+                let response_topics = vec![GeneralResponseTopic::VmManagerResponseTopic]; 
+                let event = StateEvent::GetInstance { event_id: event_id.clone(), task_id, task_status, namespace, response_topics };
+                publisher.publish(Box::new(StateTopic), Box::new(event)).await?;
+                events.insert(event_id);
+            }
+
+
+            let instances = tokio::time::timeout(
+                tokio::time::Duration::from_secs(60),
+                Self::batch_instance_response(&mut events, &mut subscriber)
+            ).await??;
+
+            instances
+        };
+        let vmlist = VmList { vms: vm_info_vec };
+
+        Ok(vmlist)
+    }
+
+    async fn batch_instance_response(event_ids: &mut HashSet<String>, subscriber: &mut GeneralResponseSubscriber) -> std::io::Result<HashMap<Namespace, VmInfo>> {
+        let mut vm_info_vec = vec![];
+        while !event_ids.is_empty() {
+            match subscriber.receive().await {
+                Ok(messages) => {
+                    for m in messages {
+                        if event_ids.contains(m.original_event_id()) {
+                            let instance: Instance = serde_json::from_str(m.response())?;
+                            vm_info_vec.push((instance.namespace().clone(), instance.vminfo().clone()));
+                        }
+
+                        event_ids.remove(m.original_event_id());
+                    }
+                }
+                Err(e) => {
+                    return Err(
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            e
+                        )
+                    )
+                }
+            }
+        }
+
+        Ok(vm_info_vec.into_par_iter().collect())
     }
 
 }
@@ -441,7 +473,7 @@ impl VmManager {
         let owner = recover_owner_address(
             hash,
             sig,
-            params.recovery_id.to_be_bytes()[3]
+            params.recovery_id
         )?;
 
         let namespace = recover_namespace(owner, &params.name);
@@ -551,8 +583,7 @@ impl VmManager {
         task_id: TaskId,
     ) -> std::io::Result<()> {
         let hash = get_payload_hash(params.into_payload().as_bytes());
-        let recovery_id = params.recovery_id.to_be_bytes()[3];
-        let owner = recover_owner_address(hash, sig, recovery_id)?;
+        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
         log::info!("Recovered owner address");
         let namespace = recover_namespace(owner, &params.name);
         log::info!("Recovered Instance Namespace");
@@ -663,8 +694,7 @@ impl VmManager {
         task_id: TaskId
     ) -> std::io::Result<()> {
         let hash = get_payload_hash(params.into_payload().as_bytes());
-        let recovery_id = params.recovery_id.to_be_bytes()[3];
-        let owner = recover_owner_address(hash, sig, recovery_id)?;
+        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
         let namespace = recover_namespace(owner, &params.name);
         let output = std::process::Command::new("lxc")
             .args(["stop", &namespace.inner()])
@@ -742,8 +772,7 @@ impl VmManager {
         task_id: TaskId
     ) -> std::io::Result<()> {
         let hash = get_payload_hash(params.into_payload().as_bytes());
-        let recovery_id = params.recovery_id.to_be_bytes()[3];
-        let owner = recover_owner_address(hash, sig, recovery_id)?;
+        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
         let namespace = recover_namespace(owner, &params.name.clone());
         let mut command = std::process::Command::new("lxc");
         command.arg("delete").arg(&namespace.inner());
@@ -764,8 +793,7 @@ impl VmManager {
         task_id: TaskId,
     ) -> std::io::Result<()> {
         let hash = get_payload_hash(params.into_payload().as_bytes());
-        let recovery_id = params.recovery_id.to_be_bytes()[3];
-        let owner = recover_owner_address(hash, sig, recovery_id)?;
+        let owner = recover_owner_address(hash, sig, params.recovery_id)?;
         let namespace = recover_namespace(owner, &params.name);
         let new_next_port = self.handle_expose_service_iptable_updates(
             params, namespace, task_id, owner
@@ -786,35 +814,13 @@ impl VmManager {
         log::info!("converted params into payload...");
         let hash = get_payload_hash(payload.as_bytes());
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.to_be_bytes()[3];
-        log::info!("converted recovery_id into u32...");
-        let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
+        let owner = recover_owner_address(hash, params.sig.clone(), params.recovery_id)?;
         log::info!("recovered owner from signature...");
         let namespace = recover_namespace(owner, &params.name);
         log::info!("recovered namespace from name and owner...");
 
-        // lxc launch e, -n self.network
-        let output = std::process::Command::new("lxc")
-            .arg("launch")
-            .arg(
-                &format!(
-                    "{}:{}",
-                    params.distro,
-                    params.version
-                )
-            )
-            .arg(
-                &format!(
-                    "{}",
-                    &namespace
-                )
-            )
-            .arg("--vm")
-            .arg("-t")
-            .arg(&params.vmtype.to_string())
-            .arg("--network")
-            .arg(&self.network.clone())
-            .output()?;
+        let virt_install: VirtInstall = params.into();
+        let output = virt_install.execute()?;
 
         log::info!("executed launch command...");
         self.handle_create_output_and_response(
@@ -858,7 +864,7 @@ impl VmManager {
             task_id: task_id.clone(), 
             task_status: TaskStatus::Pending, 
             namespace: namespace.clone(), 
-            vm_info: vminfo, 
+            vm_info: vminfo.clone(), 
             port_map: vec![(22u16, (self.next_port, ServiceType::Ssh))].into_iter().collect(),
             last_snapshot: None,
             last_sync: None

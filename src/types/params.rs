@@ -1,14 +1,16 @@
-use std::any::Any;
-use std::str::FromStr;
 use clap::ValueEnum;
-use libretto::pubsub::LibrettoEvent;
-use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
-use crate::vm_types::VmType;
 use crate::allegra_rpc::{
-    GetTaskStatusRequest, InstanceAddPubkeyParams as ProtoAddPubkey, InstanceCreateParams as ProtoCreate, InstanceDeleteParams as ProtoDelete, InstanceExposeServiceParams as ProtoExpose, InstanceGetSshDetails as ProtoGetSsh, InstanceStartParams as ProtoStart, InstanceStopParams as ProtoStop, ServiceType as ProtoServiceType
+    GetTaskStatusRequest,
+    InstanceAddPubkeyParams,
+    InstanceCreateParams,
+    InstanceDeleteParams,
+    InstanceExposeServiceParams,
+    InstanceGetSshDetails,
+    InstanceStartParams,
+    InstanceStopParams, 
+    ServiceType as ProtoServiceType
 };
-use crate::vmm::Instance;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 pub enum ServiceType {
@@ -90,250 +92,6 @@ impl ServiceType {
     }
 }
 
-impl TryFrom<ProtoStart> for InstanceStartParams {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoStart) -> Result<Self, Self::Error> {
-        Ok(InstanceStartParams {
-            name: value.name,
-            console: value.console,
-            stateless: value.stateless,
-            sig: value.sig,
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        })
-    }
-}
-
-impl TryFrom<ProtoCreate> for InstanceCreateParams {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoCreate) -> Result<Self, Self::Error> {
-        Ok(InstanceCreateParams {
-            name: value.name,
-            distro: value.distro,
-            version: value.version,
-            vmtype: <VmType as FromStr>::from_str(&value.vmtype)?,
-            sig: value.sig,
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?,
-            sync: match value.sync {
-                Some(true) => true,
-                Some(false) => false,
-                None => false
-            }
-        })
-    }
-}
-
-impl TryFrom<ProtoStop> for InstanceStopParams {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoStop) -> Result<Self, Self::Error> {
-        Ok(InstanceStopParams { 
-            name: value.name,
-            sig: value.sig,
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        })
-    }
-}
-
-impl TryFrom<ProtoDelete> for InstanceDeleteParams {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoDelete) -> Result<Self, Self::Error> {
-        Ok(InstanceDeleteParams { 
-            name: value.name, 
-            force: value.force, 
-            interactive: value.interactive, 
-            sig: value.sig, 
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        })
-    }
-}
-
-impl TryFrom<ProtoExpose> for InstanceExposeServiceParams {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoExpose) -> Result<Self, Self::Error> {
-        Ok(InstanceExposeServiceParams { 
-            name: value.name, 
-            port: value.port.par_iter().filter_map(|n| {
-                let n = *n;
-                n.try_into().ok()
-            }).collect(), 
-            service_type: value.service_type.par_iter().map(|s| {
-                let s = *s;
-                s.into()
-            }).collect(), 
-            sig: value.sig, 
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        })
-    }
-}
-
-impl TryFrom<ProtoGetSsh> for InstanceGetSshDetails {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoGetSsh) -> Result<Self, Self::Error> {
-        Ok(InstanceGetSshDetails { 
-            owner: value.owner, 
-            name: value.name, 
-            keypath: value.keypath, 
-            username: value.username, 
-        })
-    }
-}
-
-impl TryFrom<ProtoAddPubkey> for InstanceAddPubkeyParams {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoAddPubkey) -> Result<Self, Self::Error> {
-        Ok(InstanceAddPubkeyParams { 
-            name: value.name, 
-            pubkey: value.pubkey, 
-            sig: value.sig, 
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        })
-    }
-}
-
-
-impl TryFrom<ProtoStart> for Params {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoStart) -> Result<Self, Self::Error> {
-        Ok(Params::Start(InstanceStartParams {
-            name: value.name,
-            console: value.console,
-            stateless: value.stateless,
-            sig: value.sig,
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        }))
-    }
-}
-
-impl TryFrom<ProtoCreate> for Params {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoCreate) -> Result<Self, Self::Error> {
-        let params: InstanceCreateParams = value.try_into()?;
-        Ok(Params::Create(params))
-    }
-}
-
-impl TryFrom<ProtoStop> for Params {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoStop) -> Result<Self, Self::Error> {
-        Ok(Params::Stop(InstanceStopParams { 
-            name: value.name,
-            sig: value.sig,
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        }))
-    }
-}
-
-impl TryFrom<ProtoDelete> for Params {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoDelete) -> Result<Self, Self::Error> {
-        Ok(Params::Delete(InstanceDeleteParams { 
-            name: value.name, 
-            force: value.force, 
-            interactive: value.interactive, 
-            sig: value.sig, 
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        }))
-    }
-}
-
-impl TryFrom<ProtoExpose> for Params {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoExpose) -> Result<Self, Self::Error> {
-        Ok(Params::ExposeService(InstanceExposeServiceParams { 
-            name: value.name, 
-            port: value.port.par_iter().filter_map(|n| {
-                let n = *n;
-                n.try_into().ok()
-            }).collect(), 
-            service_type: value.service_type.par_iter().map(|s| {
-                let s = *s;
-                s.into()
-            }).collect(), 
-            sig: value.sig, 
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        }))
-    }
-}
-
-impl TryFrom<ProtoGetSsh> for  Params {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoGetSsh) -> Result<Self, Self::Error> {
-        Ok(Params::GetSshDetails(InstanceGetSshDetails { 
-            owner: value.owner, 
-            name: value.name, 
-            keypath: value.keypath, 
-            username: value.username, 
-        }))
-    }
-}
-
-impl TryFrom<ProtoAddPubkey> for Params {
-    type Error = std::io::Error;
-    fn try_from(value: ProtoAddPubkey) -> Result<Self, Self::Error> {
-        Ok(Params::AddPubkey(InstanceAddPubkeyParams { 
-            name: value.name, 
-            pubkey: value.pubkey, 
-            sig: value.sig, 
-            recovery_id: value.recovery_id.try_into().map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?
-        }))
-    }
-}
-
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Params {
     Create(InstanceCreateParams),
@@ -343,79 +101,48 @@ pub enum Params {
     Delete(InstanceDeleteParams),
     ExposeService(InstanceExposeServiceParams),
     GetSshDetails(InstanceGetSshDetails),
-    SyncInstance(InstanceSyncDetails),
 }
 
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceCreateParams {
-    pub name: String,
-    pub distro: String,
-    pub version: String,
-    pub vmtype: VmType,
-    pub sig: String,
-    pub recovery_id: u8,
-    pub sync: bool,
+impl From<InstanceCreateParams> for Params {
+    fn from(value: InstanceCreateParams) -> Self {
+        Self::Create(value)
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceStartParams {
-    pub name: String,
-    pub console: bool,
-    pub stateless: bool,
-    pub sig: String,
-    pub recovery_id: u8,
+impl From<InstanceStartParams> for Params {
+    fn from(value: InstanceStartParams) -> Self {
+       Self::Start(value) 
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceStopParams {
-    pub name: String, 
-    pub sig: String,
-    pub recovery_id: u8,
+impl From<InstanceStopParams> for Params {
+    fn from(value: InstanceStopParams) -> Self {
+       Self::Stop(value) 
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceAddPubkeyParams {
-    pub name: String,
-    pub pubkey: String,
-    pub sig: String,
-    pub recovery_id: u8,
+impl From<InstanceDeleteParams> for Params {
+    fn from(value: InstanceDeleteParams) -> Self {
+       Self::Delete(value) 
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceDeleteParams {
-    pub name: String,
-    pub force: bool,
-    pub interactive: bool,
-    pub sig: String,
-    pub recovery_id: u8,
+impl From<InstanceExposeServiceParams> for Params {
+    fn from(value: InstanceExposeServiceParams) -> Self {
+       Self::ExposeService(value) 
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceExposeServiceParams {
-    pub name: String,
-    pub port: Vec<u16>,
-    pub service_type: Vec<ServiceType>,
-    pub sig: String,
-    pub recovery_id: u8,
+impl From<InstanceGetSshDetails> for Params {
+    fn from(value: InstanceGetSshDetails) -> Self {
+       Self::GetSshDetails(value) 
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceGetSshDetails {
-    pub owner: String,
-    pub name: String,
-    pub keypath: Option<String>,
-    pub username: Option<String>
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InstanceSyncDetails {
-    pub event: LibrettoEvent,
-    pub instance: Option<Instance>
-}
-
-pub struct InstanceSshSession {
-    pub name: String,
+impl From<InstanceAddPubkeyParams> for Params {
+    fn from(value: InstanceAddPubkeyParams) -> Self {
+       Self::AddPubkey(value) 
+    }
 }
 
 pub trait HasOwner {
@@ -423,31 +150,6 @@ pub trait HasOwner {
 }
 
 impl HasOwner for InstanceGetSshDetails {
-    fn owner(&self) -> std::io::Result<[u8; 20]> {
-        let mut buffer = [0u8; 20];
-        if self.owner.starts_with("0x") {
-            let bytes = hex::decode(&self.owner[2..]).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-            buffer.copy_from_slice(&bytes[..]);
-        } else {
-            let bytes = hex::decode(&self.owner).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-            buffer.copy_from_slice(&bytes[..]);
-        }
-
-        return Ok(buffer)
-    }
-}
-
-impl HasOwner for ProtoGetSsh {
     fn owner(&self) -> std::io::Result<[u8; 20]> {
         let mut buffer = [0u8; 20];
         if self.owner.starts_with("0x") {
@@ -498,107 +200,145 @@ impl HasOwner for GetTaskStatusRequest {
     }
 }
 
-pub trait Payload: Any {
-    fn into_payload(&self) -> String;
-    fn into_any(self: Box<Self>) -> Box<dyn Any>;
-}
-
-impl Payload for InstanceCreateParams {
-    fn into_payload(&self) -> String {
-        serde_json::json!({
-            "command": "launch",
-            "name": &self.name,
-            "distro": &self.distro,
-            "version": &self.version,
-            "vmtype": &self.vmtype,
-        }).to_string()
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+impl Serialize for InstanceCreateParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer 
+    {
+        todo!()
     }
 }
 
-impl Payload for InstanceStopParams {
-    fn into_payload(&self) -> String {
-        serde_json::json!({
-            "command": "stop",
-            "name": &self.name, 
-        }).to_string()
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+impl Serialize for InstanceStartParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer 
+    {
+        todo!()
     }
 }
 
-impl Payload for InstanceStartParams {
-    fn into_payload(&self) -> String {
-        serde_json::json!({
-            "command": "start",
-            "name": &self.name,
-            "console": self.console,
-            "stateless": self.stateless
-        }).to_string()
-
-    }
-    
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+impl Serialize for InstanceStopParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer 
+    {
+        todo!()
     }
 }
 
-impl Payload for InstanceDeleteParams {
-    fn into_payload(&self) -> String {
-        serde_json::json!({
-            "command": "delete",
-            "name": self.name
-        }).to_string()
-    }
-    
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+impl Serialize for InstanceDeleteParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer 
+    {
+        todo!()
     }
 }
 
-impl Payload for InstanceAddPubkeyParams {
-    fn into_payload(&self) -> String {
-        serde_json::json!({
-            "command": "injectAuth",
-            "name": &self.name,
-            "pubkey": &self.pubkey
-        }).to_string()
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+impl Serialize for InstanceExposeServiceParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer 
+    {
+        todo!()
     }
 }
 
-impl Payload for InstanceExposeServiceParams {
-    fn into_payload(&self) -> String {
-        serde_json::json!({
-            "command": "exposePort",
-            "name": &self.name,
-            "ports": &self.port,
-            "services": &self.service_type
-        }).to_string()
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+impl Serialize for InstanceGetSshDetails {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer 
+    {
+        todo!()
     }
 }
 
-impl Payload for InstanceGetSshDetails {
-    fn into_payload(&self) -> String {
-        serde_json::json!({
-            "command": "getSshDetails",
-            "name": &self.name
-        }).to_string()
-    }
 
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
+impl Serialize for InstanceAddPubkeyParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer 
+    {
+        todo!()
     }
 }
+
+
+impl<'de> Deserialize<'de> for InstanceCreateParams {
+    fn deserialize<D>(deserializer: D) -> Result<InstanceCreateParams, D::Error>
+        where
+            D: serde::Deserializer<'de> 
+        {
+
+            todo!()
+        
+    }
+}
+
+impl<'de> Deserialize<'de> for InstanceStartParams {
+    fn deserialize<D>(deserializer: D) -> Result<InstanceStartParams, D::Error>
+        where
+            D: serde::Deserializer<'de> 
+        {
+
+            todo!()
+        
+    }
+}
+
+impl<'de> Deserialize<'de> for InstanceStopParams  {
+    fn deserialize<D>(deserializer: D) -> Result<InstanceStopParams, D::Error>
+        where
+            D: serde::Deserializer<'de> 
+        {
+
+            todo!()
+        
+    }
+}
+
+impl<'de> Deserialize<'de> for InstanceDeleteParams {
+    fn deserialize<D>(deserializer: D) -> Result<InstanceDeleteParams, D::Error>
+        where
+            D: serde::Deserializer<'de> 
+        {
+
+            todo!()
+        
+    }
+}
+
+impl<'de> Deserialize<'de> for InstanceGetSshDetails {
+    fn deserialize<D>(deserializer: D) -> Result<InstanceGetSshDetails, D::Error>
+        where
+            D: serde::Deserializer<'de> 
+        {
+
+            todo!()
+        
+    }
+}
+
+impl<'de> Deserialize<'de> for InstanceExposeServiceParams {
+    fn deserialize<D>(deserializer: D) -> Result<InstanceExposeServiceParams, D::Error>
+        where
+            D: serde::Deserializer<'de> 
+        {
+
+            todo!()
+        
+    }
+}
+
+impl<'de> Deserialize<'de> for InstanceAddPubkeyParams {
+    fn deserialize<D>(deserializer: D) -> Result<InstanceAddPubkeyParams, D::Error>
+        where
+            D: serde::Deserializer<'de> 
+        {
+
+            todo!()
+        
+    }
+}
+

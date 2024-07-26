@@ -94,7 +94,8 @@ async fn main() -> std::io::Result<()> {
                 vmtype: vmtype.to_string(),
                 sig: hex::encode(&sig.to_bytes()), 
                 recovery_id: recovery_id as u32,
-                sync: Some(false)
+                sync: Some(false),
+                ..Default::default()
             };
 
             let resp = vmclient.create_vm(params.clone()).await;

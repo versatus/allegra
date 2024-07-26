@@ -1,7 +1,7 @@
 use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
-    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::{Payload, ServiceType}, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
+    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::ServiceType, payload_impls::Payload, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
         VmInfo, VmList
     }, vmm::Instance
 };
@@ -66,7 +66,7 @@ pub fn handle_get_instance_ip_output_success(
             std::io::ErrorKind::Other,
             format!("Unable to find VM {} in VmList", name)
         )
-    )
+    ).cloned()
 }
 
 pub fn handle_get_instance_ip_output_failure(
@@ -258,7 +258,7 @@ pub async fn update_iptables(
         task_id: task_id.clone(), 
         task_status: TaskStatus::Success, 
         namespace: namespace.clone(), 
-        vm_info: vminfo, 
+        vm_info: vminfo.clone(), 
         port_map: port_map.into_par_iter().collect(),
         last_snapshot: None,
         last_sync: None
@@ -405,7 +405,7 @@ pub fn update_ufw_in(_next_port: u16) -> std::io::Result<()> {
 pub fn recover_owner_address(
     m: impl AsRef<[u8]>,
     sig: String,
-    recovery_id: u8
+    recovery_id: u32
 ) -> std::io::Result<[u8; 20]> {
     let signature = Signature::from_str(&sig).map_err(|e| {
         std::io::Error::new(
@@ -418,7 +418,7 @@ pub fn recover_owner_address(
         m.as_ref(),
         &signature,
         RecoveryId::try_from(
-            recovery_id
+            recovery_id.to_be_bytes()[3]
         ).map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -549,7 +549,7 @@ pub async fn update_account(
     let vm_info = vmlist.get(&namespace.inner());
     let account = Account::new(
         owner,
-        vec![(namespace.clone(), vm_info.clone())],
+        vec![(namespace.clone(), vm_info.cloned())],
         vec![(namespace.clone(), exposed_ports.clone())],
         vec![(task_id.clone(), task_status.clone())]
     );
