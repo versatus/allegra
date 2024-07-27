@@ -500,7 +500,7 @@ pub enum SyncEvent {
         target: String,
         last_update: Option<u64>,
         dst: String,
-    }, //lxc copy --refresh
+    },
     Migrate {
         event_id: String,
         task_id: TaskId,
@@ -510,7 +510,7 @@ pub enum SyncEvent {
         last_update: Option<u64>,
         new_quorum: String,
         dst: String,
-    }, //lxc move
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
