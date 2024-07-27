@@ -670,30 +670,6 @@ pub enum QuorumEvent {
         peer: Peer,
         received_from: Peer,
     },
-    CheckAcceptCert {
-        event_id: String,
-        task_id: TaskId,
-        peer: Peer,
-        cert: String,
-    },
-    SyncInstanceEvent {
-        event_id: String,
-        task_id: TaskId,
-        namespace: Namespace,
-        event: LibrettoEvent,
-    },
-    SyncInstanceInterval {
-        event_id: String,
-        task_id: TaskId,
-        namespace: Namespace,
-        last_sync: Option<u64>,
-    },
-    CheckAcceptServerConfig {
-        event_id: String,
-        task_id: TaskId,
-        peer: Peer,
-        server_config: String,
-    }
 }
 
 #[derive(Clone, Debug, Getters, Serialize, Deserialize)]
