@@ -4,7 +4,7 @@ use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
         Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, ServerConfigMessage, SyncEvent, SyncMessage
-    }, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumSyncEvent}, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
+    }, create_allegra_rpc_client_to_addr, dht::Peer, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 use base64::Engine as _;
 

@@ -77,6 +77,75 @@ impl Quorum {
             return false
         }
     }
+
+    async fn add_glusterfs_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
+        let output = std::process::Command::new("gluster")
+            .arg("peer")
+            .arg("probe")
+            .arg(peer.ip_address().to_string())
+            .arg("--mode=script")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to NFS volume"))
+        }
+
+        Ok(())
+    }
+
+    fn get_gluster_volumes(&self) -> std::io::Result<Vec<String>> {
+        let output = std::process::Command::new("gluster")
+            .arg("volume")
+            .arg("list")
+            .output()?;
+
+        if !output.status.success() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to list gluster volumes"))
+        }
+
+        let volumes = String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+
+        Ok(volumes)
+    }
+
+    async fn add_peer_to_gluster_volume(&self, peer: &Peer, instance: Namespace) -> std::io::Result<()> {
+        let output = std::process::Command::new("gluster")
+            .arg("volume")
+            .arg("add-brick")
+            .arg(&instance.inner().to_string())
+            .arg(&format!("{}:/mnt/glusterfs/vms/{}/brick", peer.ip_address(), instance.inner().to_string()))
+            .arg("force")
+            .arg("--mode=script")
+            .output()?;
+        if !output.status.success() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to GlusterFS volume"));
+        }
+
+        Ok(())
+    }
+
+    async fn increase_glusterfs_replica_factor(&self) -> std::io::Result<()> {
+        let volumes = self.get_gluster_volumes()?;
+        for volume in volumes {
+            let output = std::process::Command::new("gluster")
+                .arg("volume")
+                .arg("set")
+                .arg(&volume)
+                .arg("replica")
+                .arg(self.size().to_string())
+                .arg("force")
+                .arg("--mode=script")
+                .output()?;
+            if !output.status.success() {
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set replica for volume {}", volume)))
+            }
+        }
+
+        Ok(())
+    }
     
     pub fn size(&self) -> usize {
         self.peers().len()

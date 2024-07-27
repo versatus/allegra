@@ -125,6 +125,8 @@ impl CloudInit {
         self.network_config = Some(config);
         self
     }
+
+    // Write to file
 }
 
 impl VirtInstall {
