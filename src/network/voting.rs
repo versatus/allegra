@@ -1,6 +1,6 @@
 use getset::Getters;
 use serde::{Serialize, Deserialize};
-use crate::dht::Peer;
+use crate::network::peer::Peer;
 use derive_new::new as New;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Getters, Hash, New)]

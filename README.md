@@ -12,9 +12,11 @@ Allegra has only been tested on the `Ubuntu 22.04 LTS` distro
 
 - Docker
 - tikv (Docker)
-- lxd/lxc (snap)
+- libvirt
+- qemu
 - nginx
-- BIND
+- HAProxy
+- BIRD
 - BGP
 
 

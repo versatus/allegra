@@ -1,7 +1,7 @@
 use crate::allegra_rpc::{InstanceGetSshDetails, InstanceExposeServiceParams, InstanceAddPubkeyParams, InstanceDeleteParams, InstanceStopParams, InstanceStartParams, InstanceCreateParams};
 use crate::cli::commands::AllegraCommands;
-use crate::params::Payload;
-use crate::allegra_rpc::vmm_client::VmmClient;
+use crate::payload_impls::Payload;
+use crate::allegra_rpc::{vmm_client::VmmClient, Features};
 use std::io::Read;
 use std::collections::HashMap;
 use std::io::Write;
@@ -18,7 +18,7 @@ use serde::{Serialize, Deserialize};
 use tokio::net::TcpStream;
 use ssh2::Session;
 use std::fs::File;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::Channel;
 use termion::{async_stdin, raw::IntoRawMode};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -78,7 +78,28 @@ pub fn generate_new_wallet() -> std::io::Result<WalletInfo> {
 
 pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Result<(Signature, RecoveryId)> {
     let params: Box<dyn Payload> = match command {
-        AllegraCommands::Create { ref name, ref distro, ref version, ref vmtype, .. } => {
+        AllegraCommands::Create { 
+            ref name, ref distro, ref version, ref vmtype, ref memory, ref vcpus, ref cpu,
+            ref metadata, ref os_variant, ref host_device, ref network, ref disk, ref filesystem,
+            ref controller, ref input, ref graphics, ref sound, ref video, ref smartcard, ref redirdev,
+            ref memdev, ref tpm, ref rng, ref panic, ref memballoon, ref shmem, ref vsock, ref iommu, ref import,
+            ref boot, ref boot_dev, ref cdrom, ref watchdog, ref serial, ref channel, ref console, ref parallel,
+            ref install, ref location, ref pxe, ref idmap, ref features, ref clock, ref launch_security,
+            ref numatune, ref unattended, ref print_xml, ref dry_run, ref connect, ref virt_type,
+            ref cloud_init, .. 
+        } => {
+            let features: Vec<Features> = features.iter().map(|f| {
+                let parts: Vec<&str> = f.split("=").collect();
+                Features {
+                    name: parts[0].to_string(),
+                    feature: parts.get(1).map_or("".to_string(), |&s| s.to_string()),
+                }
+            }).collect();
+            
+            let cloud_init = match cloud_init.clone() {
+                Some(ci) => serde_yml::from_str(&ci).ok(),
+                None => None
+            };
             Box::new(
                 InstanceCreateParams {
                     name: name.clone(),
@@ -87,6 +108,23 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                     vmtype: vmtype.clone().to_string(),
                     sig: String::default(), 
                     recovery_id: u32::default(),
+                    sync: Some(false),
+                    memory: memory.clone(), vcpus: vcpus.clone(), cpu: cpu.clone(), metadata: metadata.clone(), os_variant: os_variant.clone(), 
+                    host_device: host_device.clone(),network: network.clone(), 
+                    disk: disk.clone(), filesystem: filesystem.clone(), controller: controller.clone(), 
+                    input: input.clone(), graphics: graphics.clone(), sound: sound.clone(), video: video.clone(), 
+                    smartcard: smartcard.clone(), redirdev: redirdev.clone(), memballoon: memballoon.clone(),
+                    tpm: tpm.clone(), rng: rng.clone(), panic: panic.clone(), memdev: memdev.clone(), 
+                    shmem: shmem.clone(), vsock: vsock.clone(), iommu: iommu.clone(), import: import.clone(),
+                    boot: boot.clone(), boot_dev: boot_dev.clone(), cdrom: cdrom.clone(), watchdog: watchdog.clone(), 
+                    serial: serial.clone(), channel: channel.clone(), console: console.clone(),
+                    parallel: parallel.clone(), install: install.clone(), location: location.clone(), pxe: pxe.clone(), 
+                    idmap: idmap.clone(), features, clock: clock.clone(),
+                    launch_security: launch_security.clone(), numatune: numatune.clone(), 
+                    unattended: unattended.clone(), print_xml: print_xml.clone(), 
+                    dry_run: dry_run.clone(),
+                    connect: connect.clone(), virt_type: virt_type.clone(), 
+                    cloud_init
                 }
             )
         }
@@ -155,7 +193,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
                 }
             )
         }
-        AllegraCommands::GetSshDetails { ref name, ref keypath, ref owner, ref username } => {
+        AllegraCommands::GetSshDetails { ref name, ref keypath, ref owner, ref username, .. } => {
             Box::new(
                 InstanceGetSshDetails {
                     owner: owner.to_string(),
@@ -175,7 +213,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
         }
     };
 
-    if let Some(ff) = command.from_file() {
+    if let Some(ff) = command.clone().from_file() {
         if let Some(fp) = command.path() {
             return Ok(generate_signature(
                 params, ff, fp.to_string(), command.kp_index()
@@ -307,13 +345,24 @@ pub async fn create_allegra_rpc_client_to_addr(dst: &str) -> std::io::Result<Vmm
     Ok(vmclient)
 }
 
-pub async fn create_allegra_rpc_client() -> std::io::Result<VmmClient<Channel>> {
-    let vmclient = VmmClient::connect("http://127.0.0.1:50051").await.map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            e
-        )
-    })?;
+pub async fn create_allegra_rpc_client(endpoint: &Option<String>) -> std::io::Result<VmmClient<Channel>> {
+    let vmclient = if let Some(endpoint) = endpoint {
+        let vmclient = VmmClient::connect(endpoint.clone()).await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        vmclient
+    } else {
+        let vmclient = VmmClient::connect("http://127.0.0.1:50051").await.map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?;
+        vmclient
+    };
 
     Ok(vmclient)
 }

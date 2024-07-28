@@ -14,6 +14,11 @@ enum ServiceType {
     CUSTOM = 8;
 }
 
+enum SyncEvent {
+    LIBRETTO_EVENT = 0;
+    INTERVAL_EVENT = 1;
+}
+
 message SshDetails {
   string ip = 1;
   uint32 port = 2;
@@ -25,6 +30,22 @@ message VmResponse {
   SshDetails ssh_details = 3;
 }
 
+message Features {
+    string name = 1;
+    string feature = 2;
+}
+
+message CloudInit {
+    bool root_password_generate = 1;
+    bool disable = 2;
+    optional string root_password_file = 3;
+    optional string meta_data = 4;
+    optional string user_data = 5;
+    optional string root_ssh_key = 6;
+    optional string clouduser_ssh_key = 7;
+    optional string network_config = 8;
+}
+
 message InstanceCreateParams {
   string name = 1;
   string distro = 2;
@@ -32,6 +53,54 @@ message InstanceCreateParams {
   string vmtype = 4;
   string sig = 5;
   uint32 recovery_id = 6;
+  optional bool sync = 7;
+  optional string memory = 8;
+  optional string vcpus = 9;
+  optional string cpu= 10;
+  optional string metadata = 11;
+  optional string os_variant = 12;
+  repeated string host_device = 13;
+  repeated string network = 14;
+  repeated string disk = 15;
+  repeated string filesystem = 16;
+  repeated string controller = 17; 
+  repeated string input = 18;
+  optional string graphics = 19;
+  optional string sound = 20;
+  optional string video = 21;
+  optional string smartcard = 22;
+  repeated string redirdev = 23;
+  optional string memballoon = 24;
+  optional string tpm = 25;
+  optional string rng = 26;
+  optional string panic = 27;
+  optional string shmem = 28;
+  repeated string memdev = 29;
+  optional string vsock = 30;
+  optional string iommu = 31;
+  optional string watchdog = 32;
+  repeated string serial = 33;
+  repeated string parallel = 34;
+  repeated string channel = 35;
+  repeated string console = 36;
+  optional string install = 37;
+  optional string cdrom = 38;
+  optional string location = 39;
+  bool pxe = 40;
+  bool import_ = 41;
+  optional string boot = 42;
+  optional string idmap = 43;
+  repeated Features features = 44;
+  optional string clock = 45;
+  optional string launch_security = 46;
+  optional string numatune = 47;
+  repeated string boot_dev = 48;
+  bool unattended = 49;
+  optional string print_xml = 50;
+  bool dry_run = 51;
+  optional string connect = 52;
+  optional string virt_type = 53;
+  optional CloudInit cloud_init = 54;
 }
 
 message InstanceStartParams {
@@ -112,7 +181,8 @@ message PongMessage {
 message SyncMessage {
     MessageHeader header = 1;
     string namespace = 2;
-    uint64 last_update = 3;
+    SyncEvent event_type = 3;
+    optional string event_data = 4;
 }
 
 message MigrateMessage {
@@ -159,6 +229,29 @@ message NodeCertMessage {
     string request_id = 5;
 }
 
+message ServerConfigMessage {
+    MessageHeader header = 1;
+    string request_id = 2;
+    string server_config = 3;
+}
+
+message BootstrapInstancesMessage {
+    optional MessageHeader header = 1;
+    string request_id = 2;
+    repeated string instances = 3;
+}
+
+message BootstrapCompleteMessage {
+    optional MessageHeader header = 1;
+    string original_request_id = 2;
+}
+
+message PreparedForLaunchMessage {
+    string peer_id = 1;
+    string peer_address = 2;
+    string instance = 3;
+}
+
 service Vmm {
   rpc CreateVm(InstanceCreateParams) returns (VmResponse);
   rpc ShutdownVm(InstanceStopParams) returns (VmResponse);
@@ -170,8 +263,10 @@ service Vmm {
   rpc GetSshDetails(InstanceGetSshDetails) returns (VmResponse);
   rpc Register(NewPeerMessage) returns (Ack);
   rpc Ping(PingMessage) returns (PongMessage);
-  rpc Sync(stream SyncMessage) returns (TransferStatus);
+  rpc Sync(SyncMessage) returns (Ack);
   rpc Migrate(stream MigrateMessage) returns (TransferStatus);
   rpc GetPort(GetPortMessage) returns (PortResponse);
-  rpc NodeCertificate(NodeCertMessage) returns (Ack);
+  rpc BootstrapInstances(BootstrapInstancesMessage) returns (Ack);
+  rpc BootstrapComplete(BootstrapCompleteMessage) returns (Ack);
+  rpc PreparedForLaunch(PreparedForLaunchMessage) returns (Ack);
 }

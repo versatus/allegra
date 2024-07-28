@@ -3,9 +3,10 @@ use uuid::Uuid;
 use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
-        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage
-    }, create_allegra_rpc_client_to_addr, dht::Peer, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
+        BootstrapCompleteMessage, BootstrapInstancesMessage, Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, PreparedForLaunchMessage, ServerConfigMessage, SyncEvent, SyncMessage
+    }, create_allegra_rpc_client_to_addr, event::NetworkEvent, network::peer::Peer, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
+use base64::Engine as _;
 
 pub struct NetworkClient {
     local_peer: Peer,
@@ -34,13 +35,13 @@ impl NetworkClient {
                 Ok(messages) = self.subscriber.receive() => {
                     log::info!("received {} messages", messages.len());
                     for message in messages {
-                        log::info!("Attempting to handle message: {:?}", message);
+                        //log::info!("Attempting to handle message: {:?}", message);
                         if let Err(e) = self.handle_networking_event(message.clone()).await {
                             log::error!("self.handle_networking_event(message): {e}: message: {message:?}");
                         }
-                        log::info!("Completed message handling");
+                        //log::info!("Completed message handling");
                     }
-                    log::info!("handled all messages awaiting next batch...");
+                    //log::info!("handled all messages awaiting next batch...");
                 },
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Network client is still alive");
@@ -56,13 +57,41 @@ impl NetworkClient {
 
     async fn handle_networking_event(&mut self, event: NetworkEvent) -> std::io::Result<()> {
         match event {
-            NetworkEvent::Create { name, distro, version, vmtype, sig, recovery_id, dst, .. } => {
+            NetworkEvent::Create { 
+                name, distro, version, vmtype, sig, recovery_id, dst, sync,
+                memory, vcpus, cpu, metadata, os_variant, host_device, network,
+                disk, filesystem, controller, input, graphics, sound, video,
+                smartcard, redirdev, memballoon, tpm, rng, panic, shmem, memdev,
+                vsock, iommu, watchdog, serial, parallel, channel, console,
+                install, cdrom, location, pxe, import, boot, idmap, features,
+                clock, launch_security, numatune, boot_dev, unattended, print_xml,
+                dry_run, connect, virt_type, cloud_init, ..
+            } => {
+
+                log::info!("Received Create event, sending to {dst}");
                 let create_instance_message = InstanceCreateParams {
-                    name, distro, version, vmtype, sig, recovery_id: recovery_id.into()
+                    name, distro, version, vmtype, sig, 
+                    recovery_id: recovery_id.into(), sync,
+                    memory, vcpus, cpu, metadata, os_variant,
+                    host_device, network, disk, filesystem, controller,
+                    input, graphics, sound, video, smartcard, redirdev,
+                    memballoon, tpm, rng, panic, shmem, memdev, vsock,
+                    iommu, watchdog, serial, parallel, channel, console,
+                    install, cdrom, location, pxe, import, boot,
+                    idmap,
+                    features: features.into_iter().map(|(name, feature)| {
+                        Features {
+                            name: name.clone(), 
+                            feature: feature.clone(),
+                        }
+                    }).collect(),
+                    clock, launch_security, numatune, boot_dev,
+                    unattended, print_xml, dry_run, connect, virt_type,
+                    cloud_init,
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let _resp = client.create_vm(
+                let resp = client.create_vm(
                     tonic::Request::new(
                         create_instance_message
                     )
@@ -71,7 +100,9 @@ impl NetworkClient {
                         std::io::ErrorKind::Other,
                         e.to_string()
                     )
-                })?.into_inner();
+                });
+
+                log::info!("Received valid response to Create message sent to {dst}: {}", resp.is_ok());
             }
             NetworkEvent::NewPeer { 
                 peer_id, peer_address, dst, ..
@@ -83,22 +114,22 @@ impl NetworkClient {
                     message_id: uuid::Uuid::new_v4().to_string(),
                 };
 
-                log::info!("constructed message header");
+                //log::info!("constructed message header");
                 let new_peer_message = NewPeerMessage {
                     header: Some(header),
                     new_peer_id: peer_id,
                     new_peer_address: peer_address,
                 };
 
-                log::info!("constructed new_peer message");
+                //log::info!("constructed new_peer message");
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
                 let resp = client.register(new_peer_message).await.map_err(|e| {
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
                         e.to_string()
                     )
-                })?.into_inner();
-                log::info!("Response to NewPeer message sent to {dst}: {:?}", resp);
+                });
+                log::info!("Received valid response to NewPeer message sent to {dst}: {}", resp.is_ok());
             }
             NetworkEvent::ExposeService { 
                 name, sig, recovery_id, port, service_type, dst, ..
@@ -145,7 +176,7 @@ impl NetworkClient {
                 let start_message = InstanceStartParams { name, sig, recovery_id: recovery_id as u32, console, stateless };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.start_vm(
+                let _resp = client.start_vm(
                     tonic::Request::new(
                         start_message
                     )
@@ -162,7 +193,7 @@ impl NetworkClient {
                 let delete_message = InstanceDeleteParams { name, force, interactive, sig, recovery_id: recovery_id as u32 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.delete_vm(
+                let _resp = client.delete_vm(
                     tonic::Request::new(
                         delete_message
                     )
@@ -179,7 +210,7 @@ impl NetworkClient {
                 let add_pubkey_message = InstanceAddPubkeyParams { name, sig, recovery_id: recovery_id as u32, pubkey };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;
-                let resp = client.set_ssh_pubkey(
+                let _resp = client.set_ssh_pubkey(
                     tonic::Request::new(
                         add_pubkey_message
                     )
@@ -190,68 +221,57 @@ impl NetworkClient {
                     )
                 })?.into_inner();
             }
-            NetworkEvent::DistributeCerts { certs, peer, quorum_id, .. } => {
-                for (peer, cert) in certs {
-                    let mut client = create_allegra_rpc_client_to_addr(
-                        &peer.ip_address().to_string()
-                    ).await?;
-                    let request_id = Uuid::new_v4().to_string();
-                    let node_cert_message = NodeCertMessage {
-                        peer_id: peer.wallet_address_hex(),
-                        peer_address: peer.ip_address().to_string(),
-                        quorum_id: quorum_id.clone(),
-                        cert,
-                        request_id
-                    };
-
-                    let resp = client.node_certificate(
-                        tonic::Request::new(
-                            node_cert_message
-                        )
-                    ).await.map_err(|e| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            e
-                        )
-                    })?;
-                }
-            }
-            NetworkEvent::ShareCert { peer, cert, quorum_id, dst, .. } => {
-                log::info!("Received NetworkEvent::ShareCert event");
-                let request_id = Uuid::new_v4().to_string();
-                let node_cert_message = NodeCertMessage {
-                    peer_id: peer.wallet_address_hex(),
-                    peer_address: peer.ip_address().to_string(),
-                    quorum_id,
-                    cert,
-                    request_id
-                };
-
-                log::info!("Attempting to create allegra rpc client to {dst:?}");
-                let mut client = create_allegra_rpc_client_to_addr(
-                    &dst.ip_address().to_string()
-                ).await?;
-                log::info!("Attempting to send node certificate");
-                let resp = client.node_certificate(
-                    tonic::Request::new(
-                        node_cert_message
-                    )
-                ).await.map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })?.into_inner();
-                log::info!("Sent ShareCert request to {}: {}: response: {:?}", peer.wallet_address_hex(), peer.ip_address(), resp);
-            }
             NetworkEvent::CastLeaderElectionVote { .. } => {
                 todo!()
             }
-            NetworkEvent::BootstrapNewPeer { event_id, task_id, peer, dst } => {
+            NetworkEvent::BootstrapNewPeer { .. } => {
                 log::info!("Received Bootstrap New Peer event");
             }
-            NetworkEvent::BootstrapResponse { event_id, original_event_id, task_id, quorums, instances } => {
+            NetworkEvent::BootstrapResponse { .. } => {
                 log::info!("Received Bootstrap Response event");
+            }
+            NetworkEvent::Heartbeat { .. } => {
+                /*
+                let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
+                let header = MessageHeader {
+                    peer_id
+                }
+                */
+                todo!()
+            }
+            NetworkEvent::ShareInstanceNamespaces { task_id, instances, peer, .. } => {
+                let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
+
+                let message = BootstrapInstancesMessage {
+                    header: None,
+                    request_id: task_id.to_string(),
+                    instances: instances.iter().map(|namespace| namespace.inner().to_string()).collect()
+                };
+
+                let resp = client.bootstrap_instances(tonic::Request::new(message)).await;
+                log::info!("Sent BootstrapInstancesMessage request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
+            }
+            NetworkEvent::BootstrapInstancesResponse { task_id, requestor, .. } => {
+                let mut client = create_allegra_rpc_client_to_addr(&requestor.ip_address().to_string()).await?;
+                let message = BootstrapCompleteMessage {
+                    header: None,
+                    original_request_id: task_id.to_string(),
+                };
+
+                let resp = client.bootstrap_complete(tonic::Request::new(message)).await;
+                log::info!("Sent BootstrapInstancesMessage request to {}: {}: response: {}", requestor.wallet_address_hex(), requestor.ip_address(), resp.is_ok());
+            }
+            NetworkEvent::PreparedForLaunch { instance, dst, local_peer, .. } => {
+                let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
+                let message = PreparedForLaunchMessage {
+                    peer_id: local_peer.wallet_address_hex(),
+                    peer_address: local_peer.ip_address().to_string(),
+                    instance: instance.inner().to_string()
+                };
+
+                let resp = client.prepared_for_launch(tonic::Request::new(message)).await;
+
+                log::info!("Sent PreparedForLaunch request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
             }
         }
 

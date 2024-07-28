@@ -1,343 +1,35 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr};
+use std::{collections::{HashMap, HashSet}, hash::RandomState};
 use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
+use futures::StreamExt;
 use anchorhash::AnchorHash;
-use serde::{Serialize, Deserialize};
 use regex::Regex;
+use std::str::FromStr;
 
 use crate::{
     account::{
         Namespace,
         TaskId
-    }, event::{
+    }, allegra_rpc::{
+            InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
+        }, consts::NGINX_CONFIG_PATH, event::{
         NetworkEvent, 
         QuorumEvent, 
         VmmEvent
-    }, network::node::Node, 
-        params::{
-            InstanceCreateParams, Params, InstanceStartParams,
-            InstanceStopParams, InstanceGetSshDetails, InstanceExposeServiceParams,
-            InstanceDeleteParams, InstanceAddPubkeyParams
-        }, 
-        publish::{
+    }, network::node::Node, params::Params, publish::{
             GenericPublisher, NetworkTopic, VmManagerTopic
-        }, subscribe::QuorumSubscriber
+        }, subscribe::QuorumSubscriber, VmType
 };
 
 use conductor::subscriber::SubStream;
 use conductor::publisher::PubStream;
-use tokio::task::JoinHandle;
-use tokio::time::{interval, Duration};
-use futures::StreamExt;
+use tokio::{io::AsyncWriteExt, task::JoinHandle};
+use tokio::time::{interval, Duration, Instant};
 use getset::{Getters, MutGetters};
 use crate::statics::BOOTSTRAP_QUORUM;
-
-#[derive(Debug, Clone, Getters, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Peer {
-    wallet_address: Address,
-    ip_address: SocketAddr,
-}
-
-impl Peer {
-    pub fn new(wallet_address: Address, ip_address: SocketAddr) -> Self {
-        Self { wallet_address, ip_address }
-    }
-
-    pub fn wallet_address(&self) -> &Address {
-        &self.wallet_address
-    }
-
-    pub fn ip_address(&self) -> &SocketAddr {
-        &self.ip_address
-    }
-
-    pub fn wallet_address_hex(&self) -> String {
-        format!("{:x}", self.wallet_address())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AuthType {
-    #[serde(rename = "tls")]
-    Tls,
-    #[serde(rename = "file access")]
-    FileAccess,
-    #[serde(rename = "candid")]
-    Candid,
-    #[serde(rename = "pos")]
-    Pos,
-    #[serde(rename = "pki")]
-    Pki,
-    #[serde(rename = "rbac")]
-    Rbac,
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Protocol {
-    SimpleStream,
-    Lxd,
-    #[serde(other)]
-    Other
-}
-
-#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
-#[getset(get = "pub")]
-struct RemoteFields {
-    #[serde(rename = "Addr")]
-    ip_addr: String,
-    #[serde(rename = "AuthType")]
-    auth_type: Option<AuthType>,
-    #[serde(rename = "Domain")]
-    domain: Option<String>,
-    #[serde(rename = "Project")]
-    project: Option<String>,
-    #[serde(rename = "Protocol")]
-    protocol: Option<Protocol>,
-    #[serde(rename = "Public")]
-    public: bool,
-    #[serde(rename = "Global")]
-    global: bool,
-    #[serde(rename = "Static")]
-    static_: bool
-}
-
-
-#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
-#[getset(get = "pub")]
-pub struct Remote {
-    id: String,
-    #[serde(rename = "Addr")]
-    ip_addr: String,
-    #[serde(rename = "AuthType")]
-    auth_type: Option<AuthType>,
-    #[serde(rename = "Domain")]
-    domain: Option<String>,
-    #[serde(rename = "Project")]
-    project: Option<String>,
-    #[serde(rename = "Protocol")]
-    protocol: Option<Protocol>,
-    #[serde(rename = "Public")]
-    public: bool,
-    #[serde(rename = "Global")]
-    global: bool,
-    #[serde(rename = "Static")]
-    static_: bool
-}
-
-#[allow(private_interfaces)]
-impl Remote {
-    pub fn from_map(id: String, fields: RemoteFields) -> Self {
-        Self {
-            id,
-            ip_addr: fields.ip_addr().clone(),
-            auth_type: fields.auth_type().clone(),
-            domain: fields.domain().clone(),
-            project: fields.project().clone(),
-            protocol: fields.protocol().clone(),
-            public: fields.public().clone(),
-            global: fields.global().clone(),
-            static_: fields.static_().clone()
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TrustType {
-    Client,
-    Metrics
-}
-
-#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
-#[getset(get = "pub")]
-pub struct TrustEntry {
-    #[serde(rename = "name")]
-    id: String,
-    #[serde(rename = "type")]
-    type_: TrustType,
-    restricted: bool,
-    projects: Vec<String>,
-    certificate: String,
-    fingerprint: String,
-}
-
-#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
-#[getset(get = "pub")]
-pub struct TrustToken {
-    #[serde(rename = "ClientName")]
-    id: String,
-    #[serde(rename = "Token")]
-    token: String,
-    #[serde(rename = "ExpiresAt")]
-    expires_at: String,
-}
-
-#[derive(Debug, Clone, Getters, MutGetters, Serialize, Deserialize)]
-#[getset(get = "pub")]
-pub struct TrustStore {
-    remotes: HashMap<String, Remote>,
-    trust_entries: HashMap<String, TrustEntry>,
-    trust_tokens: HashMap<String, TrustToken>,
-}
-
-impl TrustStore {
-    pub fn new() -> std::io::Result<Self> {
-        let trust_entries = Self::update_trust_entries()?;
-        let remotes = Self::update_remotes()?;
-        let trust_tokens = Self::update_trust_tokens()?;
-
-        Ok(Self { trust_tokens, trust_entries, remotes })
-    }
-
-    fn update_trust_entries() -> std::io::Result<HashMap<String, TrustEntry>> {
-        let trust_entries_output = std::process::Command::new("lxc")
-            .arg("config")
-            .arg("trust")
-            .arg("list")
-            .arg("-f")
-            .arg("json")
-            .output()?;
-
-        if trust_entries_output.status.success() {
-            let trust_entries: Vec<TrustEntry> = serde_json::from_slice(
-                &trust_entries_output.stdout
-            ).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-            let trust_entries = trust_entries.par_iter().map(|t| {
-                (t.id().to_string(), t.clone()) 
-            }).collect();
-            return Ok(trust_entries)
-        } else {
-            let err = std::str::from_utf8(&trust_entries_output.stderr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    err
-                )
-            )
-        }
-    }
-
-    fn update_remotes() -> std::io::Result<HashMap<String, Remote>> {
-        let remotes_output = std::process::Command::new("lxc")
-            .arg("remote")
-            .arg("list")
-            .arg("-f")
-            .arg("json")
-            .output()?;
-
-        if remotes_output.status.success() {
-            let remotes_fields: HashMap<String, RemoteFields> = serde_json::from_slice(&remotes_output.stdout).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-
-            let remotes: HashMap<String, Remote> = remotes_fields.par_iter().map(|(id, fields)| {
-                (id.clone(), Remote::from_map(id.clone(), fields.clone()))
-            }).collect();
-
-            return Ok(remotes)
-        } else {
-            let err = std::str::from_utf8(&remotes_output.stderr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    err
-                )
-            )
-        }
-    }
-
-    fn update_trust_tokens() -> std::io::Result<HashMap<String, TrustToken>> {
-        let trust_tokens_output = std::process::Command::new("lxc")
-            .arg("config")
-            .arg("trust")
-            .arg("list-tokens")
-            .arg("-f")
-            .arg("json")
-            .output()?;
-
-        if trust_tokens_output.status.success() {
-            let trust_tokens: Vec<TrustToken> = serde_json::from_slice(&trust_tokens_output.stdout)?; 
-            let trust_tokens: HashMap<String, TrustToken> = trust_tokens.par_iter().map(|tt| {
-                (tt.id().clone(), tt.clone())
-            }).collect();
-
-            return Ok(trust_tokens)
-        } else {
-            let err = std::str::from_utf8(&trust_tokens_output.stderr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    err
-                )
-            )
-
-        }
-    }
-}
-
-#[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Quorum {
-    #[getset(get_copy="pub", get="pub", get_mut)]
-    id: Uuid,
-    #[getset(get_copy="pub", get="pub", get_mut)]
-    peers: HashSet<Peer>,
-}
-
-impl Quorum {
-    pub fn new() -> Self {
-        let id = Uuid::new_v4(); 
-        Self { id, peers: HashSet::new() }
-    }
-
-    pub fn add_peer(&mut self, peer: &Peer) -> bool {
-        if !self.peers.contains(peer) {
-            self.peers.insert(peer.clone());
-            return true
-        } else {
-            return false
-        }
-    }
-    
-    pub fn size(&self) -> usize {
-        self.peers().len()
-    }
-}
-
-pub enum QuorumResult {
-    Unit(()),
-    Other(String),
-}
+use crate::{Peer, Quorum, QuorumResult};
 
 #[derive(Getters, MutGetters)]
 #[getset(get = "pub", get_copy = "pub", get_mut)]
@@ -348,10 +40,11 @@ pub struct QuorumManager {
     quorums: HashMap<Uuid, Quorum>,
     peer_hashring: AnchorHash<Address, Quorum, RandomState>,
     instance_hashring: AnchorHash<Namespace, Quorum, RandomState>,
+    launch_ready: HashMap<Namespace, HashSet<Peer>>,
     subscriber: QuorumSubscriber,
     publisher: GenericPublisher,
-    trust_store: TrustStore,
-    futures: FuturesUnordered<JoinHandle<std::io::Result<QuorumResult>>>
+    futures: FuturesUnordered<JoinHandle<std::io::Result<QuorumResult>>>,
+    heartbeats: HashMap<Peer, Instant>
 }
 
 
@@ -377,7 +70,6 @@ impl QuorumManager {
         let publisher = GenericPublisher::new(publisher_uri).await?;
         let subscriber = QuorumSubscriber::new(subscriber_uri).await?;
         let node = Node::new(peer_info);
-        let trust_store = TrustStore::new()?;
         
         Ok(Self {
             node,
@@ -386,10 +78,11 @@ impl QuorumManager {
             quorums,
             peer_hashring,
             instance_hashring,
+            launch_ready: HashMap::new(),
             publisher,
             subscriber,
-            trust_store,
-            futures: FuturesUnordered::new()
+            futures: FuturesUnordered::new(),
+            heartbeats: HashMap::new()
         })
     }
 
@@ -404,15 +97,12 @@ impl QuorumManager {
                 result = self.subscriber.receive() => {
                     match result {
                         Ok(messages) => {
-                            log::info!("Received {} messages", messages.len());
-                            for m in messages {
-                                log::info!("attempting to handle message: {:?}", m);
+                            for m in messages.clone() {
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
                                     log::error!("self.handle_quorum_message(m): {e}: message: {m:?}");
                                 }
-                                log::info!("Completed self.handle_quorum message call");
                             }
-                            log::info!("handled all available messages");
+                            log::info!("handled all available {} messages", messages.len());
                         }
                         Err(e) => log::error!("self.subscriber.receive() Error: {e}")
                     }
@@ -439,12 +129,9 @@ impl QuorumManager {
                 },
                 _heartbeat = heartbeat_interval.tick() => {
                     log::info!("Quorum is still alive...");
-                },
-                _check_remotes = check_remotes_interval.tick() => {
-                    log::info!("checking if all peers have a remote connection...");
-                    if let Err(e) = self.check_remotes().await {
-                        log::info!("Error attempting to check remotes: {e}");
-                    }
+                    // Send heartbeat to quorum members...
+                    self.heartbeat().await?;
+                    self.check_heartbeats().await?;
                 },
                 _ = tokio::signal::ctrl_c() => {
                     break;
@@ -460,23 +147,100 @@ impl QuorumManager {
             QuorumEvent::Expand { .. } => todo!(),
             QuorumEvent::Consolidate { .. } => todo!(),
             QuorumEvent::RequestSshDetails { .. } => todo!(),
-            QuorumEvent::NewPeer { event_id, task_id, peer } => {
+            QuorumEvent::NewPeer { event_id, task_id, peer, received_from } => {
                 //log::info!("Received NewPeer quorum message: {event_id}: {task_id}");
-                self.handle_new_peer_message(&peer).await?;
+                self.handle_new_peer_message(&peer, &received_from).await?;
+                log::info!("Successfully completed self.handle_new_peer_message call for QuorumEvent::NewPeer message...");
             }
             QuorumEvent::CheckResponsibility { event_id, task_id, namespace, payload } => {
-                //log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
+                log::info!("Received CheckResponsibility quorum message: {event_id}: {task_id}");
                 self.handle_check_responsibility_message(
                     &namespace,
                     &payload,
-                    task_id
+                    task_id,
+                ).await?;
+                log::info!("Successfully completed self.handle_check_responsibility_message call for QuorumEvent::CheckResponsibility message...");
+            }
+            QuorumEvent::BootstrapInstances { instances, received_from, event_id, task_id} => {
+                self.bootstrap_instances(
+                    instances,
+                    &received_from,
                 ).await?;
             }
-            QuorumEvent::CheckAcceptCert { peer, cert, event_id, task_id } => {
-                log::info!("Received CheckAcceptCert quorum message for peer {peer:?}: {event_id}: {task_id}");
-                self.accept_cert(&peer, &cert).await?;
-                log::info!("Successfully completed self.accept_cert call for QuorumEvent::CheckAcceptCert message...");
+            QuorumEvent::BootstrapInstancesComplete { event_id, peer, task_id } => {
+                // Here we need to add the brick to the gluster volume
+                self.complete_bootstrap(&peer).await?;
             }
+            QuorumEvent::PreparedForLaunch { event_id, task_id, instance } => {
+                self.prepared_for_launch(instance).await?;
+            }
+            QuorumEvent::AcceptLaunchPreparation { peer, instance, .. } => {
+                self.accept_launch_preparation(peer, instance).await;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn accept_launch_preparation(&mut self, peer: Peer, instance: Namespace) -> std::io::Result<()> {
+        //Check if all nodes have responded and are prepared
+        //if so:
+        //  create gluster volume
+        //  inform VMM it can launch the instance.
+        let quorum_id = self.get_quorum_responsible(&instance)?;
+        let mut quorum = self.get_quorum_by_id(&quorum_id).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find quorum"
+            )
+        )?.clone();
+
+        let mut entry = self.launch_ready.entry(instance.clone()).or_insert(HashSet::new());
+        entry.insert(peer);
+
+        let peers = quorum.peers().clone();
+        let mut prepared = true;
+        for peer in peers {
+            if !entry.contains(&peer) {
+                prepared = false;
+            }
+        }
+
+        if prepared {
+            quorum.create_gluster_volume(instance.clone(), quorum.peers().clone().iter().collect()).await?;
+        }
+
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = VmmEvent::LaunchInstance { event_id, task_id, namespace: instance.clone() };
+
+        self.publisher_mut().publish(
+            Box::new(VmManagerTopic), 
+            Box::new(event)
+        ).await?;
+
+        Ok(())
+    }
+
+    async fn prepared_for_launch(&mut self, instance: Namespace) -> std::io::Result<()> {
+        // Create and send network event to each peer
+        let local_peer = self.node().peer_info().clone();
+        let peers = self.get_quorum_peers(&local_peer).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find peers"
+            )
+        )?; 
+
+        for peer in peers {
+            let event_id = Uuid::new_v4().to_string();
+            let task_id = TaskId::new(Uuid::new_v4().to_string());
+            let event = NetworkEvent::PreparedForLaunch { event_id, task_id, instance: instance.clone(), dst: peer.clone(), local_peer: local_peer.clone() };
+            
+            self.publisher_mut().publish(
+                Box::new(NetworkTopic),
+                Box::new(event)
+            ).await?;
         }
 
         Ok(())
@@ -495,7 +259,7 @@ impl QuorumManager {
 
     fn get_local_quorum_membership(&mut self) -> std::io::Result<Uuid> {
         let local_peer = self.node().peer_info();
-        Ok(self.get_peer_quorum_membership(&local_peer).ok_or(
+        Ok(self.get_peer_quorum_membership(local_peer).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Local Peer's quorum cannot be found"
@@ -540,49 +304,155 @@ impl QuorumManager {
                         name: payload.name.clone(), 
                         distro: payload.distro.clone(), 
                         version: payload.version.clone(), 
-                        vmtype: payload.vmtype.clone(), 
+                        vmtype: VmType::from_str(&payload.vmtype)?.clone(), 
                         sig: payload.sig.clone(), 
-                        recovery_id: payload.recovery_id 
+                        recovery_id: payload.recovery_id.clone(),
+                        sync: payload.sync.clone(),
+                        memory: payload.memory.clone(),
+                        vcpus: payload.vcpus.clone(),
+                        cpu: payload.cpu.clone(),
+                        metadata: payload.metadata.clone(),
+                        os_variant: payload.os_variant.clone(),
+                        host_device: payload.host_device.clone(),
+                        network: payload.network.clone(),
+                        disk: payload.disk.clone(),
+                        filesystem: payload.filesystem.clone(),
+                        controller: payload.controller.clone(),
+                        input: payload.input.clone(),
+                        graphics: payload.graphics.clone(),
+                        sound: payload.sound.clone(),
+                        video: payload.video.clone(),
+                        smartcard: payload.smartcard.clone(),
+                        redirdev: payload.redirdev.clone(),
+                        memballoon: payload.memballoon.clone(),
+                        tpm: payload.tpm.clone(),
+                        rng: payload.rng.clone(),
+                        panic: payload.panic.clone(),
+                        shmem: payload.shmem.clone(),
+                        memdev: payload.memdev.clone(),
+                        vsock: payload.vsock.clone(),
+                        iommu: payload.iommu.clone(),
+                        watchdog: payload.watchdog.clone(),
+                        serial: payload.serial.clone(),
+                        parallel: payload.parallel.clone(),
+                        channel: payload.channel.clone(),
+                        console: payload.console.clone(),
+                        install: payload.install.clone(),
+                        cdrom: payload.cdrom.clone(),
+                        location: payload.location.clone(),
+                        pxe: payload.pxe.clone(),
+                        import: payload.import.clone(),
+                        boot: payload.boot.clone(),
+                        idmap: payload.idmap.clone(),
+                        features: payload.features.par_iter().map(|f| {
+                            (f.name.clone(), f.feature.clone())
+                        }).collect(),
+                        clock: payload.clock.clone(),
+                        launch_security: payload.launch_security.clone(),
+                        numatune: payload.numatune.clone(),
+                        boot_dev: payload.boot_dev.clone(),
+                        unattended: payload.unattended.clone(),
+                        print_xml: payload.print_xml.clone(),
+                        dry_run: payload.dry_run.clone(),
+                        connect: payload.connect.clone(),
+                        virt_type: payload.virt_type.clone(),
+                        cloud_init: payload.cloud_init.clone()
                     }
                 )
             ).await?;
         }
 
-        let futures = peers.par_iter().map(|p| {
-            let payload = payload.clone();
-            let publish_to_addr = publisher_addr.clone();
-            let peer = p.clone();
-            let task_id = task_id.clone();
-            tokio::spawn(
-                async move {
-                    log::info!("publishing payload for {task_id} to {}", peer.ip_address().to_string());
-                    let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
-                    let event_id = Uuid::new_v4().to_string();
-                    let _ = publisher.publish(
-                        Box::new(NetworkTopic),
-                        Box::new(
-                            NetworkEvent::Create { 
-                                event_id, 
-                                task_id: task_id.clone(), 
-                                name: payload.name.clone(), 
-                                distro: payload.distro.clone(), 
-                                version: payload.version.clone(), 
-                                vmtype: payload.vmtype.clone().to_string(), 
-                                sig: payload.sig.clone(), 
-                                recovery_id: payload.recovery_id, 
-                                dst: peer.ip_address().to_string() 
-                            }
-                        )
-                    ).await?;
+        for p in peers {
+            if p != self.node().peer_info().clone() {
+                let publish_to_addr = self.publisher().peer_addr()?;
+                let inner_payload = payload.clone();
+                let inner_task_id = task_id.clone();
+                let future = tokio::spawn(
+                    async move {
+                        log::info!("publishing payload for {inner_task_id} to {}", p.ip_address().to_string());
+                        let mut publisher = GenericPublisher::new(&publish_to_addr).await?;
+                        let event_id = Uuid::new_v4().to_string();
+                        let _ = publisher.publish(
+                            Box::new(NetworkTopic),
+                            Box::new(
+                                NetworkEvent::Create { 
+                                    event_id, 
+                                    task_id: inner_task_id.clone(), 
+                                    name: inner_payload.name.clone(), 
+                                    distro: inner_payload.distro.clone(), 
+                                    version: inner_payload.version.clone(), 
+                                    vmtype: inner_payload.vmtype.clone().to_string(), 
+                                    sig: inner_payload.sig.clone(), 
+                                    recovery_id: inner_payload.recovery_id, 
+                                    dst: p.ip_address().to_string(),
+                                    sync: inner_payload.sync,
+                                    memory: inner_payload.memory,
+                                    vcpus: inner_payload.vcpus,
+                                    cpu: inner_payload.cpu,
+                                    metadata: inner_payload.metadata,
+                                    os_variant: inner_payload.os_variant,
+                                    host_device: inner_payload.host_device,
+                                    network: inner_payload.network,
+                                    disk: inner_payload.disk,
+                                    filesystem: inner_payload.filesystem,
+                                    controller: inner_payload.controller,
+                                    input: inner_payload.input,
+                                    graphics: inner_payload.graphics,
+                                    sound: inner_payload.sound,
+                                    video: inner_payload.video,
+                                    smartcard: inner_payload.smartcard,
+                                    redirdev: inner_payload.redirdev,
+                                    memballoon: inner_payload.memballoon,
+                                    tpm: inner_payload.tpm,
+                                    rng: inner_payload.rng,
+                                    panic: inner_payload.panic,
+                                    shmem: inner_payload.shmem,
+                                    memdev: inner_payload.memdev,
+                                    vsock: inner_payload.vsock,
+                                    iommu: inner_payload.iommu,
+                                    watchdog: inner_payload.watchdog,
+                                    serial: inner_payload.serial,
+                                    parallel: inner_payload.parallel,
+                                    channel: inner_payload.channel,
+                                    console: inner_payload.console,
+                                    install: inner_payload.install,
+                                    cdrom: inner_payload.cdrom,
+                                    location: inner_payload.location,
+                                    pxe: inner_payload.pxe,
+                                    import: inner_payload.import,
+                                    boot: inner_payload.boot,
+                                    idmap: inner_payload.idmap,
+                                    features: inner_payload.features.par_iter().map(|f| {
+                                        (f.name.clone(), f.feature.clone())
+                                    }).collect(),
+                                    clock: inner_payload.clock,
+                                    launch_security: inner_payload.launch_security,
+                                    numatune: inner_payload.numatune,
+                                    boot_dev: inner_payload.boot_dev,
+                                    unattended: inner_payload.unattended,
+                                    print_xml: inner_payload.print_xml,
+                                    dry_run: inner_payload.dry_run,
+                                    connect: inner_payload.connect,
+                                    virt_type: inner_payload.virt_type,
+                                    cloud_init: inner_payload.cloud_init
+                                }
+                            )
+                        ).await?;
 
-                    Ok::<_, std::io::Error>(QuorumResult::Unit(()))
-                }
-            )
-        }).collect::<Vec<_>>();
+                        Ok::<_, std::io::Error>(QuorumResult::Unit(()))
+                    }
+                );
 
-        self.futures.extend(futures);
+                self.futures.push(future);
+            }
+        }
+
 
         Ok(())
+    }
+
+    async fn attempt_share_server_config(dst: Peer, requestor: Peer, publisher_uri: &str) -> std::io::Result<()> {
+        todo!()
     }
 
     async fn handle_start_payload(
@@ -850,8 +720,11 @@ impl QuorumManager {
                         name: payload.name.clone(),
                         sig: payload.sig.clone(),
                         recovery_id: payload.recovery_id,
-                        port: payload.port.clone(),
-                        service_type: payload.service_type.clone()
+                        port: payload.port.iter().filter_map(|i| {
+                            let i = *i;
+                            i.try_into().ok().clone()
+                        }).collect::<Vec<u16>>().clone(),
+                        service_type: payload.service_type.iter().map(|i| crate::params::ServiceType::from(*i)).collect::<Vec<crate::params::ServiceType>>().clone()
                     }
                 )
             ).await?;
@@ -875,8 +748,11 @@ impl QuorumManager {
                                 name: payload.name.clone(),
                                 sig: payload.sig.clone(),
                                 recovery_id: payload.recovery_id,
-                                port: payload.port.clone(),
-                                service_type: payload.service_type.clone(),
+                                port: payload.port.iter().filter_map(|i| {
+                                    let i = *i;
+                                    i.try_into().ok().clone()
+                                }).collect(),
+                                service_type: payload.service_type.iter().map(|i| crate::params::ServiceType::from(*i)).collect::<Vec<crate::params::ServiceType>>().clone(),
                                 dst: peer.ip_address().to_string()
                             }
                         )
@@ -904,11 +780,10 @@ impl QuorumManager {
 
     async fn handle_new_peer_message(
         &mut self, 
-        peer: &Peer
+        peer: &Peer,
+        received_from: &Peer
     ) -> std::io::Result<()> {
-
-        //log::info!("Attempting to handle NewPeer event...");
-        self.add_peer(peer).await?;
+        self.add_peer(peer, Some(received_from)).await?;
 
         Ok(())
     }
@@ -1006,7 +881,7 @@ impl QuorumManager {
         });
 
         for (_, peer) in self.peers.clone() {
-            self.add_peer(&peer).await?;
+            self.add_peer(&peer, None).await?;
         }
 
         for (namespace, _) in self.instances.clone() {
@@ -1060,192 +935,134 @@ impl QuorumManager {
         )
     }
 
-    pub async fn update_trust_store(&mut self) -> std::io::Result<()> {
-        let trust_store = TrustStore::new()?;
-        self.trust_store = trust_store;
-
-        Ok(())
-    }
-
-    pub async fn share_cert(
-        &mut self, 
-        peer: &Peer, 
-    ) -> std::io::Result<()> {
-        log::info!("Attempting to share certificate with peer: {}", &peer.wallet_address_hex()); 
-        let peer_id = peer.wallet_address_hex();
-
-        let output = std::process::Command::new("lxc")
-            .arg("config")
-            .arg("trust")
-            .arg("add")
-            .arg("--name")
-            .arg(&peer_id)
-            .output()?;
-
-        if output.status.success() {
-            log::info!("Successfully created token for peer {}", &peer.wallet_address().to_string());
-            let cert = match std::str::from_utf8(&output.stdout) {
-                Ok(res) => res.to_string(),
-                Err(e) => return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                )
-            };
-
-            self.update_trust_store().await?;
-
-            let cert = self.trust_store().trust_tokens().get(&peer_id).ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Unable to find peer_id in trust tokens despite success in call to lxc config trust add --name {}", peer_id)
-                )
-            )?.token().to_string();
-
-            let quorum_id = self.get_local_quorum_membership()?.to_string();
-            log::info!("Cert: {cert}");
-            let task_id = TaskId::new(uuid::Uuid::new_v4().to_string()); 
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let event = NetworkEvent::ShareCert { 
-                peer: self.node().peer_info().clone(), 
-                cert,
-                task_id,
-                event_id,
-                quorum_id,
-                dst: peer.clone() 
-            };
-
-            log::info!("Created event to ShareCert with {}... Publishing event...", peer.wallet_address());
-            self.publisher.publish(
-                Box::new(NetworkTopic),
-                Box::new(event)
-            ).await?;
-            log::info!("Successfully published event...");
-
-        } else {
-            let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
-            return Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Unable to add client certificate to trust store for peer {}: {}", &peer.wallet_address_hex(), &stderr)
-                )
-            )
-        }
-
-
-        log::info!("Completed self.share_cert call...");
-        Ok(())
-    }
-
-    pub async fn check_remotes(&mut self) -> std::io::Result<()> {
-        log::info!("Checking to ensure all local quorum members are remotes...");
-        let local_quorum_id = self.get_local_quorum_membership()?;
-        let local_quorum = self.get_quorum_by_id(&local_quorum_id).ok_or(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "unable to find local quorum"
-            )
-        )?.clone(); 
-        let local_quorum_members = local_quorum.peers();
-        for peer in local_quorum_members {
-            if peer != self.node().peer_info() {
-                log::info!("checking trust store for peer {}", peer.wallet_address_hex());
-                if !self.trust_store.remotes().contains_key(&peer.wallet_address_hex()) {
-                    log::info!("peer {} not in trust store... checking trust tokens", peer.wallet_address_hex());
-                    match self.trust_store.trust_tokens().get(&peer.wallet_address_hex()) {
-                        Some(token) => {
-                            log::info!("found peer {} trust token, sharing...", peer.wallet_address_hex());
-                            let event_id = Uuid::new_v4().to_string();
-                            let task_id = TaskId::new(Uuid::new_v4().to_string());
-                            let event = NetworkEvent::ShareCert { 
-                                event_id,
-                                task_id,
-                                peer: self.node().peer_info().clone(),
-                                cert: token.token().clone(),
-                                quorum_id: local_quorum_id.to_string(),
-                                dst: peer.clone() 
-                            };
-                            self.publisher_mut().publish(
-                                Box::new(NetworkTopic),
-                                Box::new(event)
-                            ).await?;
-                            log::info!("Successfully shared trust token with peer {}...", peer.wallet_address_hex());
-                        }
-                        None => {
-                            log::info!("peer {} has no trust token, calling self.share_cert()...", peer.wallet_address_hex());
-                            self.share_cert(peer).await?;
-                            log::info!("successfully called self.share_cert() to create and share a trust token with peer {}...", peer.wallet_address_hex());
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn accept_cert(
+    pub async fn accept_server_config(
         &mut self,
         peer: &Peer,
-        cert: &str
+        server_config: &str
     ) -> std::io::Result<()> {
-        //TODO(asmith): We will want to check against their stake to verify membership
+        let leader = self.node().current_leader().clone().ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "quorum currently has no leader"
+            )
+        )?;
 
-        // Check if peer is member of same quorum as local node
-        //log::info!("checking if certificate from peer: {:?} is for local quorum member...", peer);
-        let qid = self.get_local_quorum_membership()?;
-        let quorum_peers = self.get_quorum_peers_by_id(&qid)?;
-        //log::info!("Quorum peers: {:?}", quorum_peers);
-        if quorum_peers.contains(peer) {
-            log::info!("peer is member of local quorum, add certificate...");
-            log::info!("Cert: {cert}");
-            let output = std::process::Command::new("lxc")
-                .arg("remote")
-                .arg("add")
-                .arg(peer.wallet_address_hex())
-                .arg(cert)
+        if peer == &leader {
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(NGINX_CONFIG_PATH).await?;
+
+            file.write_all(server_config.as_bytes()).await?;
+
+            log::info!("wrote to nginx config file");
+            let output = std::process::Command::new("sudo")
+                .args(["nginx", "-t"])
                 .output()?;
 
-            if output.status.success() {
-                log::info!("SUCCESS! SUCCESS! Successfully added peer {} to remote", &peer.wallet_address_hex());
-                let stdout = std::str::from_utf8(&output.stdout).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })?;
-                log::warn!("Stdout from lxc remote add {} {cert} call: {stdout}", peer.wallet_address_hex());
-                self.share_cert(peer).await?;
-                log::info!("Successfully completed self.shared_cert call in self.accept_cert method...");
-                return Ok(())
-            } else {
-                let stderr = std::str::from_utf8(&output.stderr).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })?;
+            if !output.status.success() {
                 return Err(
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
-                        format!("Failed to add peer {} certificate to trust store: {}", &peer.wallet_address_hex(), stderr)
+                        "nginx config has a syntax error"
                     )
                 )
             }
+            log::info!("confirmed nginx config file free of syntax errors...");
+
+            let output = std::process::Command::new("sudo")
+                .args(["systemctl", "reload", "nginx"])
+                .output()?;
+
+            if !output.status.success() {
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "could not reload nginx after updating config"
+                    )
+                )
+            }
+
+            log::info!("reloaded nginx...");
         }
 
-        log::info!("Completed self.accept_cert method returning...");
         Ok(())
     }
 
-    pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
-        //log::info!("Attempting to add peer: {:?} to DHT", peer);
+    pub async fn heartbeat(&mut self) -> std::io::Result<()> {
+        let local_peers = self.get_local_peers().ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to acquire local peers"
+            )
+        )?.clone();
+        let publisher_uri = self.publisher.peer_addr()?.clone();
+        for peer in local_peers {
+            let requestor = self.node().peer_info().clone();
+            let inner_publisher_uri = publisher_uri.clone();
+            let event_id = Uuid::new_v4().to_string();
+            let task_id = TaskId::new(Uuid::new_v4().to_string());
+            let event = NetworkEvent::Heartbeat { event_id, task_id, peer: peer.clone(), requestor: requestor.clone() };
+
+            let mut publisher = GenericPublisher::new(&inner_publisher_uri).await?;
+
+            publisher.publish(
+                Box::new(NetworkTopic),
+                Box::new(event)
+            ).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn accept_heartbeat(&mut self, peer: &Peer) -> std::io::Result<()> {
+        self.heartbeats.insert(peer.clone(), Instant::now());
+
+        Ok(())
+    }
+
+    pub async fn check_heartbeats(&mut self) -> std::io::Result<()> {
+        let systime = Instant::now();
+        let heartbeats = self.heartbeats.clone();
+        let dead_peers: Vec<&Peer> = heartbeats.par_iter().filter_map(|(p, hb)| {
+            let since = systime.duration_since(*hb);
+            if since > Duration::from_secs(60) {
+                Some(p)
+            } else {
+                None
+            }
+        }).collect();
+
+        for peer in dead_peers {
+            self.remove_peer(peer).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
+        let current_leader = self.node().current_leader().clone().ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find current leader"
+            )
+        )?;
+
+        if peer == &current_leader {
+            self.peers.remove(peer.wallet_address()).ok_or(
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "unable to remove peer"
+                )
+            )?;
+        }
+
+        Ok(())
+    }
+
+
+    pub async fn add_peer(&mut self, peer: &Peer, received_from: Option<&Peer>) -> std::io::Result<()> {
         let q = self.peer_hashring.get_resource(peer.wallet_address().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1253,14 +1070,13 @@ impl QuorumManager {
             )
         )?.clone();
 
-        //log::info!("checking if new peer is member in local quorum");
         let local_quorum_member = if q.id() == &self.get_local_quorum_membership()? {
             true
         } else {
             false
         };
 
-        //log::info!("acquiring quorum that new peer is a member of");
+        log::warn!("local quorum member = {}", &local_quorum_member);
         let quorum = self.quorums.get_mut(&q.id().clone()).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -1268,9 +1084,8 @@ impl QuorumManager {
             )
         )?;
 
-        //log::info!("quorum.size() = {}", quorum.size());
         quorum.add_peer(peer);
-        log::info!("quorum.size() = {}", quorum.size());
+        log::warn!("quorum.size() = {}", quorum.size());
 
         if quorum.clone().size() >= 50 {
             log::info!("quorum exceeds maximum size, time to reshuffle quorums");
@@ -1280,10 +1095,9 @@ impl QuorumManager {
         if !self.peers.contains_key(peer.wallet_address()) {
             log::info!("self.peers does not contain peer key, adding");
             self.peers.insert(*peer.wallet_address(), peer.clone());
-            log::info!("added new peer to self.peers");
+            log::warn!("self.peers.len() = {}", self.peers.len());
             for (peer_wallet_address, dst_peer) in self.peers.clone() {
-                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) {
-                    log::warn!("informing: {:?} of new peer", peer_wallet_address);
+                if (&dst_peer != peer) && (&dst_peer != self.node.peer_info()) && (Some(&dst_peer.clone()) != received_from) {
                     let task_id = TaskId::new(
                         uuid::Uuid::new_v4().to_string()
                     );
@@ -1294,6 +1108,7 @@ impl QuorumManager {
                         dst: dst_peer.ip_address().to_string(),
                         task_id,
                         event_id,
+                        received_from: self.node().peer_info().clone()
                     };
 
 
@@ -1306,14 +1121,14 @@ impl QuorumManager {
                         uuid::Uuid::new_v4().to_string()
                     );
 
-                    log::warn!("informing: {:?} of existing peers", peer.wallet_address_hex());
                     let event_id = uuid::Uuid::new_v4().to_string();
                     let new_peer_event = NetworkEvent::NewPeer { 
                         event_id,
                         task_id,
                         peer_id: dst_peer.wallet_address_hex(),
                         peer_address: dst_peer.ip_address().to_string(), 
-                        dst: peer.ip_address().to_string() 
+                        dst: peer.ip_address().to_string(),
+                        received_from: self.node().peer_info().clone()
                     };
 
                     self.publisher_mut().publish(
@@ -1325,11 +1140,6 @@ impl QuorumManager {
             }
         } 
 
-        if local_quorum_member && (self.node().peer_info().wallet_address() != peer.wallet_address()) {
-            log::info!("new peer is member of same quorum as local node and is not the local peer, attempting to share certificate");
-            self.share_cert(&peer).await?;
-            log::info!("Completed self.share_cert call succeffully");
-        }
 
         Ok(())
     }
@@ -1368,6 +1178,10 @@ impl QuorumManager {
         self.quorums.get(id)
     }
 
+    pub fn get_quorum_by_id_mut(&mut self, id: &Uuid) -> Option<&mut Quorum> {
+        self.quorums.get_mut(id)
+    }
+
     pub fn add_instance(&mut self, namespace: &Namespace) -> std::io::Result<()> {
         let q = self.instance_hashring.get_resource(namespace.clone()).ok_or(
             std::io::Error::new(
@@ -1384,6 +1198,52 @@ impl QuorumManager {
         )?;
 
         self.instances.insert(namespace.clone(), quorum.clone());
+
+        Ok(())
+    }
+
+    pub async fn bootstrap_instances(&mut self, instances: Vec<Namespace>, received_from: &Peer) -> std::io::Result<()> {
+        self.node_mut().setup_instance_bricks(instances).await?;
+
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = NetworkEvent::BootstrapInstancesResponse { 
+            event_id,
+            task_id,
+            requestor: self.node().peer_info().clone(),
+            bootstrapper: received_from.clone() 
+        };
+
+        self.publisher_mut().publish(
+            Box::new(NetworkTopic), 
+            Box::new(event)
+        ).await?;
+
+        Ok(())
+    }
+
+    pub async fn complete_bootstrap(&mut self, peer: &Peer) -> std::io::Result<()> {
+        let local_quorum_id = self.get_local_quorum_membership()?;
+        let instances = self.instances.clone();
+        let local_quorum = self.get_quorum_by_id_mut(&local_quorum_id).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to find quorum"
+            )
+        )?; 
+
+        let instances: Vec<Namespace> = instances.iter().filter_map(|(n, q)| {
+            if q.id() == &local_quorum_id {
+                Some(n.clone())
+            } else {
+                None
+            }
+        }).collect();
+
+        for instance in instances {
+            local_quorum.increase_glusterfs_replica_factor().await?;
+            local_quorum.add_peer_to_gluster_volume(peer, instance).await?;
+        }
 
         Ok(())
     }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{account::TaskId, dht::Peer, event::NetworkEvent, publish::{GenericPublisher, NetworkTopic}, voting::{Ballot, Vote}};
+use crate::{account::TaskId, network::peer::Peer, event::NetworkEvent, publish::{GenericPublisher, NetworkTopic}, voting::{Ballot, Vote}, Namespace};
 use conductor::publisher::PubStream;
 use getset::{Getters, MutGetters};
 use sha3::{Sha3_256, Digest};
@@ -291,5 +291,18 @@ impl Node {
             ).for_each(|((bh, can), res)| *res = bh ^ can);
 
         Ballot::new(candidate.clone(), result) 
+    }
+
+    pub async fn setup_instance_bricks(&mut self, instances: Vec<Namespace>) -> std::io::Result<()> {
+        for namespace in instances {
+            std::fs::create_dir_all(
+                &format!(
+                    "/mnt/glusterfs/vms/{}/brick",
+                    namespace.inner().to_string()
+                )
+            )?;
+        }
+
+        Ok(())
     }
 }

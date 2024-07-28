@@ -1,8 +1,8 @@
 use std::{collections::{HashMap, HashSet}, net::SocketAddr};
+use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
-use uuid::Uuid;
 use crate::{
     account::{
         ExposedPort,
@@ -10,16 +10,9 @@ use crate::{
         TaskId,
         TaskStatus
     }, allegra_rpc::{
-        InstanceAddPubkeyParams, 
-        InstanceCreateParams, 
-        InstanceDeleteParams, 
-        InstanceExposeServiceParams, 
-        InstanceGetSshDetails, 
-        InstanceStartParams, 
-        InstanceStopParams
-    }, dht::{Peer, Quorum}, grpc_light::generate_task_id, helpers::{
-            recover_namespace, 
-            recover_owner_address
+        CloudInit, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
+    }, network::quorum::Quorum, network::peer::Peer, helpers::{
+            generate_task_id, recover_namespace, recover_owner_address
         }, params::{
             HasOwner, Params, ServiceType
         }, publish::GeneralResponseTopic, vm_info::{
@@ -27,7 +20,7 @@ use crate::{
             VmList
         }, vm_types::VmType, vmm::Instance, voting::Vote
 };
-use crate::params::Payload;
+use crate::payload_impls::Payload;
 use getset::Getters;
 
 macro_rules! impl_into_event {
@@ -212,7 +205,55 @@ pub enum VmmEvent {
         version: String,
         vmtype: VmType,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
+        sync: Option<bool>,
+        memory: Option<String>,
+        vcpus: Option<String>,
+        cpu: Option<String>,
+        metadata: Option<String>,
+        os_variant: Option<String>,
+        host_device: Vec<String>,
+        network: Vec<String>,
+        disk: Vec<String>,
+        filesystem: Vec<String>,
+        controller: Vec<String>,
+        input: Vec<String>,
+        graphics: Option<String>,
+        sound: Option<String>,
+        video: Option<String>,
+        smartcard: Option<String>,
+        redirdev: Vec<String>,
+        memballoon: Option<String>,
+        tpm: Option<String>,
+        rng: Option<String>,
+        panic: Option<String>,
+        shmem: Option<String>,
+        memdev: Vec<String>,
+        vsock: Option<String>,
+        iommu: Option<String>,
+        watchdog: Option<String>,
+        serial: Vec<String>,
+        parallel: Vec<String>,
+        channel: Vec<String>,
+        console: Vec<String>,
+        install: Option<String>,
+        cdrom: Option<String>,
+        location: Option<String>,
+        pxe: bool,
+        import: bool,
+        boot: Option<String>,
+        idmap: Option<String>,
+        features: HashMap<String, String>,
+        clock: Option<String>,
+        launch_security: Option<String>,
+        numatune: Option<String>,
+        boot_dev: Vec<String>,
+        unattended: bool,
+        print_xml: Option<String>,
+        dry_run: bool,
+        connect: Option<String>,
+        virt_type: Option<String>,
+        cloud_init: Option<CloudInit>,
     },
     Start {
         event_id: String,
@@ -221,21 +262,21 @@ pub enum VmmEvent {
         console: bool, 
         stateless: bool,
         sig: String, 
-        recovery_id: u8
+        recovery_id: u32 
     },
     Stop {
         event_id: String,
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8
+        recovery_id: u32 
     },
     Delete {
         event_id: String,
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         force: bool,
         interactive: bool,
     },
@@ -244,7 +285,7 @@ pub enum VmmEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         port: Vec<u16>,
         service_type: Vec<ServiceType>
     },
@@ -253,8 +294,13 @@ pub enum VmmEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         pubkey: String,
+    },
+    LaunchInstance {
+        event_id: String,
+        task_id: TaskId,
+        namespace: Namespace,
     }
 }
 
@@ -263,6 +309,7 @@ pub enum NetworkEvent {
     NewPeer {
         event_id: String,
         task_id: TaskId,
+        received_from: Peer,
         peer_id: String,
         peer_address: String,
         dst: String,
@@ -275,15 +322,63 @@ pub enum NetworkEvent {
         version: String,
         vmtype: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         dst: String,
+        sync: Option<bool>,
+        memory: Option<String>,
+        vcpus: Option<String>,
+        cpu: Option<String>,
+        metadata: Option<String>,
+        os_variant: Option<String>,
+        host_device: Vec<String>,
+        network: Vec<String>,
+        disk: Vec<String>,
+        filesystem: Vec<String>,
+        controller: Vec<String>,
+        input: Vec<String>,
+        graphics: Option<String>,
+        sound: Option<String>,
+        video: Option<String>,
+        smartcard: Option<String>,
+        redirdev: Vec<String>,
+        memballoon: Option<String>,
+        tpm: Option<String>,
+        rng: Option<String>,
+        panic: Option<String>,
+        shmem: Option<String>,
+        memdev: Vec<String>,
+        vsock: Option<String>,
+        iommu: Option<String>,
+        watchdog: Option<String>,
+        serial: Vec<String>,
+        parallel: Vec<String>,
+        channel: Vec<String>,
+        console: Vec<String>,
+        install: Option<String>,
+        cdrom: Option<String>,
+        location: Option<String>,
+        pxe: bool,
+        import: bool,
+        boot: Option<String>,
+        idmap: Option<String>,
+        features: HashMap<String, String>,
+        clock: Option<String>,
+        launch_security: Option<String>,
+        numatune: Option<String>,
+        boot_dev: Vec<String>,
+        unattended: bool,
+        print_xml: Option<String>,
+        dry_run: bool,
+        connect: Option<String>,
+        virt_type: Option<String>,
+        cloud_init: Option<CloudInit>,
     },
     ExposeService {
         event_id: String,
         task_id: TaskId,
         name: String,
         sig: String, 
-        recovery_id: u8,
+        recovery_id: u32,
         port: Vec<u16>,
         service_type: Vec<ServiceType>,
         dst: String,
@@ -293,7 +388,7 @@ pub enum NetworkEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         console: bool,
         stateless: bool,
         dst: String,
@@ -303,7 +398,7 @@ pub enum NetworkEvent {
         task_id: TaskId,
         name: String, 
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         dst: String,
     },
     Delete {
@@ -313,7 +408,7 @@ pub enum NetworkEvent {
         force: bool,
         interactive: bool,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         dst: String,
     },
     AddPubkey {
@@ -321,24 +416,9 @@ pub enum NetworkEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         pubkey: String,
         dst: String,
-    },
-    DistributeCerts {
-        event_id: String,
-        task_id: TaskId,
-        certs: HashMap<Peer, String>,
-        peer: Peer,
-        quorum_id: String,
-    },
-    ShareCert {
-        event_id: String,
-        task_id: TaskId,
-        peer: Peer,
-        cert: String,
-        quorum_id: String,
-        dst: Peer
     },
     CastLeaderElectionVote {
         event_id: String,
@@ -346,12 +426,18 @@ pub enum NetworkEvent {
         vote: Vote,
         peers: Vec<Peer>
     },
+    ShareInstanceNamespaces {
+        event_id: String,
+        task_id: TaskId,
+        instances: HashSet<Namespace>,
+        peer: Peer
+    },
     BootstrapNewPeer {
         // This event ensures a new peer is fully bootstrapped into the network
         // before it starts participating.
         // This means this event should trigger the peer being added to a quourum
         // the peer should receive, from it's quorum leader, the current makeup
-        // of it's quuorum and all other quorums
+        // of it's quorum and all other quorums
         // the peer should be synced with it's quorum
         //
         // in the event this process leads to a quorum reshuffling,
@@ -369,13 +455,31 @@ pub enum NetworkEvent {
         peer: Peer,
         dst: Peer
     },
+    BootstrapInstancesResponse {
+        event_id: String,
+        task_id: TaskId,
+        requestor: Peer,
+        bootstrapper: Peer
+    },
     BootstrapResponse {
         event_id: String,
         original_event_id: String,
         task_id: TaskId,
-        quorums: Vec<Quorum>,
         instances: Vec<Instance>,
-    }
+    },
+    Heartbeat {
+        event_id: String,
+        task_id: TaskId,
+        peer: Peer,
+        requestor: Peer,
+    },
+    PreparedForLaunch {
+        event_id: String,
+        task_id: TaskId,
+        instance: Namespace,
+        dst: Peer,
+        local_peer: Peer
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -388,7 +492,7 @@ pub enum SyncEvent {
         target: String,
         last_update: Option<u64>,
         dst: String,
-    }, //lxc copy --refresh
+    },
     Migrate {
         event_id: String,
         task_id: TaskId,
@@ -398,7 +502,7 @@ pub enum SyncEvent {
         last_update: Option<u64>,
         new_quorum: String,
         dst: String,
-    }, //lxc move
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -408,7 +512,7 @@ pub enum DnsEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         domain_name: String,
         // Add proof mechanism
     },
@@ -417,7 +521,7 @@ pub enum DnsEvent {
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u8,
+        recovery_id: u32,
         domain_name: String
     },
 }
@@ -555,17 +659,35 @@ pub enum QuorumEvent {
     NewPeer {
         event_id: String,
         task_id: TaskId,
-        peer: Peer
+        peer: Peer,
+        received_from: Peer,
     },
-    CheckAcceptCert {
+    BootstrapInstances {
+        event_id: String,
+        task_id: TaskId,
+        instances: Vec<Namespace>,
+        received_from: Peer,
+    },
+    BootstrapInstancesComplete {
         event_id: String,
         task_id: TaskId,
         peer: Peer,
-        cert: String,
+    },
+    PreparedForLaunch {
+        event_id: String,
+        task_id: TaskId,
+        instance: Namespace,
+    },
+    AcceptLaunchPreparation {
+        event_id: String,
+        task_id: TaskId,
+        instance: Namespace,
+        peer: Peer,
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Getters, Serialize, Deserialize)]
+#[getset(get = "pub")]
 pub struct GeneralResponseEvent {
     event_id: String,
     original_event_id: String,
@@ -628,7 +750,57 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             recovery_id,
             dst: value.0.ip_address().to_string(),
             event_id,
-            task_id
+            task_id,
+            sync: Some(value.1.sync()),
+            memory: value.1.memory,
+            vcpus: value.1.vcpus,
+            cpu: value.1.cpu,
+            metadata: value.1.metadata,
+            os_variant: value.1.os_variant,
+            host_device: value.1.host_device,
+            network: value.1.network,
+            disk: value.1.disk,
+            filesystem: value.1.filesystem,
+            controller: value.1.controller,
+            input: value.1.input,
+            graphics: value.1.graphics,
+            sound: value.1.sound,
+            video: value.1.video,
+            smartcard: value.1.smartcard,
+            redirdev: value.1.redirdev,
+            memballoon: value.1.memballoon,
+            tpm: value.1.tpm,
+            rng: value.1.rng,
+            panic: value.1.panic,
+            shmem: value.1.shmem,
+            memdev: value.1.memdev,
+            vsock: value.1.vsock,
+            iommu: value.1.iommu,
+            watchdog: value.1.watchdog,
+            serial: value.1.serial,
+            parallel: value.1.parallel,
+            channel: value.1.channel,
+            console: value.1.console,
+            install: value.1.install,
+            cdrom: value.1.cdrom,
+            pxe: value.1.pxe,
+            location: value.1.location,
+            import: value.1.import,
+            boot: value.1.boot,
+            idmap: value.1.idmap,
+            features: value.1.features.par_iter().map(|f| {
+                (f.name.clone(), f.feature.clone())
+            }).collect(),
+            clock: value.1.clock,
+            launch_security: value.1.launch_security,
+            numatune: value.1.numatune,
+            boot_dev: value.1.boot_dev,
+            unattended: value.1.unattended,
+            print_xml: value.1.print_xml,
+            dry_run: value.1.dry_run,
+            connect: value.1.connect,
+            virt_type: value.1.virt_type,
+            cloud_init: value.1.cloud_init
         })
     }
 }

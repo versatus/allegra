@@ -2,14 +2,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use allegra::{generate_new_wallet, WalletInfo, enter_ssh_session};
 use allegra::allegra_rpc::{
-    InstanceCreateParams, 
-    InstanceStartParams, 
-    InstanceStopParams, 
-    InstanceAddPubkeyParams, 
-    InstanceDeleteParams, 
-    InstanceExposeServiceParams,
-    InstanceGetSshDetails,
-    GetTaskStatusRequest
+    Features, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
 };
 
 use allegra::cli::commands::AllegraCommands;
@@ -80,10 +73,17 @@ async fn main() -> std::io::Result<()> {
             }
         }
         AllegraCommands::Create {
-            name, distro, version, vmtype, .. 
+            name, distro, version, vmtype, endpoint, memory, vcpus, cpu,
+            metadata, os_variant, host_device, network, disk, filesystem,
+            controller, input, graphics, sound, video, smartcard, redirdev,
+            memballoon, tpm, rng, panic, shmem, memdev, vsock, iommu, watchdog,
+            serial, parallel, channel, console, install, cdrom, location, pxe,
+            import, boot, idmap, features, clock, launch_security, numatune,
+            boot_dev, unattended, print_xml, dry_run, connect, virt_type,
+            cloud_init, .. 
         } => {
             println!("Creating an Allegra Instance {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -94,15 +94,72 @@ async fn main() -> std::io::Result<()> {
                 vmtype: vmtype.to_string(),
                 sig: hex::encode(&sig.to_bytes()), 
                 recovery_id: recovery_id as u32,
+                sync: Some(false),
+                memory: memory.clone(), 
+                vcpus: vcpus.clone(), 
+                cpu: cpu.clone(), 
+                os_variant: os_variant.clone(), 
+                metadata: metadata.clone(), 
+                host_device: host_device.clone(), 
+                network: network.clone(), 
+                disk: disk.clone(), 
+                filesystem: filesystem.clone(),
+                controller: controller.clone(), 
+                input: input.clone(), 
+                graphics: graphics.clone(), 
+                sound: sound.clone(), 
+                video: video.clone(), 
+                smartcard: smartcard.clone(), 
+                redirdev: redirdev.clone(),
+                memballoon: memballoon.clone(), 
+                tpm: tpm.clone(), 
+                rng: rng.clone(), 
+                panic: panic.clone(), 
+                shmem: shmem.clone(),
+                memdev: memdev.clone(), 
+                vsock: vsock.clone(), 
+                iommu: iommu.clone(),
+                watchdog: watchdog.clone(), 
+                serial: serial.clone(),
+                parallel: parallel.clone(),
+                channel: channel.clone(), 
+                console: console.clone(), 
+                install: install.clone(), 
+                cdrom: cdrom.clone(),
+                location: location.clone(), 
+                pxe: pxe.clone(), 
+                import: import.clone(), 
+                boot: boot.clone(), 
+                idmap: idmap.clone(), 
+                features: features.par_iter().map(|f| {
+                    let parts: Vec<&str> = f.split("=").collect();
+                    Features {
+                        name: parts[0].to_string(),
+                        feature: parts.get(1).map_or("".to_string(), |&s| s.to_string())
+                    }
+                }).collect(), 
+                clock: clock.clone(), 
+                launch_security: launch_security.clone(),
+                numatune: numatune.clone(),
+                boot_dev: boot_dev.clone(), 
+                unattended: unattended.clone(), 
+                print_xml: print_xml.clone(), 
+                dry_run: dry_run.clone(), 
+                connect: connect.clone(),
+                virt_type: virt_type.clone(), 
+                cloud_init: match cloud_init {
+                    Some(ci) => serde_yml::from_str(&ci).ok(),
+                    None => None
+                }
             };
 
             let resp = vmclient.create_vm(params.clone()).await;
             println!("Response: {:?}", resp);
         },
         AllegraCommands::Start {
-            name, console, stateless, ..
+            name, console, stateless, endpoint, ..
         } => {
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -118,10 +175,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::Stop {
-            name, ..
+            name, endpoint, ..
         } => {
             println!("Stopping an Allegra Instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -136,10 +193,10 @@ async fn main() -> std::io::Result<()> {
 
         },
         AllegraCommands::AddPubkey {
-            name, pubkey, ..
+            name, pubkey, endpoint, ..
         } => {
             println!("Adding a public key to an Allegra instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -155,10 +212,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::Delete {
-            name, force, interactive, ..
+            name, force, interactive, endpoint, ..
         } => {
             println!("Deleting an Allegra Instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
@@ -174,10 +231,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::ExposeService {
-            name, port, service_type, .. 
+            name, port, service_type, endpoint, .. 
         } => {
             println!("Exposing ports on an Allegra instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
 
             let port: Vec<u32> = port.par_iter().map(|p| *p as u32).collect();
             let service_type: Vec<i32> = service_type.par_iter().map(|s| s.clone().into()).collect();
@@ -196,10 +253,10 @@ async fn main() -> std::io::Result<()> {
             println!("Response: {:?}", response);
         },
         AllegraCommands::GetSshDetails{
-            name, owner, ..
+            name, owner, endpoint, ..
         } => {
             println!("Getting ssh details for an Allegra instance: {:?}", &name);
-            let mut vmclient = create_allegra_rpc_client().await?;
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
             let params = InstanceGetSshDetails {
                 owner: owner.clone(),
                 name: name.clone(),
@@ -209,15 +266,15 @@ async fn main() -> std::io::Result<()> {
             let response = vmclient.get_ssh_details(params.clone()).await; 
             println!("Response: {:?}", response);
         }
-        AllegraCommands::PollTask { owner, task_id } => {
-            let mut vmclient = create_allegra_rpc_client().await?;
+        AllegraCommands::PollTask { owner, task_id, endpoint } => {
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
             let request = GetTaskStatusRequest { owner: owner.clone(), id: task_id.clone() };
 
             let response = vmclient.get_task_status(request).await;
             println!("Response: {:?}", response);
         }
-        AllegraCommands::Ssh { name, owner, keypath, username } => {
-            let mut vmclient = create_allegra_rpc_client().await?;
+        AllegraCommands::Ssh { name, owner, keypath, username, endpoint } => {
+            let mut vmclient = create_allegra_rpc_client(endpoint).await?;
             let params = InstanceGetSshDetails { 
                 name: name.clone(), 
                 owner: owner.clone(), 
