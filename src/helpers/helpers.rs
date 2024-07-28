@@ -155,7 +155,7 @@ pub async fn update_iptables(
 ) -> std::io::Result<([u8; 20], TaskId, TaskStatus)> {
     //TODO: Replace with HAProxy
     let mut publisher = GenericPublisher::new(uri).await?;
-    let instance_ip = get_instance_ip(&namespace.inner())?;
+    let instance_ip = get_instance_ip(&namespace).await?;
     log::info!("acquired instance IP: {instance_ip}...");
     let prerouting = std::process::Command::new("sudo")
         .args(

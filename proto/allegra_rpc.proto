@@ -235,6 +235,17 @@ message ServerConfigMessage {
     string server_config = 3;
 }
 
+message BootstrapInstancesMessage {
+    optional MessageHeader header = 1;
+    string request_id = 2;
+    repeated string instances = 3;
+}
+
+message BootstrapCompleteMessage {
+    optional MessageHeader header = 1;
+    string original_request_id = 2;
+}
+
 service Vmm {
   rpc CreateVm(InstanceCreateParams) returns (VmResponse);
   rpc ShutdownVm(InstanceStopParams) returns (VmResponse);
@@ -249,6 +260,6 @@ service Vmm {
   rpc Sync(SyncMessage) returns (Ack);
   rpc Migrate(stream MigrateMessage) returns (TransferStatus);
   rpc GetPort(GetPortMessage) returns (PortResponse);
-  rpc NodeCertificate(NodeCertMessage) returns (Ack);
-  rpc ServerConfig(ServerConfigMessage) returns (Ack);
+  rpc BootstrapInstances(BootstrapInstancesMessage) returns (Ack);
+  rpc BootstrapComplete(BootstrapCompleteMessage) returns (Ack);
 }

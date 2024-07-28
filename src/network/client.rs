@@ -3,7 +3,7 @@ use uuid::Uuid;
 use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
-        Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, NodeCertMessage, ServerConfigMessage, SyncEvent, SyncMessage
+        BootstrapCompleteMessage, BootstrapInstancesMessage, Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, ServerConfigMessage, SyncEvent, SyncMessage
     }, create_allegra_rpc_client_to_addr, dht::Peer, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 use base64::Engine as _;
@@ -221,52 +221,6 @@ impl NetworkClient {
                     )
                 })?.into_inner();
             }
-            NetworkEvent::DistributeCerts { certs,  quorum_id, .. } => {
-                for (peer, cert) in certs {
-                    let mut client = create_allegra_rpc_client_to_addr(
-                        &peer.ip_address().to_string()
-                    ).await?;
-                    let request_id = Uuid::new_v4().to_string();
-                    let node_cert_message = NodeCertMessage {
-                        peer_id: peer.wallet_address_hex(),
-                        peer_address: peer.ip_address().to_string(),
-                        quorum_id: quorum_id.clone(),
-                        cert,
-                        request_id
-                    };
-
-                    let resp = client.node_certificate(
-                        tonic::Request::new(
-                            node_cert_message
-                        )
-                    ).await;
-
-                    log::info!("Send DistributeCerts request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
-                }
-            }
-            NetworkEvent::ShareCert { peer, cert, quorum_id, dst, .. } => {
-                log::info!("Received NetworkEvent::ShareCert event");
-                let request_id = Uuid::new_v4().to_string();
-                let node_cert_message = NodeCertMessage {
-                    peer_id: peer.wallet_address_hex(),
-                    peer_address: peer.ip_address().to_string(),
-                    quorum_id,
-                    cert,
-                    request_id
-                };
-
-                //log::info!("Attempting to create allegra rpc client to {dst:?}");
-                let mut client = create_allegra_rpc_client_to_addr(
-                    &dst.ip_address().to_string()
-                ).await?;
-                //log::info!("Attempting to send node certificate");
-                let resp = client.node_certificate(
-                    tonic::Request::new(
-                        node_cert_message
-                    )
-                ).await;
-                log::info!("Sent ShareCert request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
-            }
             NetworkEvent::CastLeaderElectionVote { .. } => {
                 todo!()
             }
@@ -276,56 +230,6 @@ impl NetworkClient {
             NetworkEvent::BootstrapResponse { .. } => {
                 log::info!("Received Bootstrap Response event");
             }
-            NetworkEvent::SyncInstanceToLeader { requestor, namespace, event, dst, .. } => {
-                let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
-                let header = MessageHeader {
-                    peer_id: requestor.wallet_address_hex(),
-                    peer_address: requestor.ip_address().to_string(),
-                    message_id: Uuid::new_v4().to_string(),
-                };
-
-                let (event_type, event_data) = match event {
-                    QuorumSyncEvent::LibrettoEvent(libretto_event) => {
-                        (SyncEvent::LibrettoEvent, base64::engine::general_purpose::STANDARD.encode(&serde_json::to_vec(&libretto_event)?)) 
-                    }
-                    QuorumSyncEvent::IntervalEvent(last_sync) => {
-                        (SyncEvent::IntervalEvent, base64::engine::general_purpose::STANDARD.encode(&serde_json::to_vec(&last_sync)?))
-                    }
-                };
-                let sync_message = SyncMessage {
-                    header: Some(header),
-                    namespace: namespace.to_string(),
-                    event_type: event_type.into(),
-                    event_data: Some(event_data)
-                };
-
-                let resp = client.sync(
-                    tonic::Request::new(
-                        sync_message
-                    )
-                ).await;
-                log::info!("Sent SyncMessage request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
-            }
-            NetworkEvent::ShareServerConfig { task_id, dst, received_from, server_config, .. } => {
-                let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
-                let header = MessageHeader {
-                    peer_id: received_from.wallet_address_hex(),
-                    peer_address: received_from.ip_address().to_string(),
-                    message_id: Uuid::new_v4().to_string()
-                };
-                let message = ServerConfigMessage {
-                    header: Some(header),
-                    request_id: task_id.to_string(),
-                    server_config
-                };
-
-                let resp = client.server_config(
-                    tonic::Request::new(
-                        message
-                    )
-                ).await;
-                log::info!("Sent AcceptServerConfig request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
-            }
             NetworkEvent::Heartbeat { .. } => {
                 /*
                 let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
@@ -334,6 +238,28 @@ impl NetworkClient {
                 }
                 */
                 todo!()
+            }
+            NetworkEvent::ShareInstanceNamespaces { event_id, task_id, instances, peer } => {
+                let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
+
+                let message = BootstrapInstancesMessage {
+                    header: None,
+                    request_id: task_id.to_string(),
+                    instances: instances.iter().map(|namespace| namespace.inner().to_string()).collect()
+                };
+
+                let resp = client.bootstrap_instances(tonic::Request::new(message)).await;
+                log::info!("Sent BootstrapInstancesMessage request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
+            }
+            NetworkEvent::BootstrapInstancesResponse { event_id, task_id, requestor, bootstrapper } => {
+                let mut client = create_allegra_rpc_client_to_addr(&requestor.ip_address().to_string()).await?;
+                let message = BootstrapCompleteMessage {
+                    header: None,
+                    original_request_id: task_id.to_string(),
+                };
+
+                let resp = client.bootstrap_complete(tonic::Request::new(message)).await;
+                log::info!("Sent BootstrapInstancesMessage request to {}: {}: response: {}", requestor.wallet_address_hex(), requestor.ip_address(), resp.is_ok());
             }
         }
 

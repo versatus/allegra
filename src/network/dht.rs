@@ -120,6 +120,7 @@ impl Quorum {
             .arg("force")
             .arg("--mode=script")
             .output()?;
+
         if !output.status.success() {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to GlusterFS volume"));
         }
@@ -140,9 +141,31 @@ impl Quorum {
                 .arg("--mode=script")
                 .output()?;
             if !output.status.success() {
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set replica for volume {}", volume)))
+                return Err(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other, 
+                        format!("Failed to set replica for volume {}", volume)
+                    )
+                )
             }
         }
+
+        Ok(())
+    }
+
+    async fn share_instances(
+        &mut self, 
+        publisher: &mut GenericPublisher, 
+        instances: HashSet<Namespace>,
+        peer: Peer
+    ) -> std::io::Result<()> {
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = NetworkEvent::ShareInstanceNamespaces { event_id, task_id, instances, peer };
+        publisher.publish(
+            Box::new(NetworkTopic),
+            Box::new(event)
+        ).await?;
 
         Ok(())
     }
@@ -284,6 +307,16 @@ impl QuorumManager {
                     task_id,
                 ).await?;
                 log::info!("Successfully completed self.handle_check_responsibility_message call for QuorumEvent::CheckResponsibility message...");
+            }
+            QuorumEvent::BootstrapInstances { instances, received_from, event_id, task_id} => {
+                self.bootstrap_instances(
+                    instances,
+                    &received_from,
+                ).await?;
+            }
+            QuorumEvent::BootstrapInstancesComplete { event_id, peer, task_id } => {
+                // Here we need to add the brick to the gluster volume
+                self.complete_bootstrap(&peer).await?;
             }
         }
 
@@ -496,24 +529,7 @@ impl QuorumManager {
     }
 
     async fn attempt_share_server_config(dst: Peer, requestor: Peer, publisher_uri: &str) -> std::io::Result<()> {
-        let mut file = tokio::fs::read_to_string(NGINX_CONFIG_PATH).await?;
-        let event_id = Uuid::new_v4().to_string();
-        let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let server_config_event = NetworkEvent::ShareServerConfig {
-            event_id,
-            task_id,
-            dst,
-            received_from: requestor,
-            server_config: file
-        };
-
-        let mut publisher = GenericPublisher::new(publisher_uri).await?;
-        publisher.publish(
-            Box::new(NetworkTopic),
-            Box::new(server_config_event)
-        ).await?;
-
-        Ok(())
+        todo!()
     }
 
     async fn handle_start_payload(
@@ -1239,6 +1255,10 @@ impl QuorumManager {
         self.quorums.get(id)
     }
 
+    pub fn get_quorum_by_id_mut(&mut self, id: &Uuid) -> Option<&mut Quorum> {
+        self.quorums.get_mut(id)
+    }
+
     pub fn add_instance(&mut self, namespace: &Namespace) -> std::io::Result<()> {
         let q = self.instance_hashring.get_resource(namespace.clone()).ok_or(
             std::io::Error::new(
@@ -1255,6 +1275,52 @@ impl QuorumManager {
         )?;
 
         self.instances.insert(namespace.clone(), quorum.clone());
+
+        Ok(())
+    }
+
+    pub async fn bootstrap_instances(&mut self, instances: Vec<Namespace>, received_from: &Peer) -> std::io::Result<()> {
+        self.node_mut().setup_instance_bricks(instances).await?;
+
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = NetworkEvent::BootstrapInstancesResponse { 
+            event_id,
+            task_id,
+            requestor: self.node().peer_info().clone(),
+            bootstrapper: received_from.clone() 
+        };
+
+        self.publisher_mut().publish(
+            Box::new(NetworkTopic), 
+            Box::new(event)
+        ).await?;
+
+        Ok(())
+    }
+
+    pub async fn complete_bootstrap(&mut self, peer: &Peer) -> std::io::Result<()> {
+        let local_quorum_id = self.get_local_quorum_membership()?;
+        let instances = self.instances.clone();
+        let local_quorum = self.get_quorum_by_id_mut(&local_quorum_id).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Unable to find quorum"
+            )
+        )?; 
+
+        let instances: Vec<Namespace> = instances.iter().filter_map(|(n, q)| {
+            if q.id() == &local_quorum_id {
+                Some(n.clone())
+            } else {
+                None
+            }
+        }).collect();
+
+        for instance in instances {
+            local_quorum.increase_glusterfs_replica_factor().await?;
+            local_quorum.add_peer_to_gluster_volume(peer, instance).await?;
+        }
 
         Ok(())
     }

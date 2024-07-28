@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::{HashMap, HashSet}, net::SocketAddr};
 use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
@@ -11,7 +11,7 @@ use crate::{
         TaskStatus
     }, allegra_rpc::{
         CloudInit, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
-    }, dht::{Peer, Quorum, QuorumSyncEvent}, helpers::{
+    }, dht::{Peer, Quorum}, helpers::{
             generate_task_id, recover_namespace, recover_owner_address
         }, params::{
             HasOwner, Params, ServiceType
@@ -309,13 +309,6 @@ pub enum NetworkEvent {
         peer_address: String,
         dst: String,
     },
-    ShareServerConfig {
-        event_id: String,
-        task_id: TaskId,
-        dst: Peer,
-        received_from: Peer,
-        server_config: String,
-    },
     Create {
         event_id: String,
         task_id: TaskId,
@@ -422,33 +415,24 @@ pub enum NetworkEvent {
         pubkey: String,
         dst: String,
     },
-    DistributeCerts {
-        event_id: String,
-        task_id: TaskId,
-        certs: HashMap<Peer, String>,
-        peer: Peer,
-        quorum_id: String,
-    },
-    ShareCert {
-        event_id: String,
-        task_id: TaskId,
-        peer: Peer,
-        cert: String,
-        quorum_id: String,
-        dst: Peer
-    },
     CastLeaderElectionVote {
         event_id: String,
         task_id: TaskId,
         vote: Vote,
         peers: Vec<Peer>
     },
+    ShareInstanceNamespaces {
+        event_id: String,
+        task_id: TaskId,
+        instances: HashSet<Namespace>,
+        peer: Peer
+    },
     BootstrapNewPeer {
         // This event ensures a new peer is fully bootstrapped into the network
         // before it starts participating.
         // This means this event should trigger the peer being added to a quourum
         // the peer should receive, from it's quorum leader, the current makeup
-        // of it's quuorum and all other quorums
+        // of it's quorum and all other quorums
         // the peer should be synced with it's quorum
         //
         // in the event this process leads to a quorum reshuffling,
@@ -466,21 +450,17 @@ pub enum NetworkEvent {
         peer: Peer,
         dst: Peer
     },
+    BootstrapInstancesResponse {
+        event_id: String,
+        task_id: TaskId,
+        requestor: Peer,
+        bootstrapper: Peer
+    },
     BootstrapResponse {
         event_id: String,
         original_event_id: String,
         task_id: TaskId,
-        quorums: Vec<Quorum>,
         instances: Vec<Instance>,
-    },
-    SyncInstanceToLeader {
-        event_id: String,
-        original_event_id: String,
-        requestor: Peer,
-        task_id: TaskId,
-        namespace: Namespace,
-        event: QuorumSyncEvent,
-        dst: Peer,
     },
     Heartbeat {
         event_id: String,
@@ -670,6 +650,17 @@ pub enum QuorumEvent {
         peer: Peer,
         received_from: Peer,
     },
+    BootstrapInstances {
+        event_id: String,
+        task_id: TaskId,
+        instances: Vec<Namespace>,
+        received_from: Peer,
+    },
+    BootstrapInstancesComplete {
+        event_id: String,
+        task_id: TaskId,
+        peer: Peer,
+    }
 }
 
 #[derive(Clone, Debug, Getters, Serialize, Deserialize)]

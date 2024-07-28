@@ -2,7 +2,7 @@ use crate::{
     account::{
         Namespace, TaskId, TaskStatus
     }, allegra_rpc::{
-        vmm_server::Vmm, Ack, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage, NodeCertMessage, PingMessage, PongMessage, PortResponse, ServerConfigMessage, SyncMessage, VmResponse
+        vmm_server::Vmm, Ack, BootstrapCompleteMessage, BootstrapInstancesMessage, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage,  PingMessage, PongMessage, PortResponse, SyncMessage, VmResponse
     }, dht::Peer, event::{
         QuorumEvent, 
         TaskStatusEvent
@@ -186,109 +186,6 @@ impl VmmService {
         }
     }
 
-    async fn handle_node_certificate_message(
-        &self,
-        node_cert: NodeCertMessage
-    ) -> std::io::Result<()> {
-
-        log::info!("Attempting to handle node certificate message");
-        let event_id = Uuid::new_v4().to_string();
-        let task_id = generate_task_id(node_cert.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-        let address = Address::from_hex(node_cert.peer_id).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-        let event = QuorumEvent::CheckAcceptCert { 
-            event_id, 
-            task_id, 
-            peer: Peer::new(
-                address,
-                node_cert.peer_address.parse().map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })?
-            ), 
-            cert: node_cert.cert 
-        };
-        let mut guard = self.publisher.lock().await;
-        guard.publish(
-            Box::new(QuorumTopic), 
-            Box::new(event)
-        ).await?;
-
-        log::info!("published QuorumEvent::CheckAcceptCert");
-        drop(guard);
-
-        Ok(())
-    }
-
-    async fn handle_server_config_message(
-        &self,
-        server_config: ServerConfigMessage
-    ) -> std::io::Result<()> {
-        log::info!("Attempting to handle server config message");
-        let event_id = Uuid::new_v4().to_string();
-        let task_id = generate_task_id(server_config.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        let wallet_address = Address::from_hex(server_config.header.clone().ok_or(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "server config missing header"
-                )
-            )?.peer_id
-        ).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        let ip_address = server_config.header.ok_or(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "server config missing header"
-            )
-        )?.peer_address.parse().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
-
-        let event = QuorumEvent::CheckAcceptServerConfig {
-            event_id,
-            task_id,
-            peer: Peer::new(
-                wallet_address,
-                ip_address
-            ),
-            server_config: server_config.server_config
-        };
-
-        let mut guard = self.publisher.lock().await;
-        guard.publish(
-            Box::new(QuorumTopic),
-            Box::new(event)
-        ).await?;
-        drop(guard);
-
-        Ok(())
-    }
-
     async fn request_ssh_details(
         &self,
         _remote_addr: Option<SocketAddr>,
@@ -371,6 +268,42 @@ impl VmmService {
 
         Ok(())
 
+    }
+
+    async fn handle_bootstrap_instances_message(&self, message: BootstrapInstancesMessage, received_from: Peer) -> std::io::Result<()> {
+        // Send to DHT to set up directory structure.
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = QuorumEvent::BootstrapInstances { 
+            event_id,
+            task_id,
+            received_from,
+            instances: message.instances.iter().map(|s| Namespace::new(s.to_string())).collect() 
+        };
+
+        let mut guard = self.publisher.lock().await;
+        guard.publish(
+            Box::new(QuorumTopic),
+            Box::new(event)
+        ).await?;
+        drop(guard);
+
+        log::info!("Published QuorumEvent::BootstrapInstances...");
+        Ok(())
+    }
+
+    async fn handle_bootstrap_complete_message(&self, received_from: Peer) -> std::io::Result<()> {
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = QuorumEvent::BootstrapInstancesComplete { event_id, task_id, peer: received_from };
+        let mut guard = self.publisher.lock().await;
+        guard.publish(
+            Box::new(QuorumTopic),
+            Box::new(event)
+        ).await?;
+        drop(guard);
+
+        Ok(())
     }
 }
 
@@ -662,26 +595,38 @@ impl Vmm for VmmService {
         todo!()
     }
 
-    async fn node_certificate(
+    async fn bootstrap_instances(
         &self,
-        request: Request<NodeCertMessage>
+        request: Request<BootstrapInstancesMessage>
     ) -> Result<Response<Ack>, Status> {
-        log::info!("Received node_certificate call...");
+        let remote_addr = request.remote_addr().ok_or(
+            Status::failed_precondition(
+                "Unable to acquire remote address"
+            )
+        )?;
         let message = request.into_inner().clone();
-        //log::info!("Converted request into inner type...");
         let request_id = message.request_id.clone();
-        //log::info!("Attempting to handle node certificate message...");
-        self.handle_node_certificate_message(message).await?;
-        log::info!("server handled node certificate message...");
-
-        //log::info!("Crafting response to request...");
+        let received_from = {
+            let header = message.header.clone().ok_or(
+                Status::failed_precondition(
+                    "Bootstrap Instances message requires a Header"
+                )
+            )?;
+            Peer::new(
+                Address::from_hex(header.peer_id).map_err(|e| {
+                    Status::failed_precondition(e.to_string())
+                })?,
+                remote_addr
+            )
+        };
+        self.handle_bootstrap_instances_message(message, received_from).await?;
         let message_id = Uuid::new_v4().to_string();
         let header = MessageHeader {
             peer_id: self.local_peer.wallet_address_hex(),
             peer_address: self.local_peer.ip_address().to_string(),
             message_id
         };
-        //log::info!("Returning response...");
+
         Ok(Response::new(
                 Ack {
                     header: Some(header),
@@ -691,21 +636,37 @@ impl Vmm for VmmService {
         )
     }
 
-    async fn server_config(
+    async fn bootstrap_complete(
         &self,
-        request: Request<ServerConfigMessage>
+        request: Request<BootstrapCompleteMessage>
     ) -> Result<Response<Ack>, Status> {
+        let remote_addr = request.remote_addr().ok_or(
+            Status::failed_precondition(
+                "Unable to acquire remote address"
+            )
+        )?;
         let message = request.into_inner().clone();
-        let request_id = message.request_id.clone();
-        self.handle_server_config_message(message).await?;
-
+        let received_from = {
+            let header = message.header.clone().ok_or(
+                Status::failed_precondition(
+                    "Bootstrap Instances message requires a Header"
+                )
+            )?;
+            Peer::new(
+                Address::from_hex(header.peer_id).map_err(|e| {
+                    Status::failed_precondition(e.to_string())
+                })?,
+                remote_addr
+            )
+        };
+        self.handle_bootstrap_complete_message(received_from).await?;
         let message_id = Uuid::new_v4().to_string();
         let header = MessageHeader {
             peer_id: self.local_peer.wallet_address_hex(),
             peer_address: self.local_peer.ip_address().to_string(),
             message_id
         };
-
+        let request_id = message.original_request_id;
         Ok(Response::new(
                 Ack {
                     header: Some(header),
