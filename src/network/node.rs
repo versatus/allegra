@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{account::TaskId, dht::Peer, event::NetworkEvent, publish::{GenericPublisher, NetworkTopic}, voting::{Ballot, Vote}, Namespace};
+use crate::{account::TaskId, network::peer::Peer, event::NetworkEvent, publish::{GenericPublisher, NetworkTopic}, voting::{Ballot, Vote}, Namespace};
 use conductor::publisher::PubStream;
 use getset::{Getters, MutGetters};
 use sha3::{Sha3_256, Digest};

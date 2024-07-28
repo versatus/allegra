@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use crate::{statics::*, GeneralResponseSubscriber, GeneralResponseTopic, Instance, VirtInstall, VmInfo, VmmResult, VmmSubscriber};
+use crate::event::QuorumEvent;
+use crate::{get_image_name, get_image_path, statics::*, GeneralResponseSubscriber, GeneralResponseTopic, Instance, QuorumTopic, VirtInstall, VmInfo, VmmResult, VmmSubscriber};
 use crate::{
     update_iptables,
     account::{
@@ -42,6 +43,7 @@ pub struct VmManager {
     network: String,
     next_port: u16,
     handles: FuturesUnordered<JoinHandle<std::io::Result<VmmResult>>>,
+    pending_launch: HashMap<Namespace, VirtInstall>,
     vmlist: VmList,
     publisher: GenericPublisher,
     pub subscriber: VmmSubscriber,
@@ -69,6 +71,7 @@ impl VmManager {
             connection,
             network: network.to_string(),
             next_port,
+            pending_launch: HashMap::new(),
             handles,
             vmlist,
             subscriber,
@@ -314,8 +317,39 @@ impl VmManager {
                 let next_port = self.next_port.clone();
                 let uri = self.publisher.peer_addr()?;
                 let mut publisher = GenericPublisher::new(&uri).await?;
+                let (namespace, virt_install) = Self::prepare_instance(
+                    params,
+                    task_id,
+                    vmlist,
+                    &mut publisher,
+                    next_port
+                ).await?;
+
+                self.pending_launch.insert(namespace, virt_install);
+
+                Ok(())
+            }
+            VmManagerMessage::LaunchInstance {
+                namespace,
+                task_id,
+                ..
+            } => {
+                log::info!("received NewInstance message, attempting to launch instance.");
+                self.refresh_vmlist().await?;
+                let vmlist = self.vmlist.clone();
+                let next_port = self.next_port.clone();
+                let uri = self.publisher.peer_addr()?;
+                let mut publisher = GenericPublisher::new(&uri).await?;
+                let params = self.pending_launch.get(&namespace).ok_or(
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "Namespace unknown..."
+                    )
+                )?;
+
                 return Self::launch_instance(
                     params,
+                    namespace,
                     task_id,
                     vmlist, 
                     &mut publisher, 
@@ -506,14 +540,13 @@ impl VmManager {
         Ok(())
     }
 
-
-    pub async fn launch_instance(
+    pub async fn prepare_instance(
         params: InstanceCreateParams,
         task_id: TaskId,
         vmlist: VmList,
         publisher: &mut GenericPublisher,
         next_port: u16
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<(Namespace, VirtInstall)> {
         log::info!("Attempting to start instance...");
         let payload = params.into_payload(); 
         log::info!("converted params into payload...");
@@ -524,12 +557,67 @@ impl VmManager {
         let namespace = recover_namespace(owner, &params.name);
         log::info!("recovered namespace from name and owner...");
 
-        let virt_install: VirtInstall = params.into();
-        virt_install.execute()?;
-
-        log::info!("executed launch command...");
-
         let event_id = uuid::Uuid::new_v4();
+
+        // Setup directory
+        std::fs::create_dir_all(&format!("/mnt/glusterfs/vms/{}/brick", namespace.inner().to_string()))?;
+        // Get image path
+        let image_path = get_image_path(&params.distro, &params.version).await?;
+        let image_name = get_image_name(&params.distro, &params.version).await?;
+        // Copy image
+        let tmp_dest = format!("/mnt/tmp/images/{}-{}/", params.distro, params.version);
+        // Convert image
+        std::process::Command::new("qemu-img")
+            .arg("convert")
+            .arg("-f")
+            .arg("qcow2")
+            .arg("-O")
+            .arg("raw")
+            .arg(&format!("{}{}", image_path, image_name))
+            .arg(&format!("{}{}", tmp_dest, image_name))
+            .output()?;
+
+        // Setup loop device
+        let loop_device_output = std::process::Command::new("losetup")
+            .arg("-fP")
+            .arg("--show")
+            .arg(format!("{}{}", tmp_dest, image_name))
+            .output()?;
+
+        // Acquire loop device
+        let loop_device = std::str::from_utf8(&loop_device_output.stdout).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?.to_string();
+
+        // Create mountpoint directory
+        std::fs::create_dir_all(format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))?;
+        // Mount loop device partition 1 to the mountpoint
+        std::process::Command::new("mount")
+            .arg(&format!("{}p1", loop_device)) // partition 1 of loop device
+            .arg(&format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
+            .output()?;
+
+        // Move contents of copied disk image to the brick directory 
+        std::process::Command::new("mv")
+            .arg(&format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
+            .arg(&format!("/mnt/glusterfs/vms/{}/brick/", namespace.inner().to_string()))
+            .output()?;
+        
+        // Unmount the loop device from temporary mountpoint
+        std::process::Command::new("umount")
+            .arg(format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
+            .output()?;
+
+        // detach the disk image from the loop device
+        std::process::Command::new("losetup")
+            .arg("-d")
+            .arg(&loop_device)
+            .output()?;
+
+        //TODO:(asmith) Cleanup temporary directories and mount points and disk devices
         let state_event = StateEvent::PutAccount { 
             event_id: event_id.to_string(),
             task_id: task_id.clone(),
@@ -572,6 +660,37 @@ impl VmManager {
 
         log::info!("published event {} to topic {}", event_id.to_string(), StateTopic);
 
+        let virt_install: VirtInstall = params.into(); 
+
+        // Inform peers we are prepared to setup glusterfs volume
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = TaskId::new(uuid::Uuid::new_v4().to_string());
+        let event = QuorumEvent::PreparedForLaunch {
+            event_id,
+            task_id,
+            instance: namespace.clone(),
+        };
+
+        publisher.publish(
+            Box::new(QuorumTopic),
+            Box::new(event)
+        ).await?;
+
+        Ok((namespace, virt_install))
+    }
+
+
+    pub async fn launch_instance(
+        virt_install: &VirtInstall,
+        _namespace: Namespace,
+        _task_id: TaskId,
+        _vmlist: VmList,
+        _publisher: &mut GenericPublisher,
+        _next_port: u16
+    ) -> std::io::Result<()> {
+        virt_install.execute()?;
+        //Update task status, etc. etc.
+        log::info!("executed launch command...");
         Ok(())
     }
 }

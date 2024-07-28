@@ -184,6 +184,11 @@ pub enum VmManagerMessage {
         namespace: String,
         path: String,
         new_quorum: Option<String>,
+    },
+    LaunchInstance {
+        event_id: String,
+        task_id: TaskId,
+        namespace: Namespace,
     }
 }
 
@@ -425,6 +430,10 @@ impl From<VmmEvent> for VmManagerMessage {
                     sig, 
                     task_id 
                 }
+            }
+
+            VmmEvent::LaunchInstance { event_id, task_id, namespace } => {
+                VmManagerMessage::LaunchInstance { event_id, task_id, namespace }
             }
         }
     }

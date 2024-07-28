@@ -1,4 +1,4 @@
-use allegra::{dht::{Peer, QuorumManager}, helpers::{load_or_create_ethereum_address, load_or_get_public_ip_addresss}, statics::*};
+use allegra::{dht::QuorumManager, network::peer::Peer, helpers::{load_or_create_ethereum_address, load_or_get_public_ip_addresss}, statics::*};
 use tokio::task::spawn;
 
 #[tokio::main]

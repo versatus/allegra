@@ -2,16 +2,15 @@ use crate::{
     account::{
         Namespace, TaskId, TaskStatus
     }, allegra_rpc::{
-        vmm_server::Vmm, Ack, BootstrapCompleteMessage, BootstrapInstancesMessage, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage,  PingMessage, PongMessage, PortResponse, SyncMessage, VmResponse
-    }, dht::Peer, event::{
+        vmm_server::Vmm, Ack, BootstrapCompleteMessage, BootstrapInstancesMessage, GetPortMessage, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, MessageHeader, MigrateMessage, NewPeerMessage, PingMessage, PongMessage, PortResponse, PreparedForLaunchMessage, SyncMessage, VmResponse
+    }, event::{
         QuorumEvent, 
         TaskStatusEvent
     }, helpers::{
         generate_task_id, get_payload_hash, owner_address_from_string, recover_owner_address
-    }, params::{
+    }, network::peer::Peer, params::{
         HasOwner, Params
-    }, payload_impls::Payload, 
-    publish::{
+    }, payload_impls::Payload, publish::{
         GeneralResponseTopic, GenericPublisher, QuorumTopic, TaskStatusTopic
     }, subscribe::RpcResponseSubscriber
 };
@@ -296,6 +295,20 @@ impl VmmService {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
         let event = QuorumEvent::BootstrapInstancesComplete { event_id, task_id, peer: received_from };
+        let mut guard = self.publisher.lock().await;
+        guard.publish(
+            Box::new(QuorumTopic),
+            Box::new(event)
+        ).await?;
+        drop(guard);
+
+        Ok(())
+    }
+
+    async fn handle_prepared_for_launch_message(&self, peer: Peer, instance: Namespace) -> std::io::Result<()> {
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = QuorumEvent::AcceptLaunchPreparation { event_id, task_id, instance, peer };
         let mut guard = self.publisher.lock().await;
         guard.publish(
             Box::new(QuorumTopic),
@@ -667,6 +680,40 @@ impl Vmm for VmmService {
             message_id
         };
         let request_id = message.original_request_id;
+        Ok(Response::new(
+                Ack {
+                    header: Some(header),
+                    request_id
+                }
+            )
+        )
+    }
+
+    async fn prepared_for_launch(
+        &self,
+        request: Request<PreparedForLaunchMessage>
+    ) -> Result<Response<Ack>, Status> {
+        let message = request.into_inner();
+        let peer = Peer::new(
+            Address::from_hex(message.peer_id.clone()).map_err(|e| {
+                Status::failed_precondition(e.to_string())
+            })?,
+            message.peer_address.parse::<SocketAddr>().map_err(|e| {
+                Status::failed_precondition(e.to_string())
+            })?,
+        );
+
+        let namespace = Namespace::new(message.instance.clone());
+
+        self.handle_prepared_for_launch_message(peer, namespace).await?;
+
+        let message_id = Uuid::new_v4().to_string();
+        let header = MessageHeader {
+            peer_id: self.local_peer.wallet_address_hex(),
+            peer_address: self.local_peer.ip_address().to_string(),
+            message_id
+        };
+        let request_id = uuid::Uuid::new_v4().to_string();
         Ok(Response::new(
                 Ack {
                     header: Some(header),

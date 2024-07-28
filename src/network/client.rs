@@ -3,8 +3,8 @@ use uuid::Uuid;
 use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
-        BootstrapCompleteMessage, BootstrapInstancesMessage, Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, ServerConfigMessage, SyncEvent, SyncMessage
-    }, create_allegra_rpc_client_to_addr, dht::Peer, event::NetworkEvent, publish::GenericPublisher, subscribe::NetworkSubscriber
+        BootstrapCompleteMessage, BootstrapInstancesMessage, Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, PreparedForLaunchMessage, ServerConfigMessage, SyncEvent, SyncMessage
+    }, create_allegra_rpc_client_to_addr, event::NetworkEvent, network::peer::Peer, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
 use base64::Engine as _;
 
@@ -239,7 +239,7 @@ impl NetworkClient {
                 */
                 todo!()
             }
-            NetworkEvent::ShareInstanceNamespaces { event_id, task_id, instances, peer } => {
+            NetworkEvent::ShareInstanceNamespaces { task_id, instances, peer, .. } => {
                 let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
 
                 let message = BootstrapInstancesMessage {
@@ -251,7 +251,7 @@ impl NetworkClient {
                 let resp = client.bootstrap_instances(tonic::Request::new(message)).await;
                 log::info!("Sent BootstrapInstancesMessage request to {}: {}: response: {}", peer.wallet_address_hex(), peer.ip_address(), resp.is_ok());
             }
-            NetworkEvent::BootstrapInstancesResponse { event_id, task_id, requestor, bootstrapper } => {
+            NetworkEvent::BootstrapInstancesResponse { task_id, requestor, .. } => {
                 let mut client = create_allegra_rpc_client_to_addr(&requestor.ip_address().to_string()).await?;
                 let message = BootstrapCompleteMessage {
                     header: None,
@@ -260,6 +260,18 @@ impl NetworkClient {
 
                 let resp = client.bootstrap_complete(tonic::Request::new(message)).await;
                 log::info!("Sent BootstrapInstancesMessage request to {}: {}: response: {}", requestor.wallet_address_hex(), requestor.ip_address(), resp.is_ok());
+            }
+            NetworkEvent::PreparedForLaunch { instance, dst, local_peer, .. } => {
+                let mut client = create_allegra_rpc_client_to_addr(&dst.ip_address().to_string()).await?;
+                let message = PreparedForLaunchMessage {
+                    peer_id: local_peer.wallet_address_hex(),
+                    peer_address: local_peer.ip_address().to_string(),
+                    instance: instance.inner().to_string()
+                };
+
+                let resp = client.prepared_for_launch(tonic::Request::new(message)).await;
+
+                log::info!("Sent PreparedForLaunch request to {}: {}: response: {}", dst.wallet_address_hex(), dst.ip_address(), resp.is_ok());
             }
         }
 

@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use crate::network::dht::Quorum;
+use crate::network::quorum::Quorum;
 
 lazy_static! {
     pub static ref SERVER_BLOCK_TEMPLATE: &'static str = r#"
@@ -29,4 +29,5 @@ server {
     pub static ref PENDING: &'static str = "PENDING";
     pub static ref DEFAULT_CONFIG_FILEPATH: &'static str = "./config.toml";
     pub static ref DEFAULT_PD_ENDPOINT: &'static str = "127.0.0.1:2379";
+    pub static ref IMAGES_DIR: &'static str = "/var/lib/libvirt/images/";
 }

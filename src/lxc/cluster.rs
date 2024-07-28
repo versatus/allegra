@@ -8,7 +8,7 @@ use std::{
 use tokio::sync::Mutex;
 use lazy_static::lazy_static;
 
-use crate::{dht::Peer, event::{Event, NetworkEvent}, Ballot};
+use crate::{network::peer::Peer, event::{Event, NetworkEvent}, Ballot};
 use serde::{Serialize, Deserialize};
 use derive_builder::Builder;
 

@@ -1,6 +1,6 @@
 use allegra::account::TaskId;
 use allegra::event::{NetworkEvent, QuorumEvent};
-use allegra::{dht::Peer, statics::DEFAULT_NETWORK};
+use allegra::{network::peer::Peer, statics::DEFAULT_NETWORK};
 use allegra::grpc::VmmService;
 use allegra::helpers::{load_bootstrap_node, load_or_create_ethereum_address, load_or_get_public_ip_addresss};
 use allegra::publish::{GenericPublisher, NetworkTopic, QuorumTopic};

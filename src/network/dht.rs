@@ -1,11 +1,10 @@
-use std::{collections::{HashMap, HashSet}, hash::RandomState, net::SocketAddr};
+use std::{collections::{HashMap, HashSet}, hash::RandomState};
 use alloy::primitives::Address;
 use futures::stream::FuturesUnordered;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use uuid::Uuid;
 use futures::StreamExt;
 use anchorhash::AnchorHash;
-use serde::{Serialize, Deserialize};
 use regex::Regex;
 use std::str::FromStr;
 
@@ -30,155 +29,7 @@ use tokio::{io::AsyncWriteExt, task::JoinHandle};
 use tokio::time::{interval, Duration, Instant};
 use getset::{Getters, MutGetters};
 use crate::statics::BOOTSTRAP_QUORUM;
-
-#[derive(Debug, Clone, Getters, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Peer {
-    wallet_address: Address,
-    ip_address: SocketAddr,
-}
-
-impl Peer {
-    pub fn new(wallet_address: Address, ip_address: SocketAddr) -> Self {
-        Self { wallet_address, ip_address }
-    }
-
-    pub fn wallet_address(&self) -> &Address {
-        &self.wallet_address
-    }
-
-    pub fn ip_address(&self) -> &SocketAddr {
-        &self.ip_address
-    }
-
-    pub fn wallet_address_hex(&self) -> String {
-        format!("{:x}", self.wallet_address())
-    }
-}
-
-#[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Quorum {
-    #[getset(get_copy="pub", get="pub", get_mut)]
-    id: Uuid,
-    #[getset(get_copy="pub", get="pub", get_mut)]
-    peers: HashSet<Peer>,
-}
-
-impl Quorum {
-    pub fn new() -> Self {
-        let id = Uuid::new_v4(); 
-        Self { id, peers: HashSet::new() }
-    }
-
-    pub fn add_peer(&mut self, peer: &Peer) -> bool {
-        if !self.peers.contains(peer) {
-            self.peers.insert(peer.clone());
-            return true
-        } else {
-            return false
-        }
-    }
-
-    async fn add_glusterfs_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
-        let output = std::process::Command::new("gluster")
-            .arg("peer")
-            .arg("probe")
-            .arg(peer.ip_address().to_string())
-            .arg("--mode=script")
-            .output()?;
-
-        if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to NFS volume"))
-        }
-
-        Ok(())
-    }
-
-    fn get_gluster_volumes(&self) -> std::io::Result<Vec<String>> {
-        let output = std::process::Command::new("gluster")
-            .arg("volume")
-            .arg("list")
-            .output()?;
-
-        if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to list gluster volumes"))
-        }
-
-        let volumes = String::from_utf8_lossy(&output.stdout)
-            .split_whitespace()
-            .map(String::from)
-            .collect();
-
-        Ok(volumes)
-    }
-
-    async fn add_peer_to_gluster_volume(&self, peer: &Peer, instance: Namespace) -> std::io::Result<()> {
-        let output = std::process::Command::new("gluster")
-            .arg("volume")
-            .arg("add-brick")
-            .arg(&instance.inner().to_string())
-            .arg(&format!("{}:/mnt/glusterfs/vms/{}/brick", peer.ip_address(), instance.inner().to_string()))
-            .arg("force")
-            .arg("--mode=script")
-            .output()?;
-
-        if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to GlusterFS volume"));
-        }
-
-        Ok(())
-    }
-
-    async fn increase_glusterfs_replica_factor(&self) -> std::io::Result<()> {
-        let volumes = self.get_gluster_volumes()?;
-        for volume in volumes {
-            let output = std::process::Command::new("gluster")
-                .arg("volume")
-                .arg("set")
-                .arg(&volume)
-                .arg("replica")
-                .arg(self.size().to_string())
-                .arg("force")
-                .arg("--mode=script")
-                .output()?;
-            if !output.status.success() {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other, 
-                        format!("Failed to set replica for volume {}", volume)
-                    )
-                )
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn share_instances(
-        &mut self, 
-        publisher: &mut GenericPublisher, 
-        instances: HashSet<Namespace>,
-        peer: Peer
-    ) -> std::io::Result<()> {
-        let event_id = Uuid::new_v4().to_string();
-        let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let event = NetworkEvent::ShareInstanceNamespaces { event_id, task_id, instances, peer };
-        publisher.publish(
-            Box::new(NetworkTopic),
-            Box::new(event)
-        ).await?;
-
-        Ok(())
-    }
-    
-    pub fn size(&self) -> usize {
-        self.peers().len()
-    }
-}
-
-pub enum QuorumResult {
-    Unit(()),
-    Other(String),
-}
+use crate::{Peer, Quorum, QuorumResult};
 
 #[derive(Getters, MutGetters)]
 #[getset(get = "pub", get_copy = "pub", get_mut)]
@@ -189,6 +40,7 @@ pub struct QuorumManager {
     quorums: HashMap<Uuid, Quorum>,
     peer_hashring: AnchorHash<Address, Quorum, RandomState>,
     instance_hashring: AnchorHash<Namespace, Quorum, RandomState>,
+    launch_ready: HashMap<Namespace, HashSet<Peer>>,
     subscriber: QuorumSubscriber,
     publisher: GenericPublisher,
     futures: FuturesUnordered<JoinHandle<std::io::Result<QuorumResult>>>,
@@ -226,6 +78,7 @@ impl QuorumManager {
             quorums,
             peer_hashring,
             instance_hashring,
+            launch_ready: HashMap::new(),
             publisher,
             subscriber,
             futures: FuturesUnordered::new(),
@@ -318,6 +171,76 @@ impl QuorumManager {
                 // Here we need to add the brick to the gluster volume
                 self.complete_bootstrap(&peer).await?;
             }
+            QuorumEvent::PreparedForLaunch { event_id, task_id, instance } => {
+                self.prepared_for_launch(instance).await?;
+            }
+            QuorumEvent::AcceptLaunchPreparation { peer, instance, .. } => {
+                self.accept_launch_preparation(peer, instance).await;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn accept_launch_preparation(&mut self, peer: Peer, instance: Namespace) -> std::io::Result<()> {
+        //Check if all nodes have responded and are prepared
+        //if so:
+        //  create gluster volume
+        //  inform VMM it can launch the instance.
+        let quorum_id = self.get_quorum_responsible(&instance)?;
+        let mut quorum = self.get_quorum_by_id(&quorum_id).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find quorum"
+            )
+        )?.clone();
+
+        let mut entry = self.launch_ready.entry(instance.clone()).or_insert(HashSet::new());
+        entry.insert(peer);
+
+        let peers = quorum.peers().clone();
+        let mut prepared = true;
+        for peer in peers {
+            if !entry.contains(&peer) {
+                prepared = false;
+            }
+        }
+
+        if prepared {
+            quorum.create_gluster_volume(instance.clone(), quorum.peers().clone().iter().collect()).await?;
+        }
+
+        let event_id = Uuid::new_v4().to_string();
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        let event = VmmEvent::LaunchInstance { event_id, task_id, namespace: instance.clone() };
+
+        self.publisher_mut().publish(
+            Box::new(VmManagerTopic), 
+            Box::new(event)
+        ).await?;
+
+        Ok(())
+    }
+
+    async fn prepared_for_launch(&mut self, instance: Namespace) -> std::io::Result<()> {
+        // Create and send network event to each peer
+        let local_peer = self.node().peer_info().clone();
+        let peers = self.get_quorum_peers(&local_peer).ok_or(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "unable to find peers"
+            )
+        )?; 
+
+        for peer in peers {
+            let event_id = Uuid::new_v4().to_string();
+            let task_id = TaskId::new(Uuid::new_v4().to_string());
+            let event = NetworkEvent::PreparedForLaunch { event_id, task_id, instance: instance.clone(), dst: peer.clone(), local_peer: local_peer.clone() };
+            
+            self.publisher_mut().publish(
+                Box::new(NetworkTopic),
+                Box::new(event)
+            ).await?;
         }
 
         Ok(())
@@ -336,7 +259,7 @@ impl QuorumManager {
 
     fn get_local_quorum_membership(&mut self) -> std::io::Result<Uuid> {
         let local_peer = self.node().peer_info();
-        Ok(self.get_peer_quorum_membership(&local_peer).ok_or(
+        Ok(self.get_peer_quorum_membership(local_peer).ok_or(
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Local Peer's quorum cannot be found"

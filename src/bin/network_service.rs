@@ -1,5 +1,5 @@
 use allegra::client::NetworkClient;
-use allegra::dht::Peer;
+use allegra::network::peer::Peer;
 use allegra::helpers::{load_or_create_ethereum_address, load_or_get_public_ip_addresss};
 
 #[tokio::main]

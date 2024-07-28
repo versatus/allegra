@@ -246,6 +246,12 @@ message BootstrapCompleteMessage {
     string original_request_id = 2;
 }
 
+message PreparedForLaunchMessage {
+    string peer_id = 1;
+    string peer_address = 2;
+    string instance = 3;
+}
+
 service Vmm {
   rpc CreateVm(InstanceCreateParams) returns (VmResponse);
   rpc ShutdownVm(InstanceStopParams) returns (VmResponse);
@@ -262,4 +268,5 @@ service Vmm {
   rpc GetPort(GetPortMessage) returns (PortResponse);
   rpc BootstrapInstances(BootstrapInstancesMessage) returns (Ack);
   rpc BootstrapComplete(BootstrapCompleteMessage) returns (Ack);
+  rpc PreparedForLaunch(PreparedForLaunchMessage) returns (Ack);
 }

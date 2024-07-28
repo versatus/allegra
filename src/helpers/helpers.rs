@@ -1,7 +1,7 @@
 use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
-    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::{Peer, QuorumManager}, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::ServiceType, payload_impls::Payload, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
+    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::QuorumManager, network::peer::Peer, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::ServiceType, payload_impls::Payload, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
         VmInfo, VmList
     }, vmm::Instance
 };
@@ -1182,4 +1182,12 @@ pub async fn get_container_ip(container_name: &str) -> std::io::Result<String> {
             std::io::ErrorKind::Other,
             "unable to acquire docker container's ip address"
         ))
+}
+
+pub async fn get_image_path(distro: &str, version: &str) -> std::io::Result<String> {
+    todo!()
+}
+
+pub async fn get_image_name(distro: &str, version: &str) -> std::io::Result<String> {
+    todo!()
 }

@@ -11,7 +11,7 @@ use crate::{
         TaskStatus
     }, allegra_rpc::{
         CloudInit, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
-    }, dht::{Peer, Quorum}, helpers::{
+    }, network::quorum::Quorum, network::peer::Peer, helpers::{
             generate_task_id, recover_namespace, recover_owner_address
         }, params::{
             HasOwner, Params, ServiceType
@@ -296,6 +296,11 @@ pub enum VmmEvent {
         sig: String,
         recovery_id: u32,
         pubkey: String,
+    },
+    LaunchInstance {
+        event_id: String,
+        task_id: TaskId,
+        namespace: Namespace,
     }
 }
 
@@ -467,7 +472,14 @@ pub enum NetworkEvent {
         task_id: TaskId,
         peer: Peer,
         requestor: Peer,
-    }
+    },
+    PreparedForLaunch {
+        event_id: String,
+        task_id: TaskId,
+        instance: Namespace,
+        dst: Peer,
+        local_peer: Peer
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -659,6 +671,17 @@ pub enum QuorumEvent {
     BootstrapInstancesComplete {
         event_id: String,
         task_id: TaskId,
+        peer: Peer,
+    },
+    PreparedForLaunch {
+        event_id: String,
+        task_id: TaskId,
+        instance: Namespace,
+    },
+    AcceptLaunchPreparation {
+        event_id: String,
+        task_id: TaskId,
+        instance: Namespace,
         peer: Peer,
     }
 }
