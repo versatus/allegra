@@ -1,11 +1,11 @@
 use crate::{
     account::{
         Account, ExposedPort, Namespace, TaskId, TaskStatus
-    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::QuorumManager, network::peer::Peer, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, node::{Config, WalletConfig}, params::ServiceType, payload_impls::Payload, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
+    }, allegra_rpc::{GetPortMessage, PortResponse, SshDetails, VmResponse}, create_allegra_rpc_client_to_addr, dht::QuorumManager, distro::Distro, event::{StateEvent, TaskStatusEvent}, expose::update_nginx_config, network::peer::Peer, node::{Config, WalletConfig}, params::ServiceType, payload_impls::Payload, publish::{GenericPublisher, StateTopic, TaskStatusTopic}, statics::{DEFAULT_CONFIG_FILEPATH, DEFAULT_LXD_STORAGE_POOL, DEFAULT_PD_ENDPOINT, DEFAULT_PUBLISHER_ADDRESS, DEFAULT_SUBSCRIBER_ADDRESS, SUCCESS}, vm_info::{
         VmInfo, VmList
     }, vmm::Instance
 };
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 use bollard::container::InspectContainerOptions;
 use conductor::publisher::PubStream;
 use hex::FromHex;
@@ -1184,10 +1184,15 @@ pub async fn get_container_ip(container_name: &str) -> std::io::Result<String> {
         ))
 }
 
-pub async fn get_image_path(distro: &str, version: &str) -> std::io::Result<String> {
-    todo!()
+pub fn get_image_path(distro: Distro, version: &str) -> PathBuf {
+    PathBuf::from(distro)
 }
 
-pub async fn get_image_name(distro: &str, version: &str) -> std::io::Result<String> {
-    todo!()
+pub async fn get_image_name(distro: Distro, version: &str) -> std::io::Result<String> {
+    get_image_path(distro, version).file_name().and_then(|os_str| os_str.to_str()).map(String::from).ok_or(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "unable to extract the image name"
+        )
+    )
 }

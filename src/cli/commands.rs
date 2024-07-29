@@ -1,5 +1,6 @@
 use clap::Subcommand;
 
+use crate::distro::Distro;
 use crate::params::ServiceType;
 use crate::vm_types::VmType;
 
@@ -35,7 +36,7 @@ pub enum AllegraCommands {
         #[arg(long, short)]
         name: String,
         #[arg(long, short)]
-        distro: String,
+        distro: Distro,
         #[arg(long, short)]
         version: String,
         #[arg(long, short='t')]

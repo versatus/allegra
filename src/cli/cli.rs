@@ -89,7 +89,7 @@ async fn main() -> std::io::Result<()> {
             let recovery_id: u8 = recover_id.into();
             let params = InstanceCreateParams {
                 name: name.clone(),
-                distro: distro.clone(), 
+                distro: distro.into(), 
                 version: version.clone(), 
                 vmtype: vmtype.to_string(),
                 sig: hex::encode(&sig.to_bytes()), 

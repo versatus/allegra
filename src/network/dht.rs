@@ -14,7 +14,7 @@ use crate::{
         TaskId
     }, allegra_rpc::{
             InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
-        }, consts::NGINX_CONFIG_PATH, event::{
+        }, consts::NGINX_CONFIG_PATH, distro::Distro, event::{
         NetworkEvent, 
         QuorumEvent, 
         VmmEvent
@@ -302,7 +302,7 @@ impl QuorumManager {
                         event_id, 
                         task_id: task_id.clone(), 
                         name: payload.name.clone(), 
-                        distro: payload.distro.clone(), 
+                        distro: Distro::try_from(payload.distro.clone())?, 
                         version: payload.version.clone(), 
                         vmtype: VmType::from_str(&payload.vmtype)?.clone(), 
                         sig: payload.sig.clone(), 
@@ -379,7 +379,7 @@ impl QuorumManager {
                                     event_id, 
                                     task_id: inner_task_id.clone(), 
                                     name: inner_payload.name.clone(), 
-                                    distro: inner_payload.distro.clone(), 
+                                    distro: Distro::try_from(inner_payload.distro.clone())?, 
                                     version: inner_payload.version.clone(), 
                                     vmtype: inner_payload.vmtype.clone().to_string(), 
                                     sig: inner_payload.sig.clone(), 

@@ -1,5 +1,4 @@
 use std::{collections::{HashMap, HashSet}, net::SocketAddr};
-use libretto::pubsub::LibrettoEvent;
 use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
 use serde::{Serialize, Deserialize};
 use sha3::{Digest, Sha3_256};
@@ -11,14 +10,15 @@ use crate::{
         TaskStatus
     }, allegra_rpc::{
         CloudInit, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
-    }, network::quorum::Quorum, network::peer::Peer, helpers::{
+    }, helpers::{
             generate_task_id, recover_namespace, recover_owner_address
-        }, params::{
+        }, network::peer::Peer, params::{
             HasOwner, Params, ServiceType
         }, publish::GeneralResponseTopic, vm_info::{
             VmInfo, 
             VmList
-        }, vm_types::VmType, vmm::Instance, voting::Vote
+        }, vm_types::VmType, vmm::Instance, voting::Vote,
+    vmm::distro::Distro
 };
 use crate::payload_impls::Payload;
 use getset::Getters;
@@ -201,7 +201,7 @@ pub enum VmmEvent {
         event_id: String,
         task_id: TaskId,
         name: String,
-        distro: String,
+        distro: Distro,
         version: String,
         vmtype: VmType,
         sig: String,
@@ -318,7 +318,7 @@ pub enum NetworkEvent {
         event_id: String,
         task_id: TaskId,
         name: String,
-        distro: String,
+        distro: Distro,
         version: String,
         vmtype: String,
         sig: String,
@@ -743,7 +743,7 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
         })?;
         Ok(NetworkEvent::Create { 
             name: value.1.name.clone(), 
-            distro: value.1.distro.clone(), 
+            distro: Distro::try_from(value.1.distro.clone())?, 
             version: value.1.version.clone(), 
             vmtype: value.1.vmtype.clone(), 
             sig: value.1.sig.clone(), 

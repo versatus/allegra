@@ -1,12 +1,10 @@
 use conductor::subscriber::SubStream;
-use uuid::Uuid;
 use tokio::time::{interval, Duration};
 use crate::{
     allegra_rpc::{
-        BootstrapCompleteMessage, BootstrapInstancesMessage, Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, PreparedForLaunchMessage, ServerConfigMessage, SyncEvent, SyncMessage
+        BootstrapCompleteMessage, BootstrapInstancesMessage, Features, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams, MessageHeader, NewPeerMessage, PreparedForLaunchMessage,
     }, create_allegra_rpc_client_to_addr, event::NetworkEvent, network::peer::Peer, publish::GenericPublisher, subscribe::NetworkSubscriber
 };
-use base64::Engine as _;
 
 pub struct NetworkClient {
     local_peer: Peer,
@@ -70,7 +68,7 @@ impl NetworkClient {
 
                 log::info!("Received Create event, sending to {dst}");
                 let create_instance_message = InstanceCreateParams {
-                    name, distro, version, vmtype, sig, 
+                    name, distro: distro.into(), version, vmtype, sig, 
                     recovery_id: recovery_id.into(), sync,
                     memory, vcpus, cpu, metadata, os_variant,
                     host_device, network, disk, filesystem, controller,

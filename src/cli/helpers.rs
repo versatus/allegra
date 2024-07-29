@@ -103,7 +103,7 @@ pub fn generate_signature_from_command(command: AllegraCommands) -> std::io::Res
             Box::new(
                 InstanceCreateParams {
                     name: name.clone(),
-                    distro: distro.clone(), 
+                    distro: distro.clone().into(), 
                     version: version.clone(), 
                     vmtype: vmtype.clone().to_string(),
                     sig: String::default(), 

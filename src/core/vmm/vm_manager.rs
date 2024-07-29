@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use crate::distro::Distro;
 use crate::event::QuorumEvent;
 use crate::{get_image_name, get_image_path, statics::*, GeneralResponseSubscriber, GeneralResponseTopic, Instance, QuorumTopic, VirtInstall, VmInfo, VmmResult, VmmSubscriber};
 use crate::{
@@ -34,7 +35,6 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterato
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use virt::connect::Connect;
-
 
 pub struct VmManager {
     connection: Connect,
@@ -562,10 +562,10 @@ impl VmManager {
         // Setup directory
         std::fs::create_dir_all(&format!("/mnt/glusterfs/vms/{}/brick", namespace.inner().to_string()))?;
         // Get image path
-        let image_path = get_image_path(&params.distro, &params.version).await?;
-        let image_name = get_image_name(&params.distro, &params.version).await?;
+        let image_path = get_image_path(Distro::try_from(&params.distro)?, &params.version);
+        let image_name = get_image_name(Distro::try_from(&params.distro)?, &params.version).await?;
         // Copy image
-        let tmp_dest = format!("/mnt/tmp/images/{}-{}/", params.distro, params.version);
+        let tmp_dest = format!("/mnt/tmp/images/{}-{}", params.distro, params.version);
         // Convert image
         std::process::Command::new("qemu-img")
             .arg("convert")
@@ -573,8 +573,8 @@ impl VmManager {
             .arg("qcow2")
             .arg("-O")
             .arg("raw")
-            .arg(&format!("{}{}", image_path, image_name))
-            .arg(&format!("{}{}", tmp_dest, image_name))
+            .arg(&format!("{}", image_path.display()))
+            .arg(&format!("{}/{}", tmp_dest, image_name))
             .output()?;
 
         // Setup loop device

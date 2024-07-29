@@ -255,7 +255,7 @@ impl From<VmmEvent> for VmManagerMessage {
             } => {
                 let params = InstanceCreateParams {
                     name, 
-                    distro, 
+                    distro:  distro.into(), 
                     version, 
                     vmtype: vmtype.to_string(),
                     sig, 
