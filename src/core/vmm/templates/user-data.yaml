@@ -1,0 +1,99 @@
+#cloud-config
+
+{{#if USER_DATA}}
+users:
+  - name: {{USER_DATA.username}}
+    {{#if USER_DATA.password}}
+    plain_text_passwd: '{{USER_DATA.password}}'
+    lock_passwd: false
+    {{/if}}
+    {{#if USER_DATA.ssh_authorized_keys}}
+    ssh_authorized_keys:
+      {{#each USER_DATA.ssh_authorized_keys}}
+      - {{this}}
+      {{/each}}
+    {{/if}}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+{{else}}
+users:
+  - name: ubuntu
+    plain_text_passwd: 'ubuntu'
+    lock_passwd: false
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+{{/if}}
+
+ssh_pwauth: true
+
+chpasswd:
+  expire: false
+
+# Install necessary packages
+packages:
+  - glusterfs-client
+  - rsync
+  - inotify-tools
+
+# Mount GlusterFS volume
+mounts:
+  - [ "localhost:/gv0", "/mnt/glusterfs", "glusterfs", "defaults,_netdev", "0", "0" ]
+
+# Create a service to ensure GlusterFS mounting and directory syncing
+write_files:
+  - path: /etc/systemd/system/glusterfs-sync.service
+    content: |
+      [Unit]
+      Description=GlusterFS Sync Service
+      After=network-online.target
+      Wants=network-online.target
+      Before=cloud-init.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/glusterfs-sync.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/bin/glusterfs-sync.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      
+      GLUSTER_MOUNT="/mnt/glusterfs"
+      ROOT_DIR="/"
+
+      # Function to sync and mount a directory
+      sync_and_mount() {
+        local dir="$1"
+        mkdir -p "${GLUSTER_MOUNT}${dir}"
+        rsync -avz "${ROOT_DIR}${dir}/" "${GLUSTER_MOUNT}${dir}/"
+        mount --bind "${GLUSTER_MOUNT}${dir}" "${ROOT_DIR}${dir}"
+      }
+
+      # Initial sync and mount for existing directories
+      for dir in ${ROOT_DIR}*/; do
+        if [ "$dir" != "${GLUSTER_MOUNT}/" ]; then
+          sync_and_mount "$dir"
+        fi
+      done
+
+      # Watch for new directories and sync/mount them
+      inotifywait -m -e create -e moved_to --format "%f" ${ROOT_DIR} | while read newdir
+      do
+        if [ -d "${ROOT_DIR}${newdir}" ] && [ "${ROOT_DIR}${newdir}" != "${GLUSTER_MOUNT}" ]; then
+          sync_and_mount "/${newdir}"
+        fi
+      done
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable glusterfs-sync.service
+  - systemctl start glusterfs-sync.service
+
+# Additional user-provided cloud-init data
+{{#if ADDITIONAL_CLOUD_INIT}}
+{{ADDITIONAL_CLOUD_INIT}}
+{{/if}}

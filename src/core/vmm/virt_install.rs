@@ -1,6 +1,7 @@
-use std::{collections::HashMap, process::Command};
+use std::{collections::HashMap, fs, path::Path, process::Command};
 use crate::allegra_rpc::{InstanceCreateParams, CloudInit as ProtoCloudInit};
 use serde::{Serialize, Deserialize};
+use getset::{Getters, Setters, MutGetters};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VirtInstall {
@@ -66,6 +67,81 @@ pub struct CloudInit {
     network_config: Option<String>
 }
 
+#[derive(Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct UserData {
+    users: Vec<User>,
+    packages: Vec<String>,
+    write_files: Vec<WriteFile>,
+    mounts: Vec<String>,
+    runcmd: Vec<String>,
+    bootcmd: Vec<String>
+}
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct User {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ssh_authorized_keys: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sudo: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    groups: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shell: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    passwd: Option<String>,
+    #[serde(rename = "lock-passwd", skip_serializing_if = "Option::is_none")]
+    lock_passwd: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chpasswd: Option<Chpasswd>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ssh_pwauth: Option<bool>
+}
+
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct Chpasswd {
+    expire: bool
+}
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct WriteFile {
+    path: String,
+    content: String,
+    permissions: Option<String>
+}
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct NetworkConfig {
+    version: u8,
+    ethernets: std::collections::HashMap<String, EthernetConfig>
+}
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct EthernetConfig {
+    dhcp4: bool,
+    addresses: Vec<String>,
+    nameservers: Nameservers,
+    routes: Vec<Route>
+}
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct Nameservers {
+    addresses: Vec<String>
+}
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct Route {
+    to: String,
+    via: String
+}
+
+#[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
+pub struct MetaData {
+    instance_id: String,
+    local_hostname: String
+}
+
 impl From<ProtoCloudInit> for CloudInit {
     fn from(value: ProtoCloudInit) -> Self {
         Self {
@@ -125,8 +201,6 @@ impl CloudInit {
         self.network_config = Some(config);
         self
     }
-
-    // Write to file
 }
 
 impl VirtInstall {
@@ -556,6 +630,8 @@ impl VirtInstall {
             command.arg("--virt-type").arg(virt_type);
         }
 
+        // Make directory for profile
+        // use template and update
         if let Some(cloud_init) = &self.cloud_init {
             let mut cloud_init_args = Vec::new();
 
@@ -652,4 +728,147 @@ impl From<InstanceCreateParams> for VirtInstall {
             }
         }
     }
+}
+
+pub fn merge_user_data(default: &mut UserData, user_provided: Option<&UserData>) {
+    if let Some(user) = user_provided {
+        if !user.users.is_empty() {
+            default.users = user.users.clone();
+        } else {
+            for (default_user, provided_user) in default.users.iter_mut().zip(user.users.iter()) {
+                if let Some(keys) = &provided_user.ssh_authorized_keys {
+                    default_user.ssh_authorized_keys = Some(keys.clone());
+                }
+                if let Some(sudo) = &provided_user.sudo {
+                    default_user.sudo = Some(sudo.clone());
+                }
+                if let Some(groups) = &provided_user.groups {
+                    default_user.groups = Some(groups.clone());
+                }
+                if let Some(shell) = &provided_user.shell {
+                    default_user.shell = Some(shell.clone());
+                }
+                if let Some(passwd) = &provided_user.passwd {
+                    default_user.passwd = Some(passwd.clone());
+                }
+                if let Some(lock_passwd) = provided_user.lock_passwd {
+                    default_user.lock_passwd = Some(lock_passwd);
+                }
+                if let Some(chpasswd) = &provided_user.chpasswd {
+                    default_user.chpasswd = Some(chpasswd.clone());
+                }
+                if let Some(ssh_pwauth) = provided_user.ssh_pwauth {
+                    default_user.ssh_pwauth = Some(ssh_pwauth);
+                }
+            }
+        }
+
+        default.packages.extend(user.packages.iter().cloned());
+        default.write_files.extend(user.write_files.iter().cloned());
+        default.mounts.extend(user.mounts.iter().cloned());
+        default.runcmd.extend(user.runcmd.iter().cloned());
+    }
+}
+
+pub fn generate_cloud_init_files(
+    instance_id: &str,
+    hostname: &str,
+    user_provided: Option<&UserData>,
+    ip_address: &str,
+) -> std::io::Result<()> {
+    let mut default_user_data = UserData {
+        users: vec![User {
+            name: "ubuntu".to_string(),
+            ssh_authorized_keys: None,
+            sudo: Some(vec!["ALL=(ALL) NOPASSWD:ALL".to_string()]),
+            groups: Some(vec!["sudo".to_string()]), 
+            shell: Some("/bin/bash".to_string()),
+            passwd: Some("$6$ZP1jxGi3aYL9Cs2m$hh5hIXjvztsXarenhMWiLZNqXM.J/djgkuB3trkqi9fkDNCAANDrWZgFWymG0rUONkMXavx3kIFyqc5eEsnuV1".to_string()),
+            lock_passwd: Some(false),
+            chpasswd: Some(Chpasswd { expire: false }),
+            ssh_pwauth: Some(true)
+        }],
+        packages: vec![
+            "glusterfs-client".to_string(),
+            "rsync".to_string(),
+            "inotify-tools".to_string()
+        ],
+        write_files: vec![
+            WriteFile {
+                path: "/etc/systemd/system/glusterfs-sync.service".to_string(),
+                content: include_str!("templates/glusterfs-sync.service").to_string(),
+                permissions: None
+            },
+            WriteFile {
+                path: "/usr/local/bin/glusterfs-sync.sh".to_string(),
+                content: include_str!("templates/glusterfs-sync.sh").to_string(),
+                permissions: Some("0755".to_string()),
+            }
+        ],
+        mounts: vec!["[ \"localhost:/gv0\", \"/mnt/glusterfs/\", \"glusterfs\", \"defaults,_netdev\", \"0\", \"0\" ]".to_string()],
+        runcmd: vec![
+            "systemctl daemon-reload".to_string(),
+            "systemctl enable glusterfs-sync.service".to_string(),
+            "systemctl start glusterfs-sync.service".to_string()
+        ],
+        bootcmd: vec![]
+    };
+
+    merge_user_data(&mut default_user_data, user_provided);
+
+    let network_config = NetworkConfig {
+        version: 2,
+        ethernets: [(
+            "enp1s0".to_string(),
+            EthernetConfig {
+                dhcp4: false,
+                addresses: vec![format!("{}/24", ip_address)],
+                nameservers: Nameservers {
+                    addresses: vec!["192.168.122.1".to_string()],
+                },
+                routes: vec![Route {
+                    to: "0.0.0.0/0".to_string(),
+                    via: "192.168.122.1".to_string()
+                }]
+            }
+        )].iter().cloned().collect()
+    };
+
+    let metadata = MetaData {
+        instance_id: instance_id.to_string(),
+        local_hostname: hostname.to_string()
+    }; 
+
+    let profile_dir = Path::new("/var/lib/libvirt/profiles").join(instance_id);
+    fs::create_dir_all(&profile_dir)?;
+    fs::write(
+        profile_dir.join("user-data.yaml"),
+        serde_yml::to_string(&default_user_data).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?,
+    )?;
+    fs::write(
+        profile_dir.join("network-config.yaml"),
+        serde_yml::to_string(&network_config).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?,
+    )?;
+
+    fs::write(
+        profile_dir.join("meta-data.yaml"),
+        serde_yml::to_string(&metadata).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e
+            )
+        })?,
+    )?;
+
+    Ok(())
 }
