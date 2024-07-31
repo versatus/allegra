@@ -59,7 +59,10 @@ impl VmManager {
         let handles = FuturesUnordered::new();
         log::info!("established FuturesUnordered handler");
         let mut publisher = GenericPublisher::new("127.0.0.1:5555").await?;
-        let vmlist = Self::get_vmlist(&mut connection, &mut publisher).await?;
+        let vmlist = match Self::get_vmlist(&mut connection, &mut publisher).await {
+            Ok(vmlist) => vmlist,
+            Err(_) => VmList { vms: HashMap::new() }
+        };
         log::info!("acquired vm list");
 
         let subscriber = VmmSubscriber::new("127.0.0.1:5556").await?; 
@@ -198,7 +201,7 @@ impl VmManager {
             }
 
 
-            match tokio::time::timeout(
+            let instances = tokio::time::timeout(
                 tokio::time::Duration::from_secs(60),
                 Self::batch_instance_response(&mut events, &mut subscriber)
             ).await??;
