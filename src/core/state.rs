@@ -142,13 +142,17 @@ impl StateManager {
                 Ok(message) = self.state_subscriber.receive() => {
                     for m in message {
                         log::info!("Received state event...");
-                        self.handle_state_event(m).await?;
+                        if let Err(e) = self.handle_state_event(m).await {
+                            log::info!("ERROR: self.handle_state_event: {e}");
+                        }
                     }
                 }
                 Ok(message) = self.task_subscriber.receive() => {
                     for m in message {
                         log::info!("Received task_status event...");
-                        self.handle_task_event(m).await?;
+                        if let Err(e) = self.handle_task_event(m).await{ 
+                            log::info!("ERROR: self.handle_state_event: {e}");
+                        }
                     }
                 }
                 _ = tokio::signal::ctrl_c() => {
