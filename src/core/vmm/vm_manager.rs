@@ -132,7 +132,7 @@ impl VmManager {
                                         }
                                     }
                                 }
-                                _ => { todo!() }
+                                _ => { }
                             }
                         }
                         Err(e) => {
@@ -167,14 +167,17 @@ impl VmManager {
     }
 
     pub async fn refresh_vmlist(&mut self) -> std::io::Result<()> {
+        log::info!("Attempting to refresh instances...");
         let domains = self.connection.list_all_domains(0)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         
+        log::info!("acquired all domains: {:?}", domains);
         let vms: Vec<String> = domains.iter()
             .filter_map(|domain| {
                 domain.get_name().ok()
             }).collect();
 
+        log::info!("vms: {:?}", domains);
         let mut events = HashSet::new();
 
         let vm_info_vec: HashMap<Namespace, VmInfo> = {
@@ -195,7 +198,7 @@ impl VmManager {
             }
 
 
-            let instances = tokio::time::timeout(
+            match tokio::time::timeout(
                 tokio::time::Duration::from_secs(60),
                 Self::batch_instance_response(&mut events, &mut subscriber)
             ).await??;
