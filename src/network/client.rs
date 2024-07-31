@@ -220,7 +220,7 @@ impl NetworkClient {
                 })?.into_inner();
             }
             NetworkEvent::CastLeaderElectionVote { .. } => {
-                todo!()
+                log::info!("Received CastLeaderElectionVote Event...");
             }
             NetworkEvent::BootstrapNewPeer { .. } => {
                 log::info!("Received Bootstrap New Peer event");
@@ -229,13 +229,13 @@ impl NetworkClient {
                 log::info!("Received Bootstrap Response event");
             }
             NetworkEvent::Heartbeat { .. } => {
+                log::info!("Received Heartbeat Event...");
                 /*
                 let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
                 let header = MessageHeader {
                     peer_id
                 }
                 */
-                todo!()
             }
             NetworkEvent::ShareInstanceNamespaces { task_id, instances, peer, .. } => {
                 let mut client = create_allegra_rpc_client_to_addr(&peer.ip_address().to_string()).await?;
