@@ -309,6 +309,7 @@ impl VmmService {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
         let event = QuorumEvent::AcceptLaunchPreparation { event_id, task_id, instance, peer };
+        log::info!("Created AcceptLaunchPreparation QuorumEvent...");
         let mut guard = self.publisher.lock().await;
         guard.publish(
             Box::new(QuorumTopic),
@@ -326,6 +327,7 @@ impl Vmm for VmmService {
         &self,
         request: Request<InstanceCreateParams>,
     ) -> Result<Response<VmResponse>, Status> {
+        log::info!("received create_vm call...");
         let params = request.into_inner();
         let task_id = generate_task_id(params.clone())?;
         let payload_hash = get_payload_hash(
@@ -338,9 +340,11 @@ impl Vmm for VmmService {
             log::info!("task log does not contain task_id: {:?}", &task_id);
             self.check_responsibility(params.clone(), task_id.clone()).await?;
             guard.insert(task_id.clone());
+            log::info!("added task to task_log...");
         }
         drop(guard);
         self.update_task_status(task_id.clone(), owner).await?;
+        log::info!("updating task status...");
 
         return Ok(
             Response::new(
@@ -702,6 +706,7 @@ impl Vmm for VmmService {
                 Status::failed_precondition(e.to_string())
             })?,
         );
+        log::info!("Received prepared_for_launch call from {}... Informing quorum", peer.wallet_address_hex());
 
         let namespace = Namespace::new(message.instance.clone());
 

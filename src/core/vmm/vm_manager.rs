@@ -53,7 +53,7 @@ impl VmManager {
     pub async fn new(next_port: u16) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
         log::info!("set network interface to {}", &network);
-        let mut connection = Connect::open(Some("qemu::///system"))
+        let mut connection = Connect::open(Some("qemu:///system"))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         log::info!("established connection to qemu");
         let handles = FuturesUnordered::new();
@@ -311,7 +311,7 @@ impl VmManager {
                 task_id,
                 ..
             } => {
-                log::info!("received NewInstance message, attempting to launch instance.");
+                log::info!("received NewInstance message, setting up to launch instance.");
                 self.refresh_vmlist().await?;
                 let vmlist = self.vmlist.clone();
                 let next_port = self.next_port.clone();
@@ -334,7 +334,7 @@ impl VmManager {
                 task_id,
                 ..
             } => {
-                log::info!("received NewInstance message, attempting to launch instance.");
+                log::info!("received LaunchInstance message, attempting to launch instance.");
                 self.refresh_vmlist().await?;
                 let vmlist = self.vmlist.clone();
                 let next_port = self.next_port.clone();

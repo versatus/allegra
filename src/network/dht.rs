@@ -175,6 +175,7 @@ impl QuorumManager {
                 self.prepared_for_launch(instance).await?;
             }
             QuorumEvent::AcceptLaunchPreparation { peer, instance, .. } => {
+                log::info!("QuorumManager received AcceptLaunchPreparation Event...");
                 self.accept_launch_preparation(peer, instance).await;
             }
         }
@@ -183,10 +184,6 @@ impl QuorumManager {
     }
 
     async fn accept_launch_preparation(&mut self, peer: Peer, instance: Namespace) -> std::io::Result<()> {
-        //Check if all nodes have responded and are prepared
-        //if so:
-        //  create gluster volume
-        //  inform VMM it can launch the instance.
         let quorum_id = self.get_quorum_responsible(&instance)?;
         let mut quorum = self.get_quorum_by_id(&quorum_id).ok_or(
             std::io::Error::new(
@@ -195,8 +192,10 @@ impl QuorumManager {
             )
         )?.clone();
 
+        log::info!("Checking if entry exists or inserting new set");
         let mut entry = self.launch_ready.entry(instance.clone()).or_insert(HashSet::new());
         entry.insert(peer);
+        log::info!("Added prepared peer to set...");
 
         let peers = quorum.peers().clone();
         let mut prepared = true;
