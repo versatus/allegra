@@ -24,9 +24,9 @@ impl Quorum {
         if !self.peers.contains(peer) {
             self.peers.insert(peer.clone());
             self.add_glusterfs_peer(peer).await?;
-            return true
+            return Ok(true)
         } else {
-            return false
+            return Ok(false)
         }
     }
 

@@ -41,6 +41,7 @@ pub struct VmManager {
     // Use a struct for the virbr0
     #[allow(unused)]
     network: String,
+    next_ip: [u8; 4],
     next_port: u16,
     handles: FuturesUnordered<JoinHandle<std::io::Result<VmmResult>>>,
     pending_launch: HashMap<Namespace, VirtInstall>,
@@ -73,6 +74,7 @@ impl VmManager {
         Ok(Self {
             connection,
             network: network.to_string(),
+            next_ip: [192, 168, 122, 2], 
             next_port,
             pending_launch: HashMap::new(),
             handles,
@@ -728,6 +730,7 @@ impl VmManager {
             let service: ServiceType = service.into();
             let publisher_uri = self.publisher.peer_addr()?;
             let inner_vmlist = vmlist.clone();
+            let next_ip = format!("{}.{}.{}.{}", self.next_ip[0], self.next_ip[1], self.next_ip[2], self.next_ip[3]);
             let handle: JoinHandle<std::io::Result<VmmResult>> = tokio::spawn(
                 async move {
                     let (owner, task_id, task_status) = update_iptables(
@@ -738,6 +741,7 @@ impl VmManager {
                         next_port,
                         service.clone(),
                         inner_task_id.clone(),
+                        next_ip,
                         port 
                     ).await?;
                     Ok(VmmResult::UpdateIptables { owner, task_id, task_status })
@@ -758,6 +762,7 @@ impl VmManager {
             )
         )?;
 
+        self.next_ip[3] += 1;
         Ok(new_next_port)
     }
 }
