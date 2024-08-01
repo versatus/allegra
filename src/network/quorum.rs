@@ -32,10 +32,15 @@ impl Quorum {
 
     pub(super) async fn add_glusterfs_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
         log::info!("Attempting to add peer {}; ip_address: {} to gluster peers", peer.wallet_address_hex(), peer.ip_address().to_string());
+        let ip_address = if let Some(pos) = peer.ip_address().to_string().find(':') {
+            peer.ip_address().to_string()[..pos].to_string()
+        } else {
+            peer.ip_address().to_string()
+        };
         let output = std::process::Command::new("gluster")
             .arg("peer")
             .arg("probe")
-            .arg(peer.ip_address().to_string())
+            .arg(&ip_address)
             .arg("--mode=script")
             .output()?;
 
