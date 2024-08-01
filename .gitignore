@@ -2,6 +2,7 @@
 Cargo.lock
 config.toml
 logs
+.logs
 .config
 .images
 .GLUSTER-SETUP.md
