@@ -41,6 +41,7 @@ use alloy::{
         Secp256k1
     }
 };
+use std::io::{Write, Read};
 
 pub fn handle_get_instance_ip_output_success(
     output: &std::process::Output,
@@ -143,6 +144,54 @@ pub async fn get_instance_ip(
     todo!()
 }
 
+pub async fn update_haproxy_config(
+    namespace: Namespace,
+    instance_ip: &str,
+    internal_port: u16,
+    external_port: u16,
+    service_type: ServiceType
+) -> std::io::Result<()> {
+
+    let config_path = "/etc/haproxy/haproxy.cfg";
+    
+    // Read the current configuration
+    let mut file = std::fs::File::open(config_path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+
+    let namespace_str = namespace.inner().to_string();
+    
+    // Prepare the new backend and frontend entries
+    let backend_name = format!("backend_{}_{}", service_type.to_string().to_lowercase(), namespace_str);
+    
+    let (frontend_mode, backend_mode) = match service_type {
+        ServiceType::NodeJs => ("http", "http"),
+        _ => ("tcp", "tcp"),
+    };
+
+    let backend_entry = format!("\nbackend {}\n\tmode {}\n\tserver server1 {}:{}\n", 
+        backend_name, backend_mode, instance_ip, internal_port);
+
+    let frontend_entry = format!("\nfrontend {}_{}_{}\n\tbind *:{}\n\tmode {}\n\tdefault_backend {}\n", 
+        service_type.to_string().to_lowercase(), namespace_str, external_port, 
+        external_port, frontend_mode, backend_name);
+
+    // Append the new entries to the configuration
+    contents.push_str(&backend_entry);
+    contents.push_str(&frontend_entry);
+
+    // Write the updated configuration back to the file
+    let mut file = std::fs::OpenOptions::new().write(true).truncate(true).open(config_path)?;
+    file.write_all(contents.as_bytes())?;
+
+    // Reload HAProxy
+    std::process::Command::new("sudo")
+        .args(["systemctl", "reload", "haproxy"])
+        .output()?;
+
+    Ok(())
+}
+
 pub async fn update_iptables(
     uri: &str,
     vmlist: VmList,
@@ -157,40 +206,7 @@ pub async fn update_iptables(
     //TODO: Replace with HAProxy
     let mut publisher = GenericPublisher::new(uri).await?;
     log::info!("acquired instance IP: {instance_ip}...");
-    let prerouting = std::process::Command::new("sudo")
-        .args(
-            ["iptables", "-t", "nat", 
-            "-A", "PREROUTING", "-p", 
-            "tcp", "--dport", &next_port.to_string(), 
-            "-j", "DNAT", "--to-destination", 
-            &format!("{}:{}", &instance_ip, internal_port)
-            ]
-        )
-        .output()?;
-    
-    log::info!("updated prerouting...");
-    let forwarding = std::process::Command::new("sudo")
-        .args(
-            ["iptables", "-A", "FORWARD", "-p", "tcp", "-d",
-            &instance_ip, "--dport", &internal_port.to_string(),
-            "-j", "ACCEPT"
-            ]
-        )
-        .output()?;
-    log::info!("updated forwarding...");
-
-    let state = std::process::Command::new("sudo")
-        .args(
-            ["iptables", "-A", "FORWARD", 
-            "-m", "state", "--state", 
-            "RELATED,ESTABLISHED", "-j", "ACCEPT"
-            ]
-        )
-        .output()?;
-    log::info!("updated iptables state...");
-
-    handle_update_iptables_output(&prerouting, &forwarding, &state)?;
-    log::info!("handled iptables output without error...");
+    update_haproxy_config(namespace.clone(), &instance_ip, internal_port, next_port, service_type.clone()).await?;
     update_ufw_out(&instance_ip)?;
     log::info!("updated_ufw...");
 

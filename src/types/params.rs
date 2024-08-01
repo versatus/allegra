@@ -20,6 +20,12 @@ pub enum ServiceType {
     Custom
 }
 
+impl fmt::Display for ServiceType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl From<ServiceType> for i32 {
     fn from(value: ServiceType) -> Self {
         match value {

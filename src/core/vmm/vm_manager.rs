@@ -690,9 +690,22 @@ impl VmManager {
         let task_id = TaskId::new(uuid::Uuid::new_v4().to_string());
         let event = QuorumEvent::PreparedForLaunch {
             event_id,
-            task_id,
+            task_id: task_id.clone(),
             instance: namespace.clone(),
         };
+
+        let uri = publisher.peer_addr()?;
+        update_iptables(
+            &uri, 
+            vmlist, 
+            owner, 
+            namespace.clone(), 
+            next_port, 
+            ServiceType::Ssh, 
+            task_id, 
+            next_ip, 
+            next_port
+        ).await?;
 
         publisher.publish(
             Box::new(QuorumTopic),
