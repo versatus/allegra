@@ -74,10 +74,16 @@ impl Quorum {
             .arg(&replica.to_string());
 
         for peer in peers {
+            let ip_address = if let Some(pos) = peer.ip_address().to_string().find(':') {
+                peer.ip_address().to_string()[..pos].to_string()
+            } else {
+                peer.ip_address().to_string()
+            };
+
             command.arg(
                 &format!(
                     "{}:/mnt/glusterfs/vms/{}/brick", 
-                    peer.ip_address().to_string(),
+                    ip_address,
                     instance.inner().to_string()
                 )
             );
@@ -108,11 +114,17 @@ impl Quorum {
     }
 
     pub(super) async fn add_peer_to_gluster_volume(&self, peer: &Peer, instance: Namespace) -> std::io::Result<()> {
+        let ip_address = if let Some(pos) = peer.ip_address().to_string().find(':') {
+            peer.ip_address().to_string()[..pos].to_string()
+        } else {
+            peer.ip_address().to_string()
+        };
+
         let output = std::process::Command::new("gluster")
             .arg("volume")
             .arg("add-brick")
             .arg(&instance.inner().to_string())
-            .arg(&format!("{}:/mnt/glusterfs/vms/{}/brick", peer.ip_address(), instance.inner().to_string()))
+            .arg(&format!("{}:/mnt/glusterfs/vms/{}/brick", ip_address, instance.inner().to_string()))
             .arg("force")
             .arg("--mode=script")
             .output()?;
