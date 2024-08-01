@@ -31,6 +31,7 @@ impl Quorum {
     }
 
     pub(super) async fn add_glusterfs_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
+        log::info!("Attempting to add peer {}; ip_address: {} to gluster peers", peer.wallet_address_hex(), peer.ip_address().to_string());
         let output = std::process::Command::new("gluster")
             .arg("peer")
             .arg("probe")
