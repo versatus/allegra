@@ -79,6 +79,9 @@
             libvirt
           ] ++ [
             rustToolchain.darwin-pkgs
+          ] ++ lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.darwin.apple_sdk.frameworks.CoreServices
+            pkgs.darwin.apple_sdk.frameworks.CoreFoundation
           ];
 
           # Additional environment variables can be set directly
