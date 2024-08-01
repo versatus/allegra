@@ -206,7 +206,9 @@ pub async fn update_iptables(
     //TODO: Replace with HAProxy
     let mut publisher = GenericPublisher::new(uri).await?;
     log::info!("acquired instance IP: {instance_ip}...");
+
     update_haproxy_config(namespace.clone(), &instance_ip, internal_port, next_port, service_type.clone()).await?;
+
     update_ufw_out(&instance_ip)?;
     log::info!("updated_ufw...");
 

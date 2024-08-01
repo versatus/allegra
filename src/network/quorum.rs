@@ -39,7 +39,13 @@ impl Quorum {
             .output()?;
 
         if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to NFS volume"))
+            let err_str = std::str::from_utf8(&output.stderr).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e
+                )
+            })?;
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to add peer to NFS volume: {}", err_str)))
         }
 
         Ok(())
