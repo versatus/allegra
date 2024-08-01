@@ -39,7 +39,7 @@
         versaLib = versatus-nix.lib.${system};
         rustToolchain = versaLib.toolchains.mkRustToolchainFromTOML
           ./rust-toolchain.toml
-          lib.fakeSha256; # Run `nix flake check` and replace with the expected hash.
+          "sha256-6eN/GKzjVSjEhGO9FhWObkRFaE1Jf+uqMSdQnb8lcB4=";
 
         # Overrides the default crane rust-toolchain with fenix.
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain.fenix-pkgs;
@@ -52,13 +52,16 @@
 
           # Inputs that must be available at the time of the build
           nativeBuildInputs = [
-            # pkgs.pkg-config # necessary for linking OpenSSL
-            # pkgs.clang
+            pkgs.pkg-config # necessary for linking OpenSSL
+            pkgs.clang
           ];
 
-          buildInputs = [
+          buildInputs = with pkgs; [
             # Add additional build inputs here
-            # pkgs.openssl.dev
+            pkgs.openssl.dev
+            cmake
+            protobuf
+            libvirt
           ] ++ [
             # You probably want this.
             rustToolchain.darwin-pkgs
