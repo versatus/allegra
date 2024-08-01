@@ -28,4 +28,3 @@ pub const NETWORK_ENABLE_STARTUP_SCRIPT: &'static str = r#"
 ufw allow ssh
 ufw enable
 "#;
-

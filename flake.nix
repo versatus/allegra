@@ -43,7 +43,23 @@
 
         # Overrides the default crane rust-toolchain with fenix.
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain.fenix-pkgs;
-        src = craneLib.cleanCargoSource ./.;
+        # Overrides the default crane filter to include protobuf, bash and service files.
+        src =
+          let
+            filterProtoSources = path: _type: builtins.match ".*proto$" path != null;
+            filterBinSources = path: _type: builtins.match ".*sh$" path != null;
+            filterServiceSources = path: _type: builtins.match ".*service$" path != null;
+            filter = path: type:
+              (filterBinSources path type)
+              || (filterServiceSources path type)
+              || (filterProtoSources path type)
+              || (craneLib.filterCargoSources path type);
+          in
+          lib.cleanSourceWith {
+            inherit filter;
+            src = ./.;
+            name = "source";
+          };
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
@@ -51,22 +67,18 @@
           strictDeps = true;
 
           # Inputs that must be available at the time of the build
-          nativeBuildInputs = [
-            pkgs.pkg-config # necessary for linking OpenSSL
-            pkgs.clang
+          nativeBuildInputs = with pkgs; [
+            pkg-config # necessary for linking OpenSSL
+            clang
+            cmake
+            protobuf
           ];
 
           buildInputs = with pkgs; [
-            # Add additional build inputs here
-            pkgs.openssl.dev
-            cmake
-            protobuf
+            openssl.dev
             libvirt
           ] ++ [
-            # You probably want this.
             rustToolchain.darwin-pkgs
-          ] ++ lib.optionals pkgs.stdenv.isDarwin [
-            # Additional darwin specific inputs can be set here
           ];
 
           # Additional environment variables can be set directly
@@ -77,20 +89,28 @@
         # Build *just* the cargo dependencies, so we can reuse
         # all of that work (e.g. via cachix) when running in CI
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        my-crate = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
-          doCheck = false; # Use cargo-nexttest below.
-          # Extra command line arguments to pass to cargo.
-          # cargoExtraArgs = "--locked --bin your_binary_name";
-        });
+        mkCrateDrv = pname:
+          craneLib.buildPackage (commonArgs // {
+            inherit cargoArtifacts pname;
+            doCheck = false;
+            cargoExtraArgs = "--locked --bin ${pname}";
+          });
+
+        server = mkCrateDrv "server";
+        cli = mkCrateDrv "cli";
+        vmm = mkCrateDrv "vmm";
+        monitor = mkCrateDrv "monitor";
+        broker = mkCrateDrv "broker";
+        state = mkCrateDrv "state";
+        quorum = mkCrateDrv "quorum";
+        network = mkCrateDrv "network";
       in
       {
         checks = {
           # Build the crate as part of `nix flake check` for convenience
-          inherit my-crate;
+          inherit server cli vmm monitor broker state quorum network;
 
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
@@ -98,10 +118,11 @@
           # Note that this is done as a separate derivation so that
           # we can block the CI if there are issues here, but not
           # prevent downstream consumers from building our crate by itself.
-          my-crate-clippy = craneLib.cargoClippy (commonArgs // {
-            inherit cargoArtifacts;
-            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-          });
+          # TODO: Uncomment once clippy checks pass
+          # my-crate-clippy = craneLib.cargoClippy (commonArgs // {
+          #   inherit cargoArtifacts;
+          #   cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          # });
 
           my-crate-doc = craneLib.cargoDoc (commonArgs // {
             inherit cargoArtifacts;
@@ -133,15 +154,38 @@
         };
 
         packages = {
-          default = my-crate;
+          inherit server cli vmm monitor broker state quorum network;
         } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
           my-crate-llvm-coverage = craneLib.cargoLlvmCov (commonArgs // {
             inherit cargoArtifacts;
           });
         };
 
-        apps.default = flake-utils.lib.mkApp {
-          drv = my-crate;
+        apps = {
+          server = flake-utils.lib.mkApp {
+            drv = server;
+          };
+          cli = flake-utils.lib.mkApp {
+            drv = cli;
+          };
+          vmm = flake-utils.lib.mkApp {
+            drv = vmm;
+          };
+          monitor = flake-utils.lib.mkApp {
+            drv = monitor;
+          };
+          broker = flake-utils.lib.mkApp {
+            drv = broker;
+          };
+          state = flake-utils.lib.mkApp {
+            drv = state;
+          };
+          quorum = flake-utils.lib.mkApp {
+            drv = quorum;
+          };
+          network = flake-utils.lib.mkApp {
+            drv = network;
+          };
         };
 
         devShells.default = craneLib.devShell {

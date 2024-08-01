@@ -1,16 +1,22 @@
+use crate::event::{
+    DnsEvent, GeneralResponseEvent, NetworkEvent, QuorumEvent, RpcResponseEvent, StateEvent,
+    SyncEvent, TaskStatusEvent, VmmEvent,
+};
+use crate::publish::{
+    DnsTopic, NetworkTopic, QuorumTopic, RpcResponseTopic, StateTopic, SyncTopic, TaskStatusTopic,
+    VmManagerTopic,
+};
+use conductor::subscriber::SubStream;
+use conductor::util::{parse_next_message, try_get_message_len, try_get_topic_len};
+use conductor::{HEADER_SIZE, TOPIC_SIZE_OFFSET};
 use libretto::pubsub::{LibrettoEvent, LibrettoTopic};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use tokio::net::TcpStream;
-use conductor::subscriber::SubStream;
 use tokio::io::AsyncReadExt;
-use conductor::util::{try_get_topic_len, try_get_message_len, parse_next_message};
-use conductor::{HEADER_SIZE, TOPIC_SIZE_OFFSET};
-use crate::event::{DnsEvent, GeneralResponseEvent, NetworkEvent, QuorumEvent, RpcResponseEvent, StateEvent, SyncEvent, TaskStatusEvent, VmmEvent};
-use crate::publish::{DnsTopic, NetworkTopic, QuorumTopic, RpcResponseTopic, StateTopic, SyncTopic, TaskStatusTopic, VmManagerTopic};
 use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 
 pub struct LibrettoSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl LibrettoSubscriber {
@@ -23,7 +29,7 @@ impl LibrettoSubscriber {
 }
 
 pub struct RpcResponseSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl RpcResponseSubscriber {
@@ -36,7 +42,7 @@ impl RpcResponseSubscriber {
 }
 
 pub struct NetworkSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl NetworkSubscriber {
@@ -48,9 +54,8 @@ impl NetworkSubscriber {
     }
 }
 
-
 pub struct QuorumSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl QuorumSubscriber {
@@ -62,9 +67,8 @@ impl QuorumSubscriber {
     }
 }
 
-
 pub struct StateSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl StateSubscriber {
@@ -76,9 +80,8 @@ impl StateSubscriber {
     }
 }
 
-
 pub struct VmmSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl VmmSubscriber {
@@ -90,9 +93,8 @@ impl VmmSubscriber {
     }
 }
 
-
 pub struct DnsSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl DnsSubscriber {
@@ -104,9 +106,8 @@ impl DnsSubscriber {
     }
 }
 
-
 pub struct SyncSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl SyncSubscriber {
@@ -119,20 +120,20 @@ impl SyncSubscriber {
 }
 
 pub struct TaskStatusSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl TaskStatusSubscriber {
     pub async fn new(uri: &str) -> std::io::Result<Self> {
         let mut stream = TcpStream::connect(uri).await?;
-        let topics_str = TaskStatusTopic.to_string(); 
+        let topics_str = TaskStatusTopic.to_string();
         stream.write_all(topics_str.as_bytes()).await?;
         Ok(Self { stream })
     }
 }
 
 pub struct GeneralResponseSubscriber {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl GeneralResponseSubscriber {
@@ -150,7 +151,7 @@ impl SubStream for NetworkSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -161,17 +162,15 @@ impl SubStream for NetworkSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -187,11 +186,10 @@ impl SubStream for NetworkSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -204,7 +202,7 @@ impl SubStream for QuorumSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -215,17 +213,15 @@ impl SubStream for QuorumSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -241,11 +237,10 @@ impl SubStream for QuorumSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -258,7 +253,7 @@ impl SubStream for StateSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -269,17 +264,15 @@ impl SubStream for StateSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -295,11 +288,10 @@ impl SubStream for StateSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -312,7 +304,7 @@ impl SubStream for VmmSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -323,17 +315,15 @@ impl SubStream for VmmSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -349,11 +339,10 @@ impl SubStream for VmmSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -366,7 +355,7 @@ impl SubStream for DnsSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -377,17 +366,15 @@ impl SubStream for DnsSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -403,11 +390,10 @@ impl SubStream for DnsSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -419,7 +405,7 @@ impl SubStream for SyncSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -430,17 +416,15 @@ impl SubStream for SyncSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -456,11 +440,10 @@ impl SubStream for SyncSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -472,7 +455,7 @@ impl SubStream for TaskStatusSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -483,17 +466,15 @@ impl SubStream for TaskStatusSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -509,11 +490,10 @@ impl SubStream for TaskStatusSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -525,7 +505,7 @@ impl SubStream for RpcResponseSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -536,17 +516,15 @@ impl SubStream for RpcResponseSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -562,11 +540,10 @@ impl SubStream for RpcResponseSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -579,7 +556,7 @@ impl SubStream for GeneralResponseSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -590,17 +567,15 @@ impl SubStream for GeneralResponseSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -616,11 +591,10 @@ impl SubStream for GeneralResponseSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }
@@ -633,7 +607,7 @@ impl SubStream for LibrettoSubscriber {
     async fn receive(&mut self) -> std::io::Result<Self::Message> {
         let mut buffer = Vec::new();
         loop {
-            let mut read_buffer = [0; 4096]; 
+            let mut read_buffer = [0; 4096];
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
@@ -644,17 +618,15 @@ impl SubStream for LibrettoSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     let results = Self::parse_messages(&mut buffer).await?;
                     if !results.is_empty() {
-                        return Ok(results)
+                        return Ok(results);
                     }
                 }
             }
         }
-        Err(
-            std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "No complete messages received"
-            )
-        )
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "No complete messages received",
+        ))
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
@@ -670,11 +642,10 @@ impl SubStream for LibrettoSubscriber {
             }
         }
 
-        let msg_results = results.par_iter().filter_map(|m| {
-            serde_json::from_slice(
-                &m
-            ).ok()
-        }).collect();
+        let msg_results = results
+            .par_iter()
+            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .collect();
 
         Ok(msg_results)
     }

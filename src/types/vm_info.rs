@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
-use getset::{Getters, Setters, MutGetters};
+use getset::{Getters, MutGetters, Setters};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::Namespace;
 
@@ -15,9 +15,8 @@ pub struct SshDetails {
 pub struct VmResponse {
     pub status: String,
     pub details: String,
-    pub ssh_details: Option<SshDetails>
+    pub ssh_details: Option<SshDetails>,
 }
-
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
@@ -26,51 +25,51 @@ pub struct VmInfo {
     name: String,
     uuid: String,
     id: Option<u32>,
-    
+
     // State
     state: DomainState,
     state_reason: i32,
-    
+
     // Resources
     memory: MemoryInfo,
     vcpus: VCPUInfo,
     cpu_time: u64,
-    
+
     // Configuration
     autostart: bool,
     persistent: bool,
-    
+
     // OS and architecture
     os_type: String,
     os_arch: String,
-    
+
     // Devices
     devices: DeviceInfo,
-    
+
     // Network
     network_interfaces: Vec<NetworkInterfaceInfo>,
-    
+
     // Storage
     storage_volumes: Vec<StorageVolumeInfo>,
-    
+
     // Metadata
     metadata: Option<String>,
-    
+
     // Timestamps
     creation_time: Option<DateTime<Utc>>,
     modification_time: Option<DateTime<Utc>>,
-    
+
     // Performance
     cpu_stats: CPUStats,
     block_stats: HashMap<String, BlockStats>,
     interface_stats: HashMap<String, InterfaceStats>,
-    
+
     // Security
     security_model: Option<SecurityInfo>,
-    
+
     // Snapshot information
     snapshots: Vec<SnapshotInfo>,
-    
+
     // Misc
     hostname: Option<String>,
     title: Option<String>,
@@ -80,7 +79,9 @@ pub struct VmInfo {
 impl VmInfo {
     pub fn get_primary_ip(&self) -> Option<String> {
         self.network_interfaces().iter().find_map(|interface| {
-            interface.ip_addresses.iter()
+            interface
+                .ip_addresses
+                .iter()
                 .find(|ip| ip.type_ == "inet")
                 .map(|ip| ip.address.clone())
         })
@@ -270,31 +271,31 @@ pub struct IPAddress {
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct InputDeviceInfo {
-    type_: String,  // e.g., "tablet", "keyboard"
-    bus: String,    // e.g., "usb", "ps2"
+    type_: String, // e.g., "tablet", "keyboard"
+    bus: String,   // e.g., "usb", "ps2"
     model: Option<String>,
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct SoundDeviceInfo {
-    model: String,  // e.g., "ich6", "ac97"
+    model: String, // e.g., "ich6", "ac97"
     codec: Option<String>,
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct HostDevInfo {
-    type_: String,  // e.g., "usb", "pci"
+    type_: String, // e.g., "usb", "pci"
     source: HostDevSource,
-    mode: String,   // e.g., "subsystem"
+    mode: String, // e.g., "subsystem"
 }
 
 #[derive(Getters, MutGetters, Setters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct RedirDevInfo {
-    bus: String,        // e.g., "usb"
-    type_: String,      // e.g., "spicevmc"
+    bus: String,   // e.g., "usb"
+    type_: String, // e.g., "spicevmc"
     server: Option<RedirDevServer>,
     boot_order: Option<u32>,
     address: Option<RedirDevAddress>,
@@ -310,7 +311,7 @@ pub struct RedirDevServer {
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct RedirDevAddress {
-    type_: String,      // e.g., "usb"
+    type_: String, // e.g., "usb"
     bus: Option<u32>,
     port: Option<u32>,
 }
@@ -333,8 +334,8 @@ pub struct SmartCardInfo {
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct RNGInfo {
-    model: String,  // e.g., "virtio"
-    backend_model: String,  // e.g., "random"
+    model: String,         // e.g., "virtio"
+    backend_model: String, // e.g., "random"
     rate_bytes: Option<u64>,
     rate_period: Option<u64>,
 }
@@ -342,7 +343,7 @@ pub struct RNGInfo {
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct MemoryDeviceInfo {
-    model: String,  // e.g., "dimm", "nvdimm"
+    model: String, // e.g., "dimm", "nvdimm"
     size: u64,
     target_node: Option<u32>,
     label_size: Option<u64>,
@@ -351,16 +352,16 @@ pub struct MemoryDeviceInfo {
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct TPMInfo {
-    model: String,  // e.g., "tpm-tis"
-    backend_type: String,  // e.g., "passthrough", "emulator"
-    version: String,  // e.g., "1.2", "2.0"
+    model: String,        // e.g., "tpm-tis"
+    backend_type: String, // e.g., "passthrough", "emulator"
+    version: String,      // e.g., "1.2", "2.0"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct FilesystemInfo {
-    type_: String,  // e.g., "mount", "template"
-    access_mode: String,  // e.g., "squash", "passthrough"
+    type_: String,       // e.g., "mount", "template"
+    access_mode: String, // e.g., "squash", "passthrough"
     source: String,
     target: String,
 }
@@ -368,49 +369,49 @@ pub struct FilesystemInfo {
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ConsoleInfo {
-    type_: String,  // e.g., "pty", "file"
-    target_type: String,  // e.g., "serial", "virtio"
+    type_: String,       // e.g., "pty", "file"
+    target_type: String, // e.g., "serial", "virtio"
     target_port: Option<u32>,
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ChannelInfo {
-    type_: String,  // e.g., "unix", "spicevmc"
-    target_type: String,  // e.g., "virtio", "guestfwd"
+    type_: String,       // e.g., "unix", "spicevmc"
+    target_type: String, // e.g., "virtio", "guestfwd"
     target_name: Option<String>,
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct HubInfo {
-    type_: String,  // e.g., "usb"
+    type_: String, // e.g., "usb"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct WatchdogInfo {
     model: String,  // e.g., "i6300esb"
-    action: String,  // e.g., "reset", "poweroff"
+    action: String, // e.g., "reset", "poweroff"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct MemBalloonInfo {
-    model: String,  // e.g., "virtio"
+    model: String, // e.g., "virtio"
     period: Option<u32>,
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct NVRAMInfo {
-    model: String,  // e.g., "pvpanic"
+    model: String, // e.g., "pvpanic"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct PanicDeviceInfo {
-    model: String,  // e.g., "hyperv", "isa"
+    model: String, // e.g., "hyperv", "isa"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
@@ -418,13 +419,13 @@ pub struct PanicDeviceInfo {
 pub struct ShmemInfo {
     name: String,
     size: Option<u64>,
-    model: String,  // e.g., "ivshmem"
+    model: String, // e.g., "ivshmem"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct IOMMUInfo {
-    model: String,  // e.g., "intel"
+    model: String, // e.g., "intel"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
@@ -437,8 +438,8 @@ pub struct VSockInfo {
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct CryptoInfo {
-    model: String,  // e.g., "virtio"
-    type_: String,  // e.g., "qemu"
+    model: String, // e.g., "virtio"
+    type_: String, // e.g., "qemu"
 }
 
 #[derive(Getters, Setters, MutGetters, Clone, Serialize, Deserialize, Debug)]
@@ -462,7 +463,7 @@ pub struct HugepagesInfo {
 #[serde(transparent)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct VmList {
-    pub vms: HashMap<Namespace, VmInfo>
+    pub vms: HashMap<Namespace, VmInfo>,
 }
 
 impl VmList {

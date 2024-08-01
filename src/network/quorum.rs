@@ -1,31 +1,33 @@
-use serde::{Serialize, Deserialize};
+use crate::{event::NetworkEvent, GenericPublisher, Namespace, NetworkTopic, Peer, TaskId};
+use conductor::publisher::PubStream;
 use getset::{Getters, MutGetters};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
-use conductor::publisher::PubStream;
-use crate::{Peer, TaskId, GenericPublisher, Namespace, NetworkTopic, event::NetworkEvent};
 
 #[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quorum {
-    #[getset(get_copy="pub", get="pub", get_mut)]
+    #[getset(get_copy = "pub", get = "pub", get_mut)]
     pub(super) id: Uuid,
-    #[getset(get_copy="pub", get="pub", get_mut)]
+    #[getset(get_copy = "pub", get = "pub", get_mut)]
     pub(super) peers: HashSet<Peer>,
 }
 
-
 impl Quorum {
     pub fn new() -> Self {
-        let id = Uuid::new_v4(); 
-        Self { id, peers: HashSet::new() }
+        let id = Uuid::new_v4();
+        Self {
+            id,
+            peers: HashSet::new(),
+        }
     }
 
     pub fn add_peer(&mut self, peer: &Peer) -> bool {
         if !self.peers.contains(peer) {
             self.peers.insert(peer.clone());
-            return true
+            return true;
         } else {
-            return false
+            return false;
         }
     }
 
@@ -38,7 +40,10 @@ impl Quorum {
             .output()?;
 
         if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to NFS volume"))
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to add peer to NFS volume",
+            ));
         }
 
         Ok(())
@@ -47,7 +52,7 @@ impl Quorum {
     pub(super) async fn create_gluster_volume(
         &mut self,
         instance: Namespace,
-        peers: Vec<&Peer>
+        peers: Vec<&Peer>,
     ) -> std::io::Result<()> {
         // Simply create the volume
         let mut command = std::process::Command::new("gluster");
@@ -57,17 +62,14 @@ impl Quorum {
             .arg(instance.inner().to_string());
 
         let replica = peers.len();
-        command.arg("replica")
-            .arg(&replica.to_string());
+        command.arg("replica").arg(&replica.to_string());
 
         for peer in peers {
-            command.arg(
-                &format!(
-                    "{}:/mnt/glusterfs/vms/{}/brick", 
-                    peer.ip_address().to_string(),
-                    instance.inner().to_string()
-                )
-            );
+            command.arg(&format!(
+                "{}:/mnt/glusterfs/vms/{}/brick",
+                peer.ip_address().to_string(),
+                instance.inner().to_string()
+            ));
         }
 
         command.arg("force").arg("--mode=script");
@@ -83,7 +85,10 @@ impl Quorum {
             .output()?;
 
         if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to list gluster volumes"))
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to list gluster volumes",
+            ));
         }
 
         let volumes = String::from_utf8_lossy(&output.stdout)
@@ -94,18 +99,29 @@ impl Quorum {
         Ok(volumes)
     }
 
-    pub(super) async fn add_peer_to_gluster_volume(&self, peer: &Peer, instance: Namespace) -> std::io::Result<()> {
+    pub(super) async fn add_peer_to_gluster_volume(
+        &self,
+        peer: &Peer,
+        instance: Namespace,
+    ) -> std::io::Result<()> {
         let output = std::process::Command::new("gluster")
             .arg("volume")
             .arg("add-brick")
             .arg(&instance.inner().to_string())
-            .arg(&format!("{}:/mnt/glusterfs/vms/{}/brick", peer.ip_address(), instance.inner().to_string()))
+            .arg(&format!(
+                "{}:/mnt/glusterfs/vms/{}/brick",
+                peer.ip_address(),
+                instance.inner().to_string()
+            ))
             .arg("force")
             .arg("--mode=script")
             .output()?;
 
         if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to GlusterFS volume"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to add peer to GlusterFS volume",
+            ));
         }
 
         Ok(())
@@ -124,12 +140,10 @@ impl Quorum {
                 .arg("--mode=script")
                 .output()?;
             if !output.status.success() {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other, 
-                        format!("Failed to set replica for volume {}", volume)
-                    )
-                )
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set replica for volume {}", volume),
+                ));
             }
         }
 
@@ -137,22 +151,26 @@ impl Quorum {
     }
 
     pub(super) async fn share_instances(
-        &mut self, 
-        publisher: &mut GenericPublisher, 
+        &mut self,
+        publisher: &mut GenericPublisher,
         instances: HashSet<Namespace>,
-        peer: Peer
+        peer: Peer,
     ) -> std::io::Result<()> {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let event = NetworkEvent::ShareInstanceNamespaces { event_id, task_id, instances, peer };
-        publisher.publish(
-            Box::new(NetworkTopic),
-            Box::new(event)
-        ).await?;
+        let event = NetworkEvent::ShareInstanceNamespaces {
+            event_id,
+            task_id,
+            instances,
+            peer,
+        };
+        publisher
+            .publish(Box::new(NetworkTopic), Box::new(event))
+            .await?;
 
         Ok(())
     }
-    
+
     pub fn size(&self) -> usize {
         self.peers().len()
     }
@@ -162,4 +180,3 @@ pub enum QuorumResult {
     Unit(()),
     Other(String),
 }
-

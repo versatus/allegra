@@ -1,5 +1,7 @@
 use crate::allegra_rpc::{
-        GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, NewPeerMessage, NodeCertMessage, ServerConfigMessage
+    GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams,
+    InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams,
+    NewPeerMessage, NodeCertMessage, ServerConfigMessage,
 };
 
 use std::any::Any;
@@ -17,7 +19,8 @@ impl Payload for InstanceCreateParams {
             "distro": &self.distro,
             "version": &self.version,
             "vmtype": &self.vmtype,
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -30,7 +33,8 @@ impl Payload for GetTaskStatusRequest {
         serde_json::json!({
             "owner": self.owner,
             "id": self.id,
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -38,13 +42,13 @@ impl Payload for GetTaskStatusRequest {
     }
 }
 
-
 impl Payload for InstanceStopParams {
     fn into_payload(&self) -> String {
         serde_json::json!({
             "command": "stop",
-            "name": &self.name, 
-        }).to_string()
+            "name": &self.name,
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -59,10 +63,10 @@ impl Payload for InstanceStartParams {
             "name": &self.name,
             "console": self.console,
             "stateless": self.stateless
-        }).to_string()
-
+        })
+        .to_string()
     }
-    
+
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
@@ -73,9 +77,10 @@ impl Payload for InstanceDeleteParams {
         serde_json::json!({
             "command": "delete",
             "name": self.name
-        }).to_string()
+        })
+        .to_string()
     }
-    
+
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
     }
@@ -87,7 +92,8 @@ impl Payload for InstanceAddPubkeyParams {
             "command": "injectAuth",
             "name": &self.name,
             "pubkey": &self.pubkey
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -102,7 +108,8 @@ impl Payload for InstanceExposeServiceParams {
             "name": &self.name,
             "ports": &self.port,
             "services": &self.service_type
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -115,7 +122,8 @@ impl Payload for InstanceGetSshDetails {
         serde_json::json!({
             "command": "getSshDetails",
             "name": &self.name
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -129,7 +137,8 @@ impl Payload for NewPeerMessage {
             "command": "newPeerMessage",
             "newPeerId": self.new_peer_id,
             "newPeerAddress": self.new_peer_address,
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -144,7 +153,8 @@ impl Payload for NodeCertMessage {
             "peerId": self.peer_id,
             "peerAddress": self.peer_address,
             "certificate": self.cert
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -157,7 +167,8 @@ impl Payload for ServerConfigMessage {
         serde_json::json!({
             "command": "syncServerConfig",
             "serverConfig": self.server_config
-        }).to_string()
+        })
+        .to_string()
     }
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {

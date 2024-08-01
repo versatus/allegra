@@ -3,12 +3,7 @@ use allegra::core::vmm::vm_manager::VmManager;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     simple_logger::init_with_level(log::Level::Info)
-        .map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
     let mut vmm = VmManager::new(2222).await?;
 

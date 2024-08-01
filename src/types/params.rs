@@ -1,11 +1,13 @@
-use clap::ValueEnum;
-use serde::{Serialize, Serializer, Deserialize, de::Deserializer};
 use crate::allegra_rpc::{
-    Features, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams, ServiceType as ProtoServiceType
+    Features, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams,
+    InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams,
+    InstanceStopParams, ServiceType as ProtoServiceType,
 };
-use std::fmt;
+use clap::ValueEnum;
+use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeStruct;
-use serde::de::{self, Visitor, MapAccess};
+use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
+use std::fmt;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 pub enum ServiceType {
@@ -17,7 +19,7 @@ pub enum ServiceType {
     MongoDB,
     RabbitMQ,
     Kafka,
-    Custom
+    Custom,
 }
 
 impl From<ServiceType> for i32 {
@@ -36,7 +38,6 @@ impl From<ServiceType> for i32 {
     }
 }
 
-
 impl From<i32> for ServiceType {
     fn from(val: i32) -> Self {
         match ProtoServiceType::try_from(val) {
@@ -49,7 +50,7 @@ impl From<i32> for ServiceType {
             Ok(ProtoServiceType::RabbitMq) => ServiceType::RabbitMQ,
             Ok(ProtoServiceType::Kafka) => ServiceType::Kafka,
             Ok(ProtoServiceType::Custom) => ServiceType::Custom,
-            Err(_) => ServiceType::Custom
+            Err(_) => ServiceType::Custom,
         }
     }
 }
@@ -69,7 +70,6 @@ impl From<ProtoServiceType> for ServiceType {
         }
     }
 }
-
 
 impl ServiceType {
     pub fn default_port(&self) -> Option<u16> {
@@ -106,37 +106,37 @@ impl From<InstanceCreateParams> for Params {
 
 impl From<InstanceStartParams> for Params {
     fn from(value: InstanceStartParams) -> Self {
-       Self::Start(value) 
+        Self::Start(value)
     }
 }
 
 impl From<InstanceStopParams> for Params {
     fn from(value: InstanceStopParams) -> Self {
-       Self::Stop(value) 
+        Self::Stop(value)
     }
 }
 
 impl From<InstanceDeleteParams> for Params {
     fn from(value: InstanceDeleteParams) -> Self {
-       Self::Delete(value) 
+        Self::Delete(value)
     }
 }
 
 impl From<InstanceExposeServiceParams> for Params {
     fn from(value: InstanceExposeServiceParams) -> Self {
-       Self::ExposeService(value) 
+        Self::ExposeService(value)
     }
 }
 
 impl From<InstanceGetSshDetails> for Params {
     fn from(value: InstanceGetSshDetails) -> Self {
-       Self::GetSshDetails(value) 
+        Self::GetSshDetails(value)
     }
 }
 
 impl From<InstanceAddPubkeyParams> for Params {
     fn from(value: InstanceAddPubkeyParams) -> Self {
-       Self::AddPubkey(value) 
+        Self::AddPubkey(value)
     }
 }
 
@@ -148,24 +148,16 @@ impl HasOwner for InstanceGetSshDetails {
     fn owner(&self) -> std::io::Result<[u8; 20]> {
         let mut buffer = [0u8; 20];
         if self.owner.starts_with("0x") {
-            let bytes = hex::decode(&self.owner[2..]).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
+            let bytes = hex::decode(&self.owner[2..])
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             buffer.copy_from_slice(&bytes[..]);
         } else {
-            let bytes = hex::decode(&self.owner).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
+            let bytes = hex::decode(&self.owner)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             buffer.copy_from_slice(&bytes[..]);
         }
 
-        return Ok(buffer)
+        return Ok(buffer);
     }
 }
 
@@ -174,20 +166,12 @@ impl HasOwner for GetTaskStatusRequest {
         let mut buffer = [0u8; 20];
         if self.owner.starts_with("0x") {
             let owner_string = &self.owner[2..];
-            let bytes = hex::decode(owner_string).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
+            let bytes = hex::decode(owner_string)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             buffer.copy_from_slice(&bytes[..]);
         } else {
-            let bytes = hex::decode(&self.owner).map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e
-                )
-            })?;
+            let bytes = hex::decode(&self.owner)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             buffer.copy_from_slice(&bytes[..]);
         }
 
@@ -212,7 +196,10 @@ impl<'de> Deserialize<'de> for Features {
     where
         D: Deserializer<'de>,
     {
-        enum Field { Name, Feature }
+        enum Field {
+            Name,
+            Feature,
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
@@ -309,9 +296,15 @@ impl<'de> Deserialize<'de> for crate::allegra_rpc::CloudInit {
     where
         D: Deserializer<'de>,
     {
-        enum Field { 
-            RootPasswordGenerate, Disable, RootPasswordFile, MetaData, 
-            UserData, RootSshKey, ClouduserSshKey, NetworkConfig 
+        enum Field {
+            RootPasswordGenerate,
+            Disable,
+            RootPasswordFile,
+            MetaData,
+            UserData,
+            RootSshKey,
+            ClouduserSshKey,
+            NetworkConfig,
         }
 
         impl<'de> Deserialize<'de> for Field {
@@ -425,7 +418,8 @@ impl<'de> Deserialize<'de> for crate::allegra_rpc::CloudInit {
                     }
                 }
 
-                let root_password_generate = root_password_generate.ok_or_else(|| de::Error::missing_field("root_password_generate"))?;
+                let root_password_generate = root_password_generate
+                    .ok_or_else(|| de::Error::missing_field("root_password_generate"))?;
                 let disable = disable.ok_or_else(|| de::Error::missing_field("disable"))?;
 
                 Ok(crate::allegra_rpc::CloudInit {
@@ -442,8 +436,14 @@ impl<'de> Deserialize<'de> for crate::allegra_rpc::CloudInit {
         }
 
         const FIELDS: &'static [&'static str] = &[
-            "root_password_generate", "disable", "root_password_file", "meta_data",
-            "user_data", "root_ssh_key", "clouduser_ssh_key", "network_config"
+            "root_password_generate",
+            "disable",
+            "root_password_file",
+            "meta_data",
+            "user_data",
+            "root_ssh_key",
+            "clouduser_ssh_key",
+            "network_config",
         ];
         deserializer.deserialize_struct("CloudInit", FIELDS, CloudInitVisitor)
     }
@@ -521,13 +521,60 @@ impl<'de> Deserialize<'de> for InstanceCreateParams {
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "snake_case")]
         enum Field {
-            Name, Distro, Version, Vmtype, Sig, RecoveryId, Sync, Memory, Vcpus, Cpu,
-            Metadata, OsVariant, HostDevice, Network, Disk, Filesystem, Controller,
-            Input, Graphics, Sound, Video, Smartcard, Redirdev, Memballoon, Tpm, Rng,
-            Panic, Shmem, Memdev, Vsock, Iommu, Watchdog, Serial, Parallel, Channel,
-            Console, Install, Cdrom, Location, Pxe, Import, Boot, Idmap, Features,
-            Clock, LaunchSecurity, Numatune, BootDev, Unattended, PrintXml, DryRun,
-            Connect, VirtType, CloudInit
+            Name,
+            Distro,
+            Version,
+            Vmtype,
+            Sig,
+            RecoveryId,
+            Sync,
+            Memory,
+            Vcpus,
+            Cpu,
+            Metadata,
+            OsVariant,
+            HostDevice,
+            Network,
+            Disk,
+            Filesystem,
+            Controller,
+            Input,
+            Graphics,
+            Sound,
+            Video,
+            Smartcard,
+            Redirdev,
+            Memballoon,
+            Tpm,
+            Rng,
+            Panic,
+            Shmem,
+            Memdev,
+            Vsock,
+            Iommu,
+            Watchdog,
+            Serial,
+            Parallel,
+            Channel,
+            Console,
+            Install,
+            Cdrom,
+            Location,
+            Pxe,
+            Import,
+            Boot,
+            Idmap,
+            Features,
+            Clock,
+            LaunchSecurity,
+            Numatune,
+            BootDev,
+            Unattended,
+            PrintXml,
+            DryRun,
+            Connect,
+            VirtType,
+            CloudInit,
         }
 
         struct InstanceCreateParamsVisitor;
@@ -600,60 +647,168 @@ impl<'de> Deserialize<'de> for InstanceCreateParams {
 
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Name => { name = Some(map.next_value()?); }
-                        Field::Distro => { distro = Some(map.next_value()?); }
-                        Field::Version => { version = Some(map.next_value()?); }
-                        Field::Vmtype => { vmtype = Some(map.next_value()?); }
-                        Field::Sig => { sig = Some(map.next_value()?); }
-                        Field::RecoveryId => { recovery_id = Some(map.next_value()?); }
-                        Field::Sync => { sync = Some(map.next_value()?); }
-                        Field::Memory => { memory = Some(map.next_value()?); }
-                        Field::Vcpus => { vcpus = Some(map.next_value()?); }
-                        Field::Cpu => { cpu = Some(map.next_value()?); }
-                        Field::Metadata => { metadata = Some(map.next_value()?); }
-                        Field::OsVariant => { os_variant = Some(map.next_value()?); }
-                        Field::HostDevice => { host_device = Some(map.next_value()?); }
-                        Field::Network => { network = Some(map.next_value()?); }
-                        Field::Disk => { disk = Some(map.next_value()?); }
-                        Field::Filesystem => { filesystem = Some(map.next_value()?); }
-                        Field::Controller => { controller = Some(map.next_value()?); }
-                        Field::Input => { input = Some(map.next_value()?); }
-                        Field::Graphics => { graphics = Some(map.next_value()?); }
-                        Field::Sound => { sound = Some(map.next_value()?); }
-                        Field::Video => { video = Some(map.next_value()?); }
-                        Field::Smartcard => { smartcard = Some(map.next_value()?); }
-                        Field::Redirdev => { redirdev = Some(map.next_value()?); }
-                        Field::Memballoon => { memballoon = Some(map.next_value()?); }
-                        Field::Tpm => { tpm = Some(map.next_value()?); }
-                        Field::Rng => { rng = Some(map.next_value()?); }
-                        Field::Panic => { panic = Some(map.next_value()?); }
-                        Field::Shmem => { shmem = Some(map.next_value()?); }
-                        Field::Memdev => { memdev = Some(map.next_value()?); }
-                        Field::Vsock => { vsock = Some(map.next_value()?); }
-                        Field::Iommu => { iommu = Some(map.next_value()?); }
-                        Field::Watchdog => { watchdog = Some(map.next_value()?); }
-                        Field::Serial => { serial = Some(map.next_value()?); }
-                        Field::Parallel => { parallel = Some(map.next_value()?); }
-                        Field::Channel => { channel = Some(map.next_value()?); }
-                        Field::Console => { console = Some(map.next_value()?); }
-                        Field::Install => { install = Some(map.next_value()?); }
-                        Field::Cdrom => { cdrom = Some(map.next_value()?); }
-                        Field::Location => { location = Some(map.next_value()?); }
-                        Field::Pxe => { pxe = Some(map.next_value()?); }
-                        Field::Import => { import_ = Some(map.next_value()?); }
-                        Field::Boot => { boot = Some(map.next_value()?); }
-                        Field::Idmap => { idmap = Some(map.next_value()?); }
-                        Field::Features => { features = Some(map.next_value()?); }
-                        Field::Clock => { clock = Some(map.next_value()?); }
-                        Field::LaunchSecurity => { launch_security = Some(map.next_value()?); }
-                        Field::Numatune => { numatune = Some(map.next_value()?); }
-                        Field::BootDev => { boot_dev = Some(map.next_value()?); }
-                        Field::Unattended => { unattended = Some(map.next_value()?); }
-                        Field::PrintXml => { print_xml = Some(map.next_value()?); }
-                        Field::DryRun => { dry_run = Some(map.next_value()?); }
-                        Field::Connect => { connect = Some(map.next_value()?); }
-                        Field::VirtType => { virt_type = Some(map.next_value()?); }
-                        Field::CloudInit => { cloud_init = Some(map.next_value()?); }
+                        Field::Name => {
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Distro => {
+                            distro = Some(map.next_value()?);
+                        }
+                        Field::Version => {
+                            version = Some(map.next_value()?);
+                        }
+                        Field::Vmtype => {
+                            vmtype = Some(map.next_value()?);
+                        }
+                        Field::Sig => {
+                            sig = Some(map.next_value()?);
+                        }
+                        Field::RecoveryId => {
+                            recovery_id = Some(map.next_value()?);
+                        }
+                        Field::Sync => {
+                            sync = Some(map.next_value()?);
+                        }
+                        Field::Memory => {
+                            memory = Some(map.next_value()?);
+                        }
+                        Field::Vcpus => {
+                            vcpus = Some(map.next_value()?);
+                        }
+                        Field::Cpu => {
+                            cpu = Some(map.next_value()?);
+                        }
+                        Field::Metadata => {
+                            metadata = Some(map.next_value()?);
+                        }
+                        Field::OsVariant => {
+                            os_variant = Some(map.next_value()?);
+                        }
+                        Field::HostDevice => {
+                            host_device = Some(map.next_value()?);
+                        }
+                        Field::Network => {
+                            network = Some(map.next_value()?);
+                        }
+                        Field::Disk => {
+                            disk = Some(map.next_value()?);
+                        }
+                        Field::Filesystem => {
+                            filesystem = Some(map.next_value()?);
+                        }
+                        Field::Controller => {
+                            controller = Some(map.next_value()?);
+                        }
+                        Field::Input => {
+                            input = Some(map.next_value()?);
+                        }
+                        Field::Graphics => {
+                            graphics = Some(map.next_value()?);
+                        }
+                        Field::Sound => {
+                            sound = Some(map.next_value()?);
+                        }
+                        Field::Video => {
+                            video = Some(map.next_value()?);
+                        }
+                        Field::Smartcard => {
+                            smartcard = Some(map.next_value()?);
+                        }
+                        Field::Redirdev => {
+                            redirdev = Some(map.next_value()?);
+                        }
+                        Field::Memballoon => {
+                            memballoon = Some(map.next_value()?);
+                        }
+                        Field::Tpm => {
+                            tpm = Some(map.next_value()?);
+                        }
+                        Field::Rng => {
+                            rng = Some(map.next_value()?);
+                        }
+                        Field::Panic => {
+                            panic = Some(map.next_value()?);
+                        }
+                        Field::Shmem => {
+                            shmem = Some(map.next_value()?);
+                        }
+                        Field::Memdev => {
+                            memdev = Some(map.next_value()?);
+                        }
+                        Field::Vsock => {
+                            vsock = Some(map.next_value()?);
+                        }
+                        Field::Iommu => {
+                            iommu = Some(map.next_value()?);
+                        }
+                        Field::Watchdog => {
+                            watchdog = Some(map.next_value()?);
+                        }
+                        Field::Serial => {
+                            serial = Some(map.next_value()?);
+                        }
+                        Field::Parallel => {
+                            parallel = Some(map.next_value()?);
+                        }
+                        Field::Channel => {
+                            channel = Some(map.next_value()?);
+                        }
+                        Field::Console => {
+                            console = Some(map.next_value()?);
+                        }
+                        Field::Install => {
+                            install = Some(map.next_value()?);
+                        }
+                        Field::Cdrom => {
+                            cdrom = Some(map.next_value()?);
+                        }
+                        Field::Location => {
+                            location = Some(map.next_value()?);
+                        }
+                        Field::Pxe => {
+                            pxe = Some(map.next_value()?);
+                        }
+                        Field::Import => {
+                            import_ = Some(map.next_value()?);
+                        }
+                        Field::Boot => {
+                            boot = Some(map.next_value()?);
+                        }
+                        Field::Idmap => {
+                            idmap = Some(map.next_value()?);
+                        }
+                        Field::Features => {
+                            features = Some(map.next_value()?);
+                        }
+                        Field::Clock => {
+                            clock = Some(map.next_value()?);
+                        }
+                        Field::LaunchSecurity => {
+                            launch_security = Some(map.next_value()?);
+                        }
+                        Field::Numatune => {
+                            numatune = Some(map.next_value()?);
+                        }
+                        Field::BootDev => {
+                            boot_dev = Some(map.next_value()?);
+                        }
+                        Field::Unattended => {
+                            unattended = Some(map.next_value()?);
+                        }
+                        Field::PrintXml => {
+                            print_xml = Some(map.next_value()?);
+                        }
+                        Field::DryRun => {
+                            dry_run = Some(map.next_value()?);
+                        }
+                        Field::Connect => {
+                            connect = Some(map.next_value()?);
+                        }
+                        Field::VirtType => {
+                            virt_type = Some(map.next_value()?);
+                        }
+                        Field::CloudInit => {
+                            cloud_init = Some(map.next_value()?);
+                        }
                     }
                 }
 
@@ -717,15 +872,60 @@ impl<'de> Deserialize<'de> for InstanceCreateParams {
         }
 
         const FIELDS: &'static [&'static str] = &[
-            "name", "distro", "version", "vmtype", "sig", "recovery_id", "sync",
-            "memory", "vcpus", "cpu", "metadata", "os_variant", "host_device",
-            "network", "disk", "filesystem", "controller", "input", "graphics",
-            "sound", "video", "smartcard", "redirdev", "memballoon", "tpm",
-            "rng", "panic", "shmem", "memdev", "vsock", "iommu", "watchdog",
-            "serial", "parallel", "channel", "console", "install", "cdrom",
-            "location", "pxe", "import_", "boot", "idmap", "features", "clock",
-            "launch_security", "numatune", "boot_dev", "unattended", "print_xml",
-            "dry_run", "connect", "virt_type", "cloud_init"
+            "name",
+            "distro",
+            "version",
+            "vmtype",
+            "sig",
+            "recovery_id",
+            "sync",
+            "memory",
+            "vcpus",
+            "cpu",
+            "metadata",
+            "os_variant",
+            "host_device",
+            "network",
+            "disk",
+            "filesystem",
+            "controller",
+            "input",
+            "graphics",
+            "sound",
+            "video",
+            "smartcard",
+            "redirdev",
+            "memballoon",
+            "tpm",
+            "rng",
+            "panic",
+            "shmem",
+            "memdev",
+            "vsock",
+            "iommu",
+            "watchdog",
+            "serial",
+            "parallel",
+            "channel",
+            "console",
+            "install",
+            "cdrom",
+            "location",
+            "pxe",
+            "import_",
+            "boot",
+            "idmap",
+            "features",
+            "clock",
+            "launch_security",
+            "numatune",
+            "boot_dev",
+            "unattended",
+            "print_xml",
+            "dry_run",
+            "connect",
+            "virt_type",
+            "cloud_init",
         ];
 
         deserializer.deserialize_struct("InstanceCreateParams", FIELDS, InstanceCreateParamsVisitor)
@@ -754,7 +954,13 @@ impl<'de> Deserialize<'de> for InstanceStartParams {
     {
         #[derive(Deserialize)]
         #[serde(field_identifier, rename_all = "snake_case")]
-        enum Field { Name, Console, Stateless, Sig, RecoveryId }
+        enum Field {
+            Name,
+            Console,
+            Stateless,
+            Sig,
+            RecoveryId,
+        }
 
         struct InstanceStartParamsVisitor;
 
@@ -777,25 +983,44 @@ impl<'de> Deserialize<'de> for InstanceStartParams {
 
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Name => { name = Some(map.next_value()?); }
-                        Field::Console => { console = Some(map.next_value()?); }
-                        Field::Stateless => { stateless = Some(map.next_value()?); }
-                        Field::Sig => { sig = Some(map.next_value()?); }
-                        Field::RecoveryId => { recovery_id = Some(map.next_value()?); }
+                        Field::Name => {
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Console => {
+                            console = Some(map.next_value()?);
+                        }
+                        Field::Stateless => {
+                            stateless = Some(map.next_value()?);
+                        }
+                        Field::Sig => {
+                            sig = Some(map.next_value()?);
+                        }
+                        Field::RecoveryId => {
+                            recovery_id = Some(map.next_value()?);
+                        }
                     }
                 }
 
                 let name = name.ok_or_else(|| serde::de::Error::missing_field("name"))?;
                 let console = console.ok_or_else(|| serde::de::Error::missing_field("console"))?;
-                let stateless = stateless.ok_or_else(|| serde::de::Error::missing_field("stateless"))?;
+                let stateless =
+                    stateless.ok_or_else(|| serde::de::Error::missing_field("stateless"))?;
                 let sig = sig.ok_or_else(|| serde::de::Error::missing_field("sig"))?;
-                let recovery_id = recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
+                let recovery_id =
+                    recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
 
-                Ok(InstanceStartParams { name, console, stateless, sig, recovery_id })
+                Ok(InstanceStartParams {
+                    name,
+                    console,
+                    stateless,
+                    sig,
+                    recovery_id,
+                })
             }
         }
 
-        const FIELDS: &'static [&'static str] = &["name", "console", "stateless", "sig", "recovery_id"];
+        const FIELDS: &'static [&'static str] =
+            &["name", "console", "stateless", "sig", "recovery_id"];
         deserializer.deserialize_struct("InstanceStartParams", FIELDS, InstanceStartParamsVisitor)
     }
 }
@@ -818,7 +1043,11 @@ impl<'de> Deserialize<'de> for InstanceStopParams {
     where
         D: Deserializer<'de>,
     {
-        enum Field { Name, Sig, RecoveryId }
+        enum Field {
+            Name,
+            Sig,
+            RecoveryId,
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
@@ -870,17 +1099,28 @@ impl<'de> Deserialize<'de> for InstanceStopParams {
 
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Name => { name = Some(map.next_value()?); }
-                        Field::Sig => { sig = Some(map.next_value()?); }
-                        Field::RecoveryId => { recovery_id = Some(map.next_value()?); }
+                        Field::Name => {
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Sig => {
+                            sig = Some(map.next_value()?);
+                        }
+                        Field::RecoveryId => {
+                            recovery_id = Some(map.next_value()?);
+                        }
                     }
                 }
 
                 let name = name.ok_or_else(|| serde::de::Error::missing_field("name"))?;
                 let sig = sig.ok_or_else(|| serde::de::Error::missing_field("sig"))?;
-                let recovery_id = recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
+                let recovery_id =
+                    recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
 
-                Ok(InstanceStopParams { name, sig, recovery_id })
+                Ok(InstanceStopParams {
+                    name,
+                    sig,
+                    recovery_id,
+                })
             }
         }
 
@@ -909,7 +1149,13 @@ impl<'de> Deserialize<'de> for InstanceDeleteParams {
     where
         D: Deserializer<'de>,
     {
-        enum Field { Name, Force, Interactive, Sig, RecoveryId }
+        enum Field {
+            Name,
+            Force,
+            Interactive,
+            Sig,
+            RecoveryId,
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
@@ -922,7 +1168,8 @@ impl<'de> Deserialize<'de> for InstanceDeleteParams {
                     type Value = Field;
 
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("`name`, `force`, `interactive`, `sig` or `recovery_id`")
+                        formatter
+                            .write_str("`name`, `force`, `interactive`, `sig` or `recovery_id`")
                     }
 
                     fn visit_str<E>(self, value: &str) -> Result<Field, E>
@@ -965,25 +1212,44 @@ impl<'de> Deserialize<'de> for InstanceDeleteParams {
 
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Name => { name = Some(map.next_value()?); }
-                        Field::Force => { force = Some(map.next_value()?); }
-                        Field::Interactive => { interactive = Some(map.next_value()?); }
-                        Field::Sig => { sig = Some(map.next_value()?); }
-                        Field::RecoveryId => { recovery_id = Some(map.next_value()?); }
+                        Field::Name => {
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Force => {
+                            force = Some(map.next_value()?);
+                        }
+                        Field::Interactive => {
+                            interactive = Some(map.next_value()?);
+                        }
+                        Field::Sig => {
+                            sig = Some(map.next_value()?);
+                        }
+                        Field::RecoveryId => {
+                            recovery_id = Some(map.next_value()?);
+                        }
                     }
                 }
 
                 let name = name.ok_or_else(|| serde::de::Error::missing_field("name"))?;
                 let force = force.ok_or_else(|| serde::de::Error::missing_field("force"))?;
-                let interactive = interactive.ok_or_else(|| serde::de::Error::missing_field("interactive"))?;
+                let interactive =
+                    interactive.ok_or_else(|| serde::de::Error::missing_field("interactive"))?;
                 let sig = sig.ok_or_else(|| serde::de::Error::missing_field("sig"))?;
-                let recovery_id = recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
+                let recovery_id =
+                    recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
 
-                Ok(InstanceDeleteParams { name, force, interactive, sig, recovery_id })
+                Ok(InstanceDeleteParams {
+                    name,
+                    force,
+                    interactive,
+                    sig,
+                    recovery_id,
+                })
             }
         }
 
-        const FIELDS: &'static [&'static str] = &["name", "force", "interactive", "sig", "recovery_id"];
+        const FIELDS: &'static [&'static str] =
+            &["name", "force", "interactive", "sig", "recovery_id"];
         deserializer.deserialize_struct("InstanceDeleteParams", FIELDS, InstanceDeleteParamsVisitor)
     }
 }
@@ -1008,7 +1274,13 @@ impl<'de> Deserialize<'de> for InstanceExposeServiceParams {
     where
         D: Deserializer<'de>,
     {
-        enum Field { Name, Port, ServiceType, Sig, RecoveryId }
+        enum Field {
+            Name,
+            Port,
+            ServiceType,
+            Sig,
+            RecoveryId,
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
@@ -1021,7 +1293,8 @@ impl<'de> Deserialize<'de> for InstanceExposeServiceParams {
                     type Value = Field;
 
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("`name`, `port`, `service_type`, `sig` or `recovery_id`")
+                        formatter
+                            .write_str("`name`, `port`, `service_type`, `sig` or `recovery_id`")
                     }
 
                     fn visit_str<E>(self, value: &str) -> Result<Field, E>
@@ -1064,26 +1337,49 @@ impl<'de> Deserialize<'de> for InstanceExposeServiceParams {
 
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Name => { name = Some(map.next_value()?); }
-                        Field::Port => { port = Some(map.next_value()?); }
-                        Field::ServiceType => { service_type = Some(map.next_value()?); }
-                        Field::Sig => { sig = Some(map.next_value()?); }
-                        Field::RecoveryId => { recovery_id = Some(map.next_value()?); }
+                        Field::Name => {
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Port => {
+                            port = Some(map.next_value()?);
+                        }
+                        Field::ServiceType => {
+                            service_type = Some(map.next_value()?);
+                        }
+                        Field::Sig => {
+                            sig = Some(map.next_value()?);
+                        }
+                        Field::RecoveryId => {
+                            recovery_id = Some(map.next_value()?);
+                        }
                     }
                 }
 
                 let name = name.ok_or_else(|| serde::de::Error::missing_field("name"))?;
                 let port = port.ok_or_else(|| serde::de::Error::missing_field("port"))?;
-                let service_type = service_type.ok_or_else(|| serde::de::Error::missing_field("service_type"))?;
+                let service_type =
+                    service_type.ok_or_else(|| serde::de::Error::missing_field("service_type"))?;
                 let sig = sig.ok_or_else(|| serde::de::Error::missing_field("sig"))?;
-                let recovery_id = recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
+                let recovery_id =
+                    recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
 
-                Ok(InstanceExposeServiceParams { name, port, service_type, sig, recovery_id })
+                Ok(InstanceExposeServiceParams {
+                    name,
+                    port,
+                    service_type,
+                    sig,
+                    recovery_id,
+                })
             }
         }
 
-        const FIELDS: &'static [&'static str] = &["name", "port", "service_type", "sig", "recovery_id"];
-        deserializer.deserialize_struct("InstanceExposeServiceParams", FIELDS, InstanceExposeServiceParamsVisitor)
+        const FIELDS: &'static [&'static str] =
+            &["name", "port", "service_type", "sig", "recovery_id"];
+        deserializer.deserialize_struct(
+            "InstanceExposeServiceParams",
+            FIELDS,
+            InstanceExposeServiceParamsVisitor,
+        )
     }
 }
 
@@ -1106,7 +1402,12 @@ impl<'de> Deserialize<'de> for InstanceAddPubkeyParams {
     where
         D: Deserializer<'de>,
     {
-        enum Field { Name, Pubkey, Sig, RecoveryId }
+        enum Field {
+            Name,
+            Pubkey,
+            Sig,
+            RecoveryId,
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
@@ -1160,24 +1461,42 @@ impl<'de> Deserialize<'de> for InstanceAddPubkeyParams {
 
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Name => { name = Some(map.next_value()?); }
-                        Field::Pubkey => { pubkey = Some(map.next_value()?); }
-                        Field::Sig => { sig = Some(map.next_value()?); }
-                        Field::RecoveryId => { recovery_id = Some(map.next_value()?); }
+                        Field::Name => {
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Pubkey => {
+                            pubkey = Some(map.next_value()?);
+                        }
+                        Field::Sig => {
+                            sig = Some(map.next_value()?);
+                        }
+                        Field::RecoveryId => {
+                            recovery_id = Some(map.next_value()?);
+                        }
                     }
                 }
 
                 let name = name.ok_or_else(|| serde::de::Error::missing_field("name"))?;
                 let pubkey = pubkey.ok_or_else(|| serde::de::Error::missing_field("pubkey"))?;
                 let sig = sig.ok_or_else(|| serde::de::Error::missing_field("sig"))?;
-                let recovery_id = recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
+                let recovery_id =
+                    recovery_id.ok_or_else(|| serde::de::Error::missing_field("recovery_id"))?;
 
-                Ok(InstanceAddPubkeyParams { name, pubkey, sig, recovery_id })
+                Ok(InstanceAddPubkeyParams {
+                    name,
+                    pubkey,
+                    sig,
+                    recovery_id,
+                })
             }
         }
 
         const FIELDS: &'static [&'static str] = &["name", "pubkey", "sig", "recovery_id"];
-        deserializer.deserialize_struct("InstanceAddPubkeyParams", FIELDS, InstanceAddPubkeyParamsVisitor)
+        deserializer.deserialize_struct(
+            "InstanceAddPubkeyParams",
+            FIELDS,
+            InstanceAddPubkeyParamsVisitor,
+        )
     }
 }
 
@@ -1200,7 +1519,12 @@ impl<'de> Deserialize<'de> for InstanceGetSshDetails {
     where
         D: Deserializer<'de>,
     {
-        enum Field { Owner, Name, Keypath, Username }
+        enum Field {
+            Owner,
+            Name,
+            Keypath,
+            Username,
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
@@ -1254,10 +1578,18 @@ impl<'de> Deserialize<'de> for InstanceGetSshDetails {
 
                 while let Some(key) = map.next_key()? {
                     match key {
-                        Field::Owner => { owner = Some(map.next_value()?); }
-                        Field::Name => { name = Some(map.next_value()?); }
-                        Field::Keypath => { keypath = Some(map.next_value()?); }
-                        Field::Username => { username = Some(map.next_value()?); }
+                        Field::Owner => {
+                            owner = Some(map.next_value()?);
+                        }
+                        Field::Name => {
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Keypath => {
+                            keypath = Some(map.next_value()?);
+                        }
+                        Field::Username => {
+                            username = Some(map.next_value()?);
+                        }
                     }
                 }
 
@@ -1266,11 +1598,20 @@ impl<'de> Deserialize<'de> for InstanceGetSshDetails {
                 let keypath = keypath;
                 let username = username;
 
-                Ok(InstanceGetSshDetails { owner, name, keypath, username })
+                Ok(InstanceGetSshDetails {
+                    owner,
+                    name,
+                    keypath,
+                    username,
+                })
             }
         }
 
         const FIELDS: &'static [&'static str] = &["owner", "name", "keypath", "username"];
-        deserializer.deserialize_struct("InstanceGetSshDetails", FIELDS, InstanceGetSshDetailsVisitor)
+        deserializer.deserialize_struct(
+            "InstanceGetSshDetails",
+            FIELDS,
+            InstanceGetSshDetailsVisitor,
+        )
     }
 }

@@ -3,7 +3,6 @@ use clap::Subcommand;
 use crate::params::ServiceType;
 use crate::vm_types::VmType;
 
-
 #[derive(Clone, Subcommand)]
 pub enum AllegraCommands {
     #[command(name = "ssh")]
@@ -12,10 +11,10 @@ pub enum AllegraCommands {
         owner: String,
         #[arg(long, short)]
         name: String,
-        #[arg(long, short, default_value="~/.ssh/id_rsa")]
+        #[arg(long, short, default_value = "~/.ssh/id_rsa")]
         keypath: String,
-        #[arg(long, short, default_value="root")]
-        username: String, 
+        #[arg(long, short, default_value = "root")]
+        username: String,
         #[arg(long, short)]
         endpoint: Option<String>,
     },
@@ -38,7 +37,7 @@ pub enum AllegraCommands {
         distro: String,
         #[arg(long, short)]
         version: String,
-        #[arg(long, short='t')]
+        #[arg(long, short = 't')]
         vmtype: VmType,
         #[arg(long)]
         memory: Option<String>,
@@ -138,13 +137,13 @@ pub enum AllegraCommands {
         sk: Option<String>,
         #[arg(long, short)]
         mnemonic: Option<String>,
-        #[arg(long, short='f')]
+        #[arg(long, short = 'f')]
         from_file: Option<bool>,
-        #[arg(long, short='p')]
+        #[arg(long, short = 'p')]
         path: Option<String>,
-        #[arg(long, short='i')]
+        #[arg(long, short = 'i')]
         kp_index: Option<usize>,
-        #[arg(long, short='e')]
+        #[arg(long, short = 'e')]
         endpoint: Option<String>,
     },
     #[command(name = "start")]
@@ -155,7 +154,7 @@ pub enum AllegraCommands {
         console: bool,
         #[arg(long, short)]
         stateless: bool,
-        #[arg(long, short='k')]
+        #[arg(long, short = 'k')]
         sk: Option<String>,
         #[arg(long, short)]
         mnemonic: Option<String>,
@@ -189,17 +188,17 @@ pub enum AllegraCommands {
     AddPubkey {
         #[arg(long, short)]
         name: String,
-        #[arg(long, short='k')]
+        #[arg(long, short = 'k')]
         pubkey: String,
         #[arg(long, short)]
         sk: Option<String>,
         #[arg(long, short)]
         mnemonic: Option<String>,
-        #[arg(long, short='f')]
+        #[arg(long, short = 'f')]
         from_file: Option<bool>,
-        #[arg(long, short='p')]
+        #[arg(long, short = 'p')]
         path: Option<String>,
-        #[arg(long, short='i')]
+        #[arg(long, short = 'i')]
         kp_index: Option<usize>,
         #[arg(long, short)]
         endpoint: Option<String>,
@@ -231,7 +230,7 @@ pub enum AllegraCommands {
         name: String,
         #[arg(long, short)]
         port: Vec<u16>,
-        #[arg(long, short='t')]
+        #[arg(long, short = 't')]
         service_type: Vec<ServiceType>,
         #[arg(long, short)]
         sk: Option<String>,
@@ -267,7 +266,7 @@ pub enum AllegraCommands {
         task_id: String,
         #[arg(long, short)]
         endpoint: Option<String>,
-    }
+    },
 }
 
 impl AllegraCommands {
@@ -299,7 +298,6 @@ impl AllegraCommands {
             Self::Wallet { .. } => None,
             Self::Ssh { .. } => None,
         }
-
     }
 
     pub fn mnemonic(&self) -> Option<String> {
@@ -343,7 +341,7 @@ impl AllegraCommands {
             Self::GetSshDetails { .. } => None,
             Self::PollTask { .. } => None,
             Self::Wallet { .. } => None,
-            Self::Ssh { .. } => None 
+            Self::Ssh { .. } => None,
         }
     }
 }
