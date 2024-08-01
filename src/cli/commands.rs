@@ -134,6 +134,12 @@ pub enum AllegraCommands {
         virt_type: Option<String>,
         #[arg(long)]
         cloud_init: Option<String>,
+        #[arg(long)]
+        user_data: Option<String>,
+        #[arg(long)]
+        meta_data: Option<String>,
+        #[arg(long)]
+        network_config: Option<String>,
         #[arg(long, short)]
         sk: Option<String>,
         #[arg(long, short)]

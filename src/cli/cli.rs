@@ -1,8 +1,7 @@
 use allegra::allegra_rpc::{
-    Features, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams,
-    InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams,
-    InstanceStopParams,
+    CloudInit, Features, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
 };
+use allegra::virt_install::UserData;
 use allegra::{enter_ssh_session, generate_new_wallet, WalletInfo};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -116,6 +115,9 @@ async fn main() -> std::io::Result<()> {
             connect,
             virt_type,
             cloud_init,
+            user_data,
+            meta_data,
+            network_config,
             ..
         } => {
             println!("Creating an Allegra Instance {:?}", &name);
@@ -123,6 +125,32 @@ async fn main() -> std::io::Result<()> {
 
             let (sig, recover_id) = generate_signature_from_command(cli.command.clone())?;
             let recovery_id: u8 = recover_id.into();
+
+            let user_data: Option<String> = if let Some(user_data_path) = user_data {
+                let mut file = std::fs::File::open(user_data_path)?;
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)?;
+                Some(contents)
+            } else {
+                None
+            };
+
+            let mut cloud_init: CloudInit = if let Some(cloud_init_path) = cloud_init {
+                let mut file = std::fs::File::open(cloud_init_path)?;
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)?;
+                serde_yml::from_str(&contents).map_err(|e| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e
+                    )
+                })?
+            } else {
+                CloudInit::default()
+            };
+
+            cloud_init.user_data = user_data;
+
             let params = InstanceCreateParams {
                 name: name.clone(),
                 distro: distro.into(),
@@ -186,10 +214,7 @@ async fn main() -> std::io::Result<()> {
                 dry_run: dry_run.clone(),
                 connect: connect.clone(),
                 virt_type: virt_type.clone(),
-                cloud_init: match cloud_init {
-                    Some(ci) => serde_yml::from_str(&ci).ok(),
-                    None => None,
-                },
+                cloud_init: Some(cloud_init),
             };
 
             let resp = vmclient.create_vm(params.clone()).await;
