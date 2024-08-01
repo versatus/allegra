@@ -337,9 +337,7 @@ impl VmManager {
 
                 Ok(())
             }
-            VmManagerMessage::LaunchInstance {
-                namespace, task_id, ..
-            } => {
+            VmManagerMessage::LaunchInstance { namespace, .. } => {
                 log::info!("received LaunchInstance message, attempting to launch instance.");
                 self.refresh_vmlist().await?;
                 let _vmlist = self.vmlist.clone();

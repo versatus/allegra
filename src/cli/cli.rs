@@ -1,7 +1,8 @@
 use allegra::allegra_rpc::{
-    CloudInit, Features, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
+    CloudInit, Features, GetTaskStatusRequest, InstanceAddPubkeyParams, InstanceCreateParams,
+    InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams,
+    InstanceStopParams,
 };
-use allegra::virt_install::UserData;
 use allegra::{enter_ssh_session, generate_new_wallet, WalletInfo};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
@@ -116,8 +117,6 @@ async fn main() -> std::io::Result<()> {
             virt_type,
             cloud_init,
             user_data,
-            meta_data,
-            network_config,
             ..
         } => {
             println!("Creating an Allegra Instance {:?}", &name);
@@ -139,12 +138,8 @@ async fn main() -> std::io::Result<()> {
                 let mut file = std::fs::File::open(cloud_init_path)?;
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)?;
-                serde_yml::from_str(&contents).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })?
+                serde_yml::from_str(&contents)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
             } else {
                 CloudInit::default()
             };

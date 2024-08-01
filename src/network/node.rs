@@ -257,7 +257,7 @@ impl Node {
         }
         self.current_leader = Some(winning_ballot.candidate().clone());
         self.last_election_block = Some(block_height);
-        self.trigger_block = { block_height + self.election_block_interval };
+        self.trigger_block = block_height + self.election_block_interval;
         self.last_election_votes = self.votes_collected.clone();
         //TODO(asmith) replace hardcoded number with configurable static
         //MAX_QUORUM_SIZE
