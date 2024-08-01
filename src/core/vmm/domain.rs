@@ -1,6 +1,6 @@
-use getset::{Getters, MutGetters, Setters};
-use serde::{Serialize, Deserialize};
 use crate::cloud_init::CloudConfig;
+use getset::{Getters, MutGetters, Setters};
+use serde::{Deserialize, Serialize};
 
 #[derive(Getters, MutGetters, Setters, Serialize, Deserialize)]
 #[serde(rename = "domain")]
@@ -22,7 +22,7 @@ pub struct Domain {
     devices: Devices,
     seclabel: Option<Seclabel>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    cloud_init: Option<CloudConfig>
+    cloud_init: Option<CloudConfig>,
 }
 
 #[derive(Getters, MutGetters, Setters, Serialize, Deserialize)]
@@ -73,14 +73,14 @@ struct OS {
 #[derive(Getters, MutGetters, Setters, Serialize, Deserialize)]
 pub struct OSImage {
     source: ImageSource,
-    format: ImageFormat
+    format: ImageFormat,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ImageSource {
     File(String),
     Volume(String),
-    Network(String)
+    Network(String),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -283,5 +283,3 @@ struct Seclabel {
     relabel: String,
     label: String,
 }
-
-

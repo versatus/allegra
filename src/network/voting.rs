@@ -1,13 +1,13 @@
-use getset::Getters;
-use serde::{Serialize, Deserialize};
 use crate::network::peer::Peer;
 use derive_new::new as New;
+use getset::Getters;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Getters, Hash, New)]
 #[getset(get = "pub")]
 pub struct Ballot {
     candidate: Peer,
-    result: [u8; 32]
+    result: [u8; 32],
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Getters, Hash, New)]
@@ -32,4 +32,3 @@ impl Ord for Ballot {
         self.result.cmp(&other.result)
     }
 }
-

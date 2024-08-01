@@ -1,7 +1,7 @@
+use crate::allegra_rpc::{CloudInit as ProtoCloudInit, InstanceCreateParams};
+use getset::{Getters, MutGetters, Setters};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::Path, process::Command};
-use crate::allegra_rpc::{InstanceCreateParams, CloudInit as ProtoCloudInit};
-use serde::{Serialize, Deserialize};
-use getset::{Getters, Setters, MutGetters};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VirtInstall {
@@ -64,7 +64,7 @@ pub struct CloudInit {
     pub user_data: Option<String>,
     pub root_ssh_key: Option<String>,
     pub clouduser_ssh_key: Option<String>,
-    pub network_config: Option<String>
+    pub network_config: Option<String>,
 }
 
 #[derive(Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
@@ -74,7 +74,7 @@ pub struct UserData {
     write_files: Vec<WriteFile>,
     mounts: Vec<String>,
     runcmd: Vec<String>,
-    bootcmd: Vec<String>
+    bootcmd: Vec<String>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
@@ -95,26 +95,25 @@ pub struct User {
     #[serde(skip_serializing_if = "Option::is_none")]
     chpasswd: Option<Chpasswd>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ssh_pwauth: Option<bool>
+    ssh_pwauth: Option<bool>,
 }
-
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct Chpasswd {
-    expire: bool
+    expire: bool,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct WriteFile {
     path: String,
     content: String,
-    permissions: Option<String>
+    permissions: Option<String>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct NetworkConfig {
     version: u8,
-    ethernets: std::collections::HashMap<String, EthernetConfig>
+    ethernets: std::collections::HashMap<String, EthernetConfig>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
@@ -122,24 +121,24 @@ pub struct EthernetConfig {
     dhcp4: bool,
     addresses: Vec<String>,
     nameservers: Nameservers,
-    routes: Vec<Route>
+    routes: Vec<Route>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct Nameservers {
-    addresses: Vec<String>
+    addresses: Vec<String>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct Route {
     to: String,
-    via: String
+    via: String,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct MetaData {
     instance_id: String,
-    local_hostname: String
+    local_hostname: String,
 }
 
 impl From<ProtoCloudInit> for CloudInit {
@@ -152,7 +151,7 @@ impl From<ProtoCloudInit> for CloudInit {
             user_data: value.user_data,
             root_ssh_key: value.root_ssh_key,
             clouduser_ssh_key: value.clouduser_ssh_key,
-            network_config: value.network_config
+            network_config: value.network_config,
         }
     }
 }
@@ -677,42 +676,46 @@ impl From<InstanceCreateParams> for VirtInstall {
         Self {
             name: value.name,
             memory: value.memory,
-            vcpus: value.vcpus, 
+            vcpus: value.vcpus,
             cpu: value.cpu,
             metadata: value.metadata,
-            os_variant: value.os_variant, 
-            host_device: value.host_device, 
-            network: value.network, 
-            disk: value.disk, 
-            filesystem: value.filesystem, 
-            controller: value.controller, 
-            input: value.input, 
-            graphics: value.graphics, 
-            sound: value.sound,  
-            video: value.video, 
-            smartcard: value.smartcard, 
-            redirdev: value.redirdev, 
-            memballoon: value.memballoon, 
-            tpm: value.tpm, 
-            rng: value.rng, 
-            panic: value.panic, 
-            shmem: value.shmem, 
-            memdev: value.memdev, 
-            vsock: value.vsock, 
-            iommu: value.iommu, 
-            watchdog: value.watchdog, 
-            serial: value.serial, 
-            parallel: value.parallel, 
-            channel: value.channel, 
-            console: value.console, 
-            install: value.install, 
-            cdrom: value.cdrom, 
-            location: value.location, 
+            os_variant: value.os_variant,
+            host_device: value.host_device,
+            network: value.network,
+            disk: value.disk,
+            filesystem: value.filesystem,
+            controller: value.controller,
+            input: value.input,
+            graphics: value.graphics,
+            sound: value.sound,
+            video: value.video,
+            smartcard: value.smartcard,
+            redirdev: value.redirdev,
+            memballoon: value.memballoon,
+            tpm: value.tpm,
+            rng: value.rng,
+            panic: value.panic,
+            shmem: value.shmem,
+            memdev: value.memdev,
+            vsock: value.vsock,
+            iommu: value.iommu,
+            watchdog: value.watchdog,
+            serial: value.serial,
+            parallel: value.parallel,
+            channel: value.channel,
+            console: value.console,
+            install: value.install,
+            cdrom: value.cdrom,
+            location: value.location,
             pxe: value.pxe,
             import: value.import,
             boot: value.boot,
             idmap: value.idmap,
-            features: value.features.iter().map(|f| (f.name.clone(), f.feature.clone())).collect(),
+            features: value
+                .features
+                .iter()
+                .map(|f| (f.name.clone(), f.feature.clone()))
+                .collect(),
             clock: value.clock,
             launch_security: value.launch_security,
             numatune: value.numatune,
@@ -724,8 +727,8 @@ impl From<InstanceCreateParams> for VirtInstall {
             virt_type: value.virt_type,
             cloud_init: match value.cloud_init {
                 Some(ci) => Some(ci.into()),
-                None => None
-            }
+                None => None,
+            },
         }
     }
 }
@@ -828,46 +831,37 @@ pub fn generate_cloud_init_files(
                 },
                 routes: vec![Route {
                     to: "0.0.0.0/0".to_string(),
-                    via: "192.168.122.1".to_string()
-                }]
-            }
-        )].iter().cloned().collect()
+                    via: "192.168.122.1".to_string(),
+                }],
+            },
+        )]
+        .iter()
+        .cloned()
+        .collect(),
     };
 
     let metadata = MetaData {
         instance_id: instance_id.to_string(),
-        local_hostname: hostname.to_string()
-    }; 
+        local_hostname: hostname.to_string(),
+    };
 
     let profile_dir = Path::new("/var/lib/libvirt/profiles").join(instance_id);
     fs::create_dir_all(&profile_dir)?;
     fs::write(
         profile_dir.join("user-data.yaml"),
-        serde_yml::to_string(&default_user_data).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?,
+        serde_yml::to_string(&default_user_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
     )?;
     fs::write(
         profile_dir.join("network-config.yaml"),
-        serde_yml::to_string(&network_config).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?,
+        serde_yml::to_string(&network_config)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
     )?;
 
     fs::write(
         profile_dir.join("meta-data.yaml"),
-        serde_yml::to_string(&metadata).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?,
+        serde_yml::to_string(&metadata)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
     )?;
 
     Ok(())

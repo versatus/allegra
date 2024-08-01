@@ -1,8 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use crate::{params::ServiceType, vm_info::VmInfo};
 use rayon::iter::{IntoParallelIterator, ParallelExtend, ParallelIterator};
-use serde::{Serialize, Deserialize};
-use crate::{vm_info::VmInfo, params::ServiceType};
-
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fmt::Display};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Namespace(String);
@@ -30,7 +29,7 @@ impl TaskId {
     pub fn new(id: String) -> Self {
         Self(id)
     }
-    
+
     pub fn task_id(&self) -> String {
         self.0.clone()
     }
@@ -54,7 +53,7 @@ impl Display for TaskStatus {
         match self {
             TaskStatus::Pending => write!(f, "pending"),
             TaskStatus::Success => write!(f, "success"),
-            TaskStatus::Failure(err_string) => write!(f, "Failure {}", err_string)
+            TaskStatus::Failure(err_string) => write!(f, "Failure {}", err_string),
         }
     }
 }
@@ -67,7 +66,10 @@ pub struct ExposedPort {
 
 impl ExposedPort {
     pub fn new(port: u16, service_description: Option<ServiceType>) -> Self {
-        Self { port, service_description }
+        Self {
+            port,
+            service_description,
+        }
     }
 }
 
@@ -76,20 +78,25 @@ pub struct Account {
     address: [u8; 20],
     namespaces: HashMap<Namespace, Option<VmInfo>>,
     exposed_ports: HashMap<Namespace, Vec<ExposedPort>>,
-    tasks: HashMap<TaskId, TaskStatus>
+    tasks: HashMap<TaskId, TaskStatus>,
 }
 
 impl Account {
     pub fn new(
         address: [u8; 20],
-        namespaces: impl IntoParallelIterator<Item = (Namespace, Option<VmInfo>)>, 
+        namespaces: impl IntoParallelIterator<Item = (Namespace, Option<VmInfo>)>,
         exposed_ports: impl IntoParallelIterator<Item = (Namespace, Vec<ExposedPort>)>,
-        tasks: impl IntoParallelIterator<Item = (TaskId, TaskStatus)>
+        tasks: impl IntoParallelIterator<Item = (TaskId, TaskStatus)>,
     ) -> Self {
         let namespaces = namespaces.into_par_iter().collect();
         let tasks = tasks.into_par_iter().collect();
         let exposed_ports = exposed_ports.into_par_iter().collect();
-        Self { address, namespaces, tasks, exposed_ports }
+        Self {
+            address,
+            namespaces,
+            tasks,
+            exposed_ports,
+        }
     }
 
     pub fn address(&self) -> [u8; 20] {

@@ -1,7 +1,7 @@
-use std::{path::PathBuf, str::FromStr};
 use crate::allegra_rpc::Distro as ProtoDistro;
 use clap::ValueEnum;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 pub enum Distro {
@@ -16,24 +16,12 @@ pub enum Distro {
 impl From<Distro> for PathBuf {
     fn from(value: Distro) -> Self {
         match value {
-            Distro::Ubuntu => {
-                PathBuf::from("/mnt/glusterfs/images/ubuntu/ubuntu-22.04.qcow2")
-            }
-            Distro::CentOS => {
-                PathBuf::from("/mnt/glusterfs/images/centos/centos-8.qcow2")
-            }
-            Distro::Fedora => {
-                PathBuf::from("/mnt/glusterfs/images/fedora/fedora-40.qcow2")
-            }
-            Distro::Debian => {
-                PathBuf::from("/mnt/glusterfs/images/debian/debian-11.qcow2")
-            }
-            Distro::Arch => {
-                PathBuf::from("/mnt/glusterfs/images/arch/arch-linux-x86_64.qcow2")
-            }
-            Distro::Alpine => {
-                PathBuf::from("/mnt/glusterfs/images/alpine/alpine-3.20.qcow2")
-            }
+            Distro::Ubuntu => PathBuf::from("/mnt/glusterfs/images/ubuntu/ubuntu-22.04.qcow2"),
+            Distro::CentOS => PathBuf::from("/mnt/glusterfs/images/centos/centos-8.qcow2"),
+            Distro::Fedora => PathBuf::from("/mnt/glusterfs/images/fedora/fedora-40.qcow2"),
+            Distro::Debian => PathBuf::from("/mnt/glusterfs/images/debian/debian-11.qcow2"),
+            Distro::Arch => PathBuf::from("/mnt/glusterfs/images/arch/arch-linux-x86_64.qcow2"),
+            Distro::Alpine => PathBuf::from("/mnt/glusterfs/images/alpine/alpine-3.20.qcow2"),
         }
     }
 }
@@ -48,12 +36,10 @@ impl FromStr for Distro {
             "debian" => Ok(Distro::Debian),
             "arch" => Ok(Distro::Arch),
             "alpine" => Ok(Distro::Alpine),
-            _ => {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("unsupported distro {s}")
-                ))
-            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unsupported distro {s}"),
+            )),
         }
     }
 }
@@ -66,7 +52,7 @@ impl From<ProtoDistro> for Distro {
             ProtoDistro::Centos => Distro::CentOS,
             ProtoDistro::Fedora => Distro::Fedora,
             ProtoDistro::Debian => Distro::Debian,
-            ProtoDistro::Alpine => Distro::Alpine
+            ProtoDistro::Alpine => Distro::Alpine,
         }
     }
 }
@@ -79,7 +65,7 @@ impl From<Distro> for ProtoDistro {
             Distro::CentOS => ProtoDistro::Centos,
             Distro::Debian => ProtoDistro::Debian,
             Distro::Fedora => ProtoDistro::Fedora,
-            Distro::Ubuntu => ProtoDistro::Ubuntu
+            Distro::Ubuntu => ProtoDistro::Ubuntu,
         }
     }
 }
@@ -92,7 +78,7 @@ impl From<Distro> for i32 {
             Distro::Fedora => 2,
             Distro::Debian => 3,
             Distro::Arch => 4,
-            Distro::Alpine => 5
+            Distro::Alpine => 5,
         }
     }
 }
@@ -105,11 +91,10 @@ impl From<&Distro> for i32 {
             Distro::Fedora => 2,
             Distro::Debian => 3,
             Distro::Arch => 4,
-            Distro::Alpine => 5
+            Distro::Alpine => 5,
         }
     }
 }
-
 
 impl TryFrom<i32> for Distro {
     type Error = std::io::Error;
@@ -121,12 +106,10 @@ impl TryFrom<i32> for Distro {
             3 => Ok(Distro::Debian),
             4 => Ok(Distro::Arch),
             5 => Ok(Distro::Alpine),
-            _ => Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "invalid value"
-                )
-            )
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid value",
+            )),
         }
     }
 }
@@ -141,12 +124,10 @@ impl TryFrom<&i32> for Distro {
             3 => Ok(Distro::Debian),
             4 => Ok(Distro::Arch),
             5 => Ok(Distro::Alpine),
-            _ => Err(
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "invalid value"
-                )
-            )
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid value",
+            )),
         }
     }
 }
