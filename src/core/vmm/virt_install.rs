@@ -57,14 +57,14 @@ pub struct VirtInstall {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CloudInit {
-    root_password_generate: bool,
-    disable: bool,
-    root_password_file: Option<String>,
-    meta_data: Option<String>,
-    user_data: Option<String>,
-    root_ssh_key: Option<String>,
-    clouduser_ssh_key: Option<String>,
-    network_config: Option<String>
+    pub root_password_generate: bool,
+    pub disable: bool,
+    pub root_password_file: Option<String>,
+    pub meta_data: Option<String>,
+    pub user_data: Option<String>,
+    pub root_ssh_key: Option<String>,
+    pub clouduser_ssh_key: Option<String>,
+    pub network_config: Option<String>
 }
 
 #[derive(Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
@@ -162,42 +162,42 @@ impl CloudInit {
         CloudInit::default()
     }
 
-    pub fn root_password_generate(mut self, value: bool) -> Self {
+    pub fn set_root_password_generate(mut self, value: bool) -> Self {
         self.root_password_generate = value;
         self
     }
 
-    pub fn disable(mut self, value: bool) -> Self {
+    pub fn set_disable(mut self, value: bool) -> Self {
         self.disable = value;
         self
     }
 
-    pub fn root_password_file(mut self, file: String) -> Self {
+    pub fn set_root_password_file(mut self, file: String) -> Self {
         self.root_password_file = Some(file);
         self
     }
 
-    pub fn meta_data(mut self, data: String) -> Self {
+    pub fn set_meta_data(mut self, data: String) -> Self {
         self.meta_data = Some(data);
         self
     }
 
-    pub fn user_data(mut self, data: String) -> Self {
+    pub fn set_user_data(mut self, data: String) -> Self {
         self.user_data = Some(data);
         self
     }
 
-    pub fn root_ssh_key(mut self, key: String) -> Self {
+    pub fn set_root_ssh_key(mut self, key: String) -> Self {
         self.root_ssh_key = Some(key);
         self
     }
 
-    pub fn clouduser_ssh_key(mut self, key: String) -> Self {
+    pub fn set_clouduser_ssh_key(mut self, key: String) -> Self {
         self.clouduser_ssh_key = Some(key);
         self
     }
 
-    pub fn network_config(mut self, config: String) -> Self {
+    pub fn set_network_config(mut self, config: String) -> Self {
         self.network_config = Some(config);
         self
     }
@@ -730,7 +730,7 @@ impl From<InstanceCreateParams> for VirtInstall {
     }
 }
 
-pub fn merge_user_data(default: &mut UserData, user_provided: Option<&UserData>) {
+pub fn merge_user_data(default: &mut UserData, user_provided: Option<UserData>) {
     if let Some(user) = user_provided {
         if !user.users.is_empty() {
             default.users = user.users.clone();
@@ -773,7 +773,7 @@ pub fn merge_user_data(default: &mut UserData, user_provided: Option<&UserData>)
 pub fn generate_cloud_init_files(
     instance_id: &str,
     hostname: &str,
-    user_provided: Option<&UserData>,
+    user_provided: Option<UserData>,
     ip_address: &str,
 ) -> std::io::Result<()> {
     let mut default_user_data = UserData {

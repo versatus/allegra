@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use crate::distro::Distro;
 use crate::event::QuorumEvent;
+use crate::virt_install::{generate_cloud_init_files, UserData, CloudInit};
 use crate::{get_image_name, get_image_path, statics::*, GeneralResponseSubscriber, GeneralResponseTopic, Instance, QuorumTopic, VirtInstall, VmInfo, VmmResult, VmmSubscriber};
 use crate::{
     update_iptables,
@@ -20,12 +21,7 @@ use crate::{
 };
 
 use crate::allegra_rpc::{
-    InstanceCreateParams,
-    InstanceStopParams,
-    InstanceStartParams,
-    InstanceAddPubkeyParams,
-    InstanceExposeServiceParams,
-    InstanceDeleteParams,
+    InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams
 };
 
 use conductor::publisher::PubStream;
@@ -325,14 +321,17 @@ impl VmManager {
                 let next_port = self.next_port.clone();
                 let uri = self.publisher.peer_addr()?;
                 let mut publisher = GenericPublisher::new(&uri).await?;
+                let next_ip = format!("{}.{}.{}.{}", self.next_ip[0], self.next_ip[1], self.next_ip[2], self.next_ip[3]);
                 let (namespace, virt_install) = Self::prepare_instance(
                     params,
                     task_id,
                     vmlist,
                     &mut publisher,
+                    next_ip,
                     next_port
                 ).await?;
 
+                self.next_ip[3] += 1;
                 self.pending_launch.insert(namespace, virt_install);
 
                 Ok(())
@@ -344,10 +343,10 @@ impl VmManager {
             } => {
                 log::info!("received LaunchInstance message, attempting to launch instance.");
                 self.refresh_vmlist().await?;
-                let vmlist = self.vmlist.clone();
-                let next_port = self.next_port.clone();
+                let _vmlist = self.vmlist.clone();
+                let _next_port = self.next_port.clone();
                 let uri = self.publisher.peer_addr()?;
-                let mut publisher = GenericPublisher::new(&uri).await?;
+                let mut _publisher = GenericPublisher::new(&uri).await?;
                 let params = self.pending_launch.get(&namespace).ok_or(
                     std::io::Error::new(
                         std::io::ErrorKind::Other,
@@ -357,11 +356,6 @@ impl VmManager {
 
                 return Self::launch_instance(
                     params,
-                    namespace,
-                    task_id,
-                    vmlist, 
-                    &mut publisher, 
-                    next_port
                 ).await
             }
             VmManagerMessage::StartInstance { 
@@ -553,6 +547,7 @@ impl VmManager {
         task_id: TaskId,
         vmlist: VmList,
         publisher: &mut GenericPublisher,
+        next_ip: String,
         next_port: u16
     ) -> std::io::Result<(Namespace, VirtInstall)> {
         log::info!("Attempting to start instance...");
@@ -668,8 +663,28 @@ impl VmManager {
 
         log::info!("published event {} to topic {}", event_id.to_string(), StateTopic);
 
-        let virt_install: VirtInstall = params.into(); 
+        let virt_install: VirtInstall = params.clone().into(); 
 
+        let user_provided = if let Some(cloud_init) = params.cloud_init {
+            let cloud_init: CloudInit = cloud_init.into();
+            if let Some(user_data) = cloud_init.user_data {
+                if let Ok(user_provided) = serde_yml::from_str::<UserData>(&user_data) {
+                    Some(user_provided)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        generate_cloud_init_files(
+            &namespace.inner().to_string(), 
+            &namespace.inner().to_string(), 
+            user_provided, &next_ip 
+        )?;
         // Inform peers we are prepared to setup glusterfs volume
         let event_id = uuid::Uuid::new_v4().to_string();
         let task_id = TaskId::new(uuid::Uuid::new_v4().to_string());
@@ -690,11 +705,6 @@ impl VmManager {
 
     pub async fn launch_instance(
         virt_install: &VirtInstall,
-        _namespace: Namespace,
-        _task_id: TaskId,
-        _vmlist: VmList,
-        _publisher: &mut GenericPublisher,
-        _next_port: u16
     ) -> std::io::Result<()> {
         virt_install.execute()?;
         //Update task status, etc. etc.
