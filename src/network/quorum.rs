@@ -20,9 +20,10 @@ impl Quorum {
         Self { id, peers: HashSet::new() }
     }
 
-    pub fn add_peer(&mut self, peer: &Peer) -> bool {
+    pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<bool> {
         if !self.peers.contains(peer) {
             self.peers.insert(peer.clone());
+            self.add_glusterfs_peer(peer).await?;
             return true
         } else {
             return false

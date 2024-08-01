@@ -1083,7 +1083,7 @@ impl QuorumManager {
             )
         )?;
 
-        quorum.add_peer(peer);
+        quorum.add_peer(peer).await?;
         log::warn!("quorum.size() = {}", quorum.size());
 
         if quorum.clone().size() >= 50 {
