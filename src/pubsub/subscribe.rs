@@ -257,7 +257,13 @@ impl SubStream for QuorumSubscriber {
             .par_iter()
             .filter_map(|m| {
                 log::info!("attempting to deserialize message into QuorumEvent...");
-                serde_json::from_slice(&m).ok()
+                match serde_json::from_slice(&m) {
+                    Ok(res) => Some(res),
+                    Err(e) => {
+                        log::error!("Error attemptingg to deserialize message: {e}");
+                        None
+                    }
+                }
             })
             .collect();
 
