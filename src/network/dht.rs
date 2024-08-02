@@ -98,6 +98,7 @@ impl QuorumManager {
                     match result {
                         Ok(messages) => {
                             for m in messages.clone() {
+                                log::info!("Received message: {:?}", m);
                                 if let Err(e) = self.handle_quorum_message(m.clone()).await {
                                     log::error!("self.handle_quorum_message(m): {e}: message: {m:?}");
                                 }
@@ -143,6 +144,7 @@ impl QuorumManager {
     }
 
     async fn handle_quorum_message(&mut self, m: QuorumEvent) -> std::io::Result<()> {
+        log::info!("Received message: {:?}", m);
         match m {
             QuorumEvent::Expand { .. } => todo!(),
             QuorumEvent::Consolidate { .. } => todo!(),
