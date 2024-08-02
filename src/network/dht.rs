@@ -92,7 +92,7 @@ impl QuorumManager {
 
     pub async fn run(&mut self) -> std::io::Result<()> {
         let mut election_interval = interval(Duration::from_secs(21600));
-        let mut heartbeat_interval = interval(Duration::from_secs(20));
+        let mut heartbeat_interval = interval(Duration::from_secs(60));
         let mut check_remotes_interval = interval(Duration::from_secs(60));
         loop {
             tokio::select! {
