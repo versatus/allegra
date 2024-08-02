@@ -214,7 +214,7 @@ impl SubStream for QuorumSubscriber {
                     buffer.extend_from_slice(&read_buffer[..n]);
                     log::info!("added bytes to buffer, attempting to parse messages");
                     let results = Self::parse_messages(&mut buffer).await?;
-                    log::info!("successfully parsed messages");
+                    log::info!("successfully parsed messages: {:?}", results);
                     if !results.is_empty() {
                         log::info!("result not empty, returning");
                         return Ok(results);
@@ -230,19 +230,29 @@ impl SubStream for QuorumSubscriber {
     }
 
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
+        log::info!("attempting to parse message");
         let mut results = Vec::new();
+        log::info!("checking if msg.len() {} is >= HEADER_SIZE {}", msg.len(), HEADER_SIZE);
         while msg.len() >= HEADER_SIZE {
+            log::info!("msg.len() {} >= HEADER_SIZE {}", msg.len(), HEADER_SIZE);
             let total_len = try_get_message_len(msg)?;
             if msg.len() >= total_len {
+            log::info!("msg.len() {} >= total_len {}", msg.len(), total_len);
                 let topic_len = try_get_topic_len(msg)?;
+                log::info!("topic_len: {}", topic_len);
                 let (_, message) = parse_next_message(total_len, topic_len, msg).await;
+                log::info!("message: {:?}", message);
                 let message_offset = TOPIC_SIZE_OFFSET + topic_len;
+                log::info!("message offset: {}", message_offset);
                 let msg = &message[message_offset..message_offset + total_len];
+                log::info!("msg: {:?}", msg);
                 log::info!("adding message to results...");
                 results.push(msg.to_vec());
+                log::info!("results: {:?}", results);
             }
         }
 
+        log::info!("msg.len() {} < HEADER_SIZE", msg.len());
         let msg_results = results
             .par_iter()
             .filter_map(|m| {
