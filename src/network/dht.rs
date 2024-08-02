@@ -72,7 +72,7 @@ impl QuorumManager {
         let publisher = GenericPublisher::new(publisher_uri).await?;
         log::info!("Publisher publishing to {}", publisher_uri);
         let subscriber = QuorumSubscriber::new(subscriber_uri).await?;
-        log::info!("subscriber listening on {}", subscriber);
+        log::info!("subscriber listening on {}", subscriber_uri);
         let node = Node::new(peer_info);
 
         Ok(Self {
