@@ -501,7 +501,7 @@ impl Serialize for InstanceCreateParams {
         state.serialize_field("cdrom", &self.cdrom)?;
         state.serialize_field("location", &self.location)?;
         state.serialize_field("pxe", &self.pxe)?;
-        state.serialize_field("import", &self.import)?;
+        state.serialize_field("import_", &self.import)?;
         state.serialize_field("boot", &self.boot)?;
         state.serialize_field("idmap", &self.idmap)?;
         state.serialize_field("features", &self.features)?;
@@ -636,7 +636,7 @@ impl<'de> Deserialize<'de> for InstanceCreateParams {
                 let mut cdrom = None;
                 let mut location = None;
                 let mut pxe = None;
-                let mut import = None;
+                let mut import_ = None;
                 let mut boot = None;
                 let mut idmap = None;
                 let mut features = None;
@@ -774,7 +774,7 @@ impl<'de> Deserialize<'de> for InstanceCreateParams {
                             pxe = Some(map.next_value()?);
                         }
                         Field::Import => {
-                            import = Some(map.next_value()?);
+                            import_ = Some(map.next_value()?);
                         }
                         Field::Boot => {
                             boot = Some(map.next_value()?);
@@ -819,12 +819,12 @@ impl<'de> Deserialize<'de> for InstanceCreateParams {
                 }
 
                 Ok(InstanceCreateParams {
-                    name: name.ok_or_else(|| de::Error::missing_field("name"))?,
-                    distro: distro.ok_or_else(|| de::Error::missing_field("distro"))?,
-                    version: version.ok_or_else(|| de::Error::missing_field("version"))?,
-                    vmtype: vmtype.ok_or_else(|| de::Error::missing_field("vmtype"))?,
-                    sig: sig.ok_or_else(|| de::Error::missing_field("sig"))?,
-                    recovery_id: recovery_id.ok_or_else(|| de::Error::missing_field("recovery_id"))?,
+                    name: name.unwrap_or_default(),
+                    distro: distro.unwrap_or_default(),
+                    version: version.unwrap_or_default(),
+                    vmtype: vmtype.unwrap_or_default(),
+                    sig: sig.unwrap_or_default(),
+                    recovery_id: recovery_id.unwrap_or_default(),
                     sync,
                     memory,
                     vcpus,
@@ -859,7 +859,7 @@ impl<'de> Deserialize<'de> for InstanceCreateParams {
                     cdrom,
                     location,
                     pxe: pxe.unwrap_or_default(),
-                    import: import.unwrap_or_default(),
+                    import: import_.unwrap_or_default(),
                     boot,
                     idmap,
                     features: features.unwrap_or_default(),
@@ -988,10 +988,6 @@ impl<'de> Deserialize<'de> for InstanceStartParams {
                 let mut recovery_id = None;
 
                 while let Some(key) = map.next_key()? {
-looks like this:
-
-
-
                     match key {
                         Field::Name => {
                             name = Some(map.next_value()?);

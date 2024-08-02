@@ -263,9 +263,6 @@ impl SubStream for QuorumSubscriber {
                         log::error!("Error attempting to deserialize message into QuorumEvent: {e}");
                         log::error!("Error type: {:?}", e.classify());
                         log::error!("Error line and column: {}:{}", e.line(), e.column());
-                        if let Some(path) = e.path() {
-                            log::error!("Error path: {}", path);
-                        }
                         match std::str::from_utf8(&m) {
                             Ok(json_str) => log::error!("Raw JSON: {}", json_str),
                             Err(e) => log::error!("Unable to convert message to UTF-8: {e}")
