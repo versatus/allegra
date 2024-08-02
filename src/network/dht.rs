@@ -70,7 +70,9 @@ impl QuorumManager {
         let mut quorums = HashMap::new();
         quorums.insert(BOOTSTRAP_QUORUM.id().clone(), BOOTSTRAP_QUORUM.clone());
         let publisher = GenericPublisher::new(publisher_uri).await?;
+        log::info!("Publisher publishing to {}", publisher_uri);
         let subscriber = QuorumSubscriber::new(subscriber_uri).await?;
+        log::info!("subscriber listening on {}", subscriber);
         let node = Node::new(peer_info);
 
         Ok(Self {
@@ -95,6 +97,7 @@ impl QuorumManager {
         loop {
             tokio::select! {
                 result = self.subscriber.receive() => {
+                    log::info!("Quorum subscriber received message");
                     match result {
                         Ok(messages) => {
                             for m in messages.clone() {

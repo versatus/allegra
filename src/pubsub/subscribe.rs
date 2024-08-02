@@ -206,18 +206,23 @@ impl SubStream for QuorumSubscriber {
             match self.stream.read(&mut read_buffer).await {
                 Err(e) => log::error!("Error reading stream to buffer: {e}..."),
                 Ok(n) => {
+                    log::info!("Received message of {} bytes", &n);
                     if n == 0 {
                         break;
                     }
 
                     buffer.extend_from_slice(&read_buffer[..n]);
+                    log::info!("added bytes to buffer, attempting to parse messages");
                     let results = Self::parse_messages(&mut buffer).await?;
+                    log::info!("successfully parsed messages");
                     if !results.is_empty() {
+                        log::info!("result not empty, returning");
                         return Ok(results);
                     }
                 }
             }
         }
+
         Err(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
             "No complete messages received",
@@ -233,13 +238,17 @@ impl SubStream for QuorumSubscriber {
                 let (_, message) = parse_next_message(total_len, topic_len, msg).await;
                 let message_offset = TOPIC_SIZE_OFFSET + topic_len;
                 let msg = &message[message_offset..message_offset + total_len];
+                log::info!("adding message to results...");
                 results.push(msg.to_vec());
             }
         }
 
         let msg_results = results
             .par_iter()
-            .filter_map(|m| serde_json::from_slice(&m).ok())
+            .filter_map(|m| {
+                log::info!("attempting to deserialize message into QuorumEvent...");
+                serde_json::from_slice(&m).ok()
+            })
             .collect();
 
         Ok(msg_results)

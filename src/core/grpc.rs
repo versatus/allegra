@@ -46,9 +46,10 @@ impl VmmService {
         log::info!("created CheckResponsibility event");
         let mut guard = self.publisher.lock().await;
         log::info!("acquired publisher guard...");
-        guard
-            .publish(Box::new(QuorumTopic), Box::new(quorum_event))
-            .await?;
+        guard.publish(
+            Box::new(QuorumTopic),
+            Box::new(quorum_event)
+        ).await?;
         log::info!(
             "published CheckResponsibility event to topic {}...",
             QuorumTopic
