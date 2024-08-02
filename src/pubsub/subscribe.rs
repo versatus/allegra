@@ -261,6 +261,10 @@ impl SubStream for QuorumSubscriber {
                     Ok(res) => Some(res),
                     Err(e) => {
                         log::error!("Error attemptingg to deserialize message: {e}");
+                        match std::str::from_utf8(&m) {
+                            Ok(json_str) => log::error!("Raw JSON: {}", json_str),
+                            Err(e) => log::error!("Unable to convert message to UTF-8: {e}")
+                        }
                         None
                     }
                 }
