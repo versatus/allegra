@@ -159,17 +159,18 @@
           packages = (
             let
               pkgs = import nixpkgs {
+                inherit system;
                 overlays = [
                   self.overlays.rust
                   self.overlays.allegra
                 ];
-                inherit system;
               };
             in
             {
               inherit server vmm monitor broker state quorum network;
 
               inherit (pkgs) cli;
+              cli-static = pkgs.pkgsStatic.cli;
 
             }
           ) // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
