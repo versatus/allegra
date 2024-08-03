@@ -576,12 +576,12 @@ impl VmManager {
         log::info!("created dir for instance...");
         // Get image path
         let image_path = get_image_path(Distro::try_from(&params.distro)?, &params.version);
-        log::info!("acquired image path for {}...", params.distro);
+        log::info!("acquired image path for {}: {}...", params.distro, image_path.display());
         let image_name = get_image_name(Distro::try_from(&params.distro)?, &params.version).await?;
-        log::info!("acquired image name for {}...", params.distro);
+        log::info!("acquired image name for {}: {}...", params.distro, image_name);
         // Copy image
         let tmp_dest = format!("/mnt/tmp/images/{}-{}", params.distro, params.version);
-        log::info!("setup tmp directory for image...");
+        log::info!("setup tmp directory for image: {}...", tmp_dest);
         // Convert image
         std::process::Command::new("qemu-img")
             .arg("convert")
@@ -598,9 +598,8 @@ impl VmManager {
         let loop_device_output = std::process::Command::new("losetup")
             .arg("-fP")
             .arg("--show")
-            .arg(format!("{}{}", tmp_dest, image_name))
+            .arg(format!("{}/{}", tmp_dest, image_name))
             .output()?;
-        log::info!("setup loop device...");
 
         // Acquire loop device
         let loop_device = std::str::from_utf8(&loop_device_output.stdout)
