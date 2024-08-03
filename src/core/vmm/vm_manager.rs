@@ -313,7 +313,10 @@ impl VmManager {
                 params, task_id, ..
             } => {
                 log::info!("received NewInstance message, setting up to launch instance.");
-                self.refresh_vmlist().await?;
+                match self.refresh_vmlist().await {
+                    Err(e) => log::error!("Error in self.refresh_vmlist(): {e}"),
+                    _ => {}
+                };
                 let vmlist = self.vmlist.clone();
                 let next_port = self.next_port.clone();
                 let uri = self.publisher.peer_addr()?;
