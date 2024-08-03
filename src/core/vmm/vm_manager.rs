@@ -14,7 +14,8 @@ use crate::{
 };
 use crate::{
     get_image_name, get_image_path, statics::*, GeneralResponseSubscriber, GeneralResponseTopic,
-    Instance, QuorumTopic, VirtInstall, VmInfo, VmmResult, VmmSubscriber,
+    Instance, MemoryInfo, QuorumTopic, VCPUInfo, VirtInstall, VmInfo, VmInfoBuilder, VmmResult,
+    VmmSubscriber,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -39,7 +40,7 @@ pub struct VmManager {
     next_ip: [u8; 4],
     next_port: u16,
     handles: FuturesUnordered<JoinHandle<std::io::Result<VmmResult>>>,
-    pending_launch: HashMap<Namespace, VirtInstall>,
+    pending_launch: HashMap<Namespace, (VirtInstall, u16)>,
     vmlist: VmList,
     publisher: GenericPublisher,
     pub subscriber: VmmSubscriber,
@@ -325,7 +326,7 @@ impl VmManager {
                     "{}.{}.{}.{}",
                     self.next_ip[0], self.next_ip[1], self.next_ip[2], self.next_ip[3]
                 );
-                let (namespace, virt_install) = Self::prepare_instance(
+                let (namespace, virt_install, next_port) = Self::prepare_instance(
                     params,
                     task_id,
                     vmlist,
@@ -336,26 +337,33 @@ impl VmManager {
                 .await?;
 
                 self.next_ip[3] += 1;
-                self.pending_launch.insert(namespace, virt_install);
+                self.pending_launch
+                    .insert(namespace, (virt_install, next_port));
 
                 Ok(())
             }
             VmManagerMessage::LaunchInstance { namespace, .. } => {
                 log::info!("received LaunchInstance message, attempting to launch instance.");
                 self.refresh_vmlist().await?;
-                let _vmlist = self.vmlist.clone();
-                let _next_port = self.next_port.clone();
                 let uri = self.publisher.peer_addr()?;
                 let mut _publisher = GenericPublisher::new(&uri).await?;
-                let params = self
-                    .pending_launch
-                    .get(&namespace)
-                    .ok_or(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Namespace unknown...",
-                    ))?;
+                let (virt_install, next_port) =
+                    self.pending_launch
+                        .get(&namespace)
+                        .ok_or(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Namespace unknown...",
+                        ))?;
+                let uri = self.publisher.peer_addr()?;
 
-                return Self::launch_instance(params).await;
+                return Self::launch_instance(
+                    &self.connection,
+                    virt_install,
+                    &namespace,
+                    *next_port,
+                    uri,
+                )
+                .await;
             }
             VmManagerMessage::StartInstance {
                 params,
@@ -547,7 +555,7 @@ impl VmManager {
         publisher: &mut GenericPublisher,
         next_ip: String,
         next_port: u16,
-    ) -> std::io::Result<(Namespace, VirtInstall)> {
+    ) -> std::io::Result<(Namespace, VirtInstall, u16)> {
         log::info!("Attempting to start instance...");
         let payload = params.into_payload();
         log::info!("converted params into payload...");
@@ -565,11 +573,15 @@ impl VmManager {
             "/mnt/glusterfs/vms/{}/brick",
             namespace.inner().to_string()
         ))?;
+        log::info!("created dir for instance...");
         // Get image path
         let image_path = get_image_path(Distro::try_from(&params.distro)?, &params.version);
+        log::info!("acquired image path for {}...", params.distro);
         let image_name = get_image_name(Distro::try_from(&params.distro)?, &params.version).await?;
+        log::info!("acquired image name for {}...", params.distro);
         // Copy image
         let tmp_dest = format!("/mnt/tmp/images/{}-{}", params.distro, params.version);
+        log::info!("setup tmp directory for image...");
         // Convert image
         std::process::Command::new("qemu-img")
             .arg("convert")
@@ -581,25 +593,31 @@ impl VmManager {
             .arg(&format!("{}/{}", tmp_dest, image_name))
             .output()?;
 
+        log::info!("converted image to qcow2...");
         // Setup loop device
         let loop_device_output = std::process::Command::new("losetup")
             .arg("-fP")
             .arg("--show")
             .arg(format!("{}{}", tmp_dest, image_name))
             .output()?;
+        log::info!("setup loop device...");
 
         // Acquire loop device
         let loop_device = std::str::from_utf8(&loop_device_output.stdout)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
             .to_string();
+        log::info!("loop device {}...", &loop_device);
 
         // Create mountpoint directory
         std::fs::create_dir_all(format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))?;
+        log::info!("loop device {}...", &loop_device);
+
         // Mount loop device partition 1 to the mountpoint
         std::process::Command::new("mount")
             .arg(&format!("{}p1", loop_device)) // partition 1 of loop device
             .arg(&format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
             .output()?;
+        log::info!("mounted loop device");
 
         // Move contents of copied disk image to the brick directory
         std::process::Command::new("mv")
@@ -609,17 +627,20 @@ impl VmManager {
                 namespace.inner().to_string()
             ))
             .output()?;
+        log::info!("moved root filesystem into brick directory");
 
         // Unmount the loop device from temporary mountpoint
         std::process::Command::new("umount")
             .arg(format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
             .output()?;
+        log::info!("unmounted loop device");
 
         // detach the disk image from the loop device
         std::process::Command::new("losetup")
             .arg("-d")
             .arg(&loop_device)
             .output()?;
+        log::info!("detached loop device");
 
         //TODO:(asmith) Cleanup temporary directories and mount points and disk devices
         let state_event = StateEvent::PutAccount {
@@ -631,41 +652,14 @@ impl VmManager {
             namespace: namespace.clone(),
             exposed_ports: None,
         };
+        log::info!("requesting account be put in state db");
 
         publisher
             .publish(Box::new(StateTopic), Box::new(state_event))
             .await?;
+        log::info!("published event to state topic");
 
         log::info!("published {} to topic {}", event_id.to_string(), StateTopic);
-        let vminfo = vmlist.get(&namespace.inner()).ok_or(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "unable to find instance namespace in VM list",
-        ))?;
-        log::info!("acquired vminfo...");
-        let event_id = uuid::Uuid::new_v4();
-        let state_event = StateEvent::PutInstance {
-            event_id: event_id.to_string(),
-            task_id: task_id.clone(),
-            task_status: TaskStatus::Pending,
-            namespace: namespace.clone(),
-            vm_info: vminfo.clone(),
-            port_map: vec![(22u16, (next_port, ServiceType::Ssh))]
-                .into_iter()
-                .collect(),
-            last_snapshot: None,
-            last_sync: None,
-        };
-
-        publisher
-            .publish(Box::new(StateTopic), Box::new(state_event))
-            .await?;
-
-        log::info!(
-            "published event {} to topic {}",
-            event_id.to_string(),
-            StateTopic
-        );
-
         let virt_install: VirtInstall = params.clone().into();
 
         let user_provided = if let Some(cloud_init) = params.cloud_init {
@@ -716,13 +710,107 @@ impl VmManager {
             .publish(Box::new(QuorumTopic), Box::new(event))
             .await?;
 
-        Ok((namespace, virt_install))
+        Ok((namespace, virt_install, next_port))
     }
 
-    pub async fn launch_instance(virt_install: &VirtInstall) -> std::io::Result<()> {
+    pub async fn launch_instance(
+        conn: &Connect,
+        virt_install: &VirtInstall,
+        namespace: &Namespace,
+        next_port: u16,
+        uri: String,
+    ) -> std::io::Result<()> {
         virt_install.execute()?;
         //Update task status, etc. etc.
         log::info!("executed launch command...");
+
+        let domain = virt::domain::Domain::lookup_by_name(&conn, &namespace.inner().to_string())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        let info = domain
+            .get_info()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        let (state, state_reason) = domain
+            .get_state()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let vm_info = VmInfoBuilder::default()
+            .name(namespace.inner().to_string())
+            .uuid(
+                domain
+                    .get_uuid_string()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            )
+            .id(domain.get_id())
+            .state(state.into())
+            .state_reason(state_reason)
+            .memory(MemoryInfo::new(
+                info.memory,
+                domain
+                    .get_max_memory()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                domain
+                    .get_max_memory()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                0,
+                0,
+            ))
+            .vcpus(VCPUInfo::new(
+                info.nr_virt_cpu,
+                domain
+                    .get_max_vcpus()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                    .try_into()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            ))
+            .cpu_time(info.cpu_time)
+            .autostart(
+                domain
+                    .get_autostart()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            )
+            .persistent(true)
+            .os_type(
+                domain
+                    .get_os_type()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+            )
+            .os_arch("x86_64".to_string())
+            .network_interfaces(Vec::new())
+            .storage_volumes(Vec::new())
+            .block_stats(HashMap::new())
+            .interface_stats(HashMap::new())
+            .snapshots(Vec::new())
+            .build()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+        let task_id = TaskId::new(Uuid::new_v4().to_string());
+        log::info!("acquired vminfo...");
+        let event_id = uuid::Uuid::new_v4();
+        let state_event = StateEvent::PutInstance {
+            event_id: event_id.to_string(),
+            task_id: task_id.clone(),
+            task_status: TaskStatus::Success,
+            namespace: namespace.clone(),
+            vm_info: vm_info.clone(),
+            port_map: vec![(22u16, (next_port, ServiceType::Ssh))]
+                .into_iter()
+                .collect(),
+            last_snapshot: None,
+            last_sync: None,
+        };
+
+        let mut publisher = GenericPublisher::new(&uri).await?;
+        publisher
+            .publish(Box::new(StateTopic), Box::new(state_event))
+            .await?;
+
+        log::info!(
+            "published event {} to topic {}",
+            event_id.to_string(),
+            StateTopic
+        );
+
         Ok(())
     }
 }
