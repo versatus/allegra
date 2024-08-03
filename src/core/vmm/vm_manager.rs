@@ -580,7 +580,8 @@ impl VmManager {
         let image_name = get_image_name(Distro::try_from(&params.distro)?, &params.version).await?;
         log::info!("acquired image name for {}: {}...", params.distro, image_name);
         // Copy image
-        let tmp_dest = format!("/mnt/tmp/images/{}-{}", params.distro, params.version);
+        let tmp_dest = format!("/mnt/tmp/images/{}-{}", Distro::try_from(&params.distro)?, params.version);
+        std::fs::create_dir(&tmp_dest)?;
         log::info!("setup tmp directory for image: {}...", tmp_dest);
         // Convert image
         std::process::Command::new("qemu-img")
