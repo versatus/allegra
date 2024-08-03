@@ -17,13 +17,13 @@ pub enum Distro {
 impl From<Distro> for PathBuf {
     fn from(value: Distro) -> Self {
         match value {
-            Distro::Ubuntu => PathBuf::from("/mnt/glusterfs/images/ubuntu/ubuntu-22.04.qcow2"),
-            Distro::CentOS => PathBuf::from("/mnt/glusterfs/images/centos/centos-8.qcow2"),
-            Distro::Fedora => PathBuf::from("/mnt/glusterfs/images/fedora/fedora-40.qcow2"),
-            Distro::Debian => PathBuf::from("/mnt/glusterfs/images/debian/debian-11.qcow2"),
-            Distro::Arch => PathBuf::from("/mnt/glusterfs/images/arch/arch-linux-x86_64.qcow2"),
-            Distro::Alpine => PathBuf::from("/mnt/glusterfs/images/alpine/alpine-3.20.qcow2"),
-            Distro::Other => PathBuf::from("/mnt/glusterfs/images/ubuntu/ubuntu-22.04.qcow2"),
+            Distro::Ubuntu => PathBuf::from("/var/lib/libvirt/images/ubuntu/ubuntu-22.04.qcow2"),
+            Distro::CentOS => PathBuf::from("/var/lib/libvirt/images/centos/centos-8.qcow2"),
+            Distro::Fedora => PathBuf::from("/var/lib/libvirt/images/fedora/fedora-40.qcow2"),
+            Distro::Debian => PathBuf::from("/var/lib/libvirt/images/debian/debian-11.qcow2"),
+            Distro::Arch => PathBuf::from("/var/lib/libvirt/images/arch/arch-linux-x86_64.qcow2"),
+            Distro::Alpine => PathBuf::from("/var/lib/libvirt//images/alpine/alpine-3.20.qcow2"),
+            Distro::Other => PathBuf::from("/var/lib/libvirt/images/ubuntu/ubuntu-22.04.qcow2"),
         }
     }
 }
