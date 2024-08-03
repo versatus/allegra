@@ -185,7 +185,10 @@ impl NetworkClient {
                     dry_run,
                     connect,
                     virt_type,
-                    cloud_init,
+                    cloud_init: match cloud_init {
+                        Some(ci) => Some(ci.into()),
+                        None => None,
+                    },
                 };
 
                 let mut client = create_allegra_rpc_client_to_addr(&dst).await?;

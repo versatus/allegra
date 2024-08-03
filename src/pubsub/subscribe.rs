@@ -232,12 +232,16 @@ impl SubStream for QuorumSubscriber {
     async fn parse_messages(msg: &mut Vec<u8>) -> std::io::Result<Self::Message> {
         log::info!("attempting to parse message");
         let mut results = Vec::new();
-        log::info!("checking if msg.len() {} is >= HEADER_SIZE {}", msg.len(), HEADER_SIZE);
+        log::info!(
+            "checking if msg.len() {} is >= HEADER_SIZE {}",
+            msg.len(),
+            HEADER_SIZE
+        );
         while msg.len() >= HEADER_SIZE {
             log::info!("msg.len() {} >= HEADER_SIZE {}", msg.len(), HEADER_SIZE);
             let total_len = try_get_message_len(msg)?;
             if msg.len() >= total_len {
-            log::info!("msg.len() {} >= total_len {}", msg.len(), total_len);
+                log::info!("msg.len() {} >= total_len {}", msg.len(), total_len);
                 let topic_len = try_get_topic_len(msg)?;
                 log::info!("topic_len: {}", topic_len);
                 let (_, message) = parse_next_message(total_len, topic_len, msg).await;
@@ -260,12 +264,14 @@ impl SubStream for QuorumSubscriber {
                 match serde_json::from_slice(&m) {
                     Ok(res) => Some(res),
                     Err(e) => {
-                        log::error!("Error attempting to deserialize message into QuorumEvent: {e}");
+                        log::error!(
+                            "Error attempting to deserialize message into QuorumEvent: {e}"
+                        );
                         log::error!("Error type: {:?}", e.classify());
                         log::error!("Error line and column: {}:{}", e.line(), e.column());
                         match std::str::from_utf8(&m) {
                             Ok(json_str) => log::error!("Raw JSON: {}", json_str),
-                            Err(e) => log::error!("Unable to convert message to UTF-8: {e}")
+                            Err(e) => log::error!("Unable to convert message to UTF-8: {e}"),
                         }
                         None
                     }

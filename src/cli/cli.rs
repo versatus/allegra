@@ -138,8 +138,9 @@ async fn main() -> std::io::Result<()> {
                 let mut file = std::fs::File::open(cloud_init_path)?;
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)?;
-                serde_yml::from_str(&contents)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                let ci: allegra::virt_install::CloudInit = serde_yml::from_str(&contents)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                ci.into()
             } else {
                 CloudInit::default()
             };

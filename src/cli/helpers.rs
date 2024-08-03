@@ -5,6 +5,7 @@ use crate::allegra_rpc::{
 };
 use crate::cli::commands::AllegraCommands;
 use crate::payload_impls::Payload;
+use crate::virt_install::CloudInit;
 use alloy::signers::k256::elliptic_curve::SecretKey;
 use bip39::{Language, Mnemonic};
 use ethers_core::{
@@ -150,7 +151,7 @@ pub fn generate_signature_from_command(
                 })
                 .collect();
 
-            let cloud_init = match cloud_init.clone() {
+            let cloud_init: Option<CloudInit> = match cloud_init.clone() {
                 Some(ci) => serde_yml::from_str(&ci).ok(),
                 None => None,
             };
@@ -208,7 +209,10 @@ pub fn generate_signature_from_command(
                 dry_run: dry_run.clone(),
                 connect: connect.clone(),
                 virt_type: virt_type.clone(),
-                cloud_init,
+                cloud_init: match cloud_init {
+                    Some(ci) => Some(ci.into()),
+                    None => None,
+                },
             })
         }
         AllegraCommands::Start {

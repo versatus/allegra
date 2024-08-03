@@ -55,7 +55,7 @@ pub struct VirtInstall {
     cloud_init: Option<CloudInit>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CloudInit {
     pub root_password_generate: bool,
     pub disable: bool,
@@ -144,6 +144,21 @@ pub struct MetaData {
 impl From<ProtoCloudInit> for CloudInit {
     fn from(value: ProtoCloudInit) -> Self {
         Self {
+            root_password_generate: value.root_password_generate,
+            disable: value.disable,
+            root_password_file: value.root_password_file,
+            meta_data: value.meta_data,
+            user_data: value.user_data,
+            root_ssh_key: value.root_ssh_key,
+            clouduser_ssh_key: value.clouduser_ssh_key,
+            network_config: value.network_config,
+        }
+    }
+}
+
+impl From<CloudInit> for ProtoCloudInit {
+    fn from(value: CloudInit) -> Self {
+        ProtoCloudInit {
             root_password_generate: value.root_password_generate,
             disable: value.disable,
             root_password_file: value.root_password_file,

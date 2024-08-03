@@ -11,15 +11,13 @@ use std::{
 };
 use uuid::Uuid;
 
+use crate::params::{
+    AddPubkeyParams, CreateParams, DeleteParams, ExposeServiceParams, StartParams, StopParams,
+};
 use crate::{
     account::{Namespace, TaskId},
-    allegra_rpc::{
-        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams,
-        InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams,
-        InstanceStopParams,
-    },
+    allegra_rpc::InstanceGetSshDetails,
     consts::NGINX_CONFIG_PATH,
-    distro::Distro,
     event::{NetworkEvent, QuorumEvent, VmmEvent},
     network::node::Node,
     params::Params,
@@ -326,7 +324,7 @@ impl QuorumManager {
     async fn handle_create_payload(
         &mut self,
         namespace: &Namespace,
-        payload: &InstanceCreateParams,
+        payload: &CreateParams,
         task_id: &TaskId,
     ) -> std::io::Result<()> {
         let publisher_addr = self.publisher.peer_addr()?;
@@ -345,7 +343,7 @@ impl QuorumManager {
                         event_id,
                         task_id: task_id.clone(),
                         name: payload.name.clone(),
-                        distro: Distro::try_from(payload.distro.clone())?,
+                        distro: payload.distro.clone(),
                         version: payload.version.clone(),
                         vmtype: VmType::from_str(&payload.vmtype)?.clone(),
                         sig: payload.sig.clone(),
@@ -401,7 +399,10 @@ impl QuorumManager {
                         dry_run: payload.dry_run.clone(),
                         connect: payload.connect.clone(),
                         virt_type: payload.virt_type.clone(),
-                        cloud_init: payload.cloud_init.clone(),
+                        cloud_init: match payload.cloud_init.clone() {
+                            Some(ci) => Some(ci.into()),
+                            None => None,
+                        },
                     }),
                 )
                 .await?;
@@ -426,7 +427,7 @@ impl QuorumManager {
                                 event_id,
                                 task_id: inner_task_id.clone(),
                                 name: inner_payload.name.clone(),
-                                distro: Distro::try_from(inner_payload.distro.clone())?,
+                                distro: inner_payload.distro.clone(),
                                 version: inner_payload.version.clone(),
                                 vmtype: inner_payload.vmtype.clone().to_string(),
                                 sig: inner_payload.sig.clone(),
@@ -483,7 +484,10 @@ impl QuorumManager {
                                 dry_run: inner_payload.dry_run,
                                 connect: inner_payload.connect,
                                 virt_type: inner_payload.virt_type,
-                                cloud_init: inner_payload.cloud_init,
+                                cloud_init: match inner_payload.cloud_init {
+                                    Some(ci) => Some(ci.into()),
+                                    None => None,
+                                },
                             }),
                         )
                         .await?;
@@ -509,7 +513,7 @@ impl QuorumManager {
     async fn handle_start_payload(
         &mut self,
         namespace: &Namespace,
-        payload: &InstanceStartParams,
+        payload: &StartParams,
         task_id: &TaskId,
     ) -> std::io::Result<()> {
         let publisher_addr = self.publisher.peer_addr()?;
@@ -572,7 +576,7 @@ impl QuorumManager {
     async fn handle_stop_payload(
         &mut self,
         namespace: &Namespace,
-        payload: &InstanceStopParams,
+        payload: &StopParams,
         task_id: &TaskId,
     ) -> std::io::Result<()> {
         let publisher_addr = self.publisher.peer_addr()?;
@@ -631,7 +635,7 @@ impl QuorumManager {
     async fn handle_delete_payload(
         &mut self,
         namespace: &Namespace,
-        payload: &InstanceDeleteParams,
+        payload: &DeleteParams,
         task_id: &TaskId,
     ) -> std::io::Result<()> {
         let publisher_addr = self.publisher.peer_addr()?;
@@ -694,7 +698,7 @@ impl QuorumManager {
     async fn handle_add_pubkey_payload(
         &mut self,
         namespace: &Namespace,
-        payload: &InstanceAddPubkeyParams,
+        payload: &AddPubkeyParams,
         task_id: &TaskId,
     ) -> std::io::Result<()> {
         let publisher_addr = self.publisher.peer_addr()?;
@@ -755,7 +759,7 @@ impl QuorumManager {
     async fn handle_expose_service_payload(
         &mut self,
         namespace: &Namespace,
-        payload: &InstanceExposeServiceParams,
+        payload: &ExposeServiceParams,
         task_id: &TaskId,
     ) -> std::io::Result<()> {
         let publisher_addr = self.publisher.peer_addr()?;
@@ -784,7 +788,7 @@ impl QuorumManager {
                         service_type: payload
                             .service_type
                             .iter()
-                            .map(|i| crate::params::ServiceType::from(*i))
+                            .map(|i| crate::params::ServiceType::from(i.clone()))
                             .collect::<Vec<crate::params::ServiceType>>()
                             .clone(),
                     }),
@@ -822,7 +826,7 @@ impl QuorumManager {
                                 service_type: payload
                                     .service_type
                                     .iter()
-                                    .map(|i| crate::params::ServiceType::from(*i))
+                                    .map(|i| crate::params::ServiceType::from(i.clone()))
                                     .collect::<Vec<crate::params::ServiceType>>()
                                     .clone(),
                                 dst: peer.ip_address().to_string(),

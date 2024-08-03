@@ -2,7 +2,7 @@ use crate::payload_impls::Payload;
 use crate::{
     account::{ExposedPort, Namespace, TaskId, TaskStatus},
     allegra_rpc::{
-        CloudInit, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams,
+        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams,
         InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams,
         InstanceStopParams,
     },
@@ -10,6 +10,7 @@ use crate::{
     network::peer::Peer,
     params::{HasOwner, Params, ServiceType},
     publish::GeneralResponseTopic,
+    virt_install::CloudInit,
     vm_info::{VmInfo, VmList},
     vm_types::VmType,
     vmm::distro::Distro,
@@ -686,7 +687,7 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         Ok(NetworkEvent::Create {
             name: value.1.name.clone(),
-            distro: Distro::try_from(value.1.distro.clone())?,
+            distro: Distro::from(value.1.distro.clone()),
             version: value.1.version.clone(),
             vmtype: value.1.vmtype.clone(),
             sig: value.1.sig.clone(),
@@ -746,7 +747,10 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             dry_run: value.1.dry_run,
             connect: value.1.connect,
             virt_type: value.1.virt_type,
-            cloud_init: value.1.cloud_init,
+            cloud_init: match value.1.cloud_init {
+                Some(ci) => Some(ci.into()),
+                None => None,
+            },
         })
     }
 }

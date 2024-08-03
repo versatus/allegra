@@ -11,6 +11,7 @@ pub enum Distro {
     Debian,
     Arch,
     Alpine,
+    Other,
 }
 
 impl From<Distro> for PathBuf {
@@ -22,6 +23,21 @@ impl From<Distro> for PathBuf {
             Distro::Debian => PathBuf::from("/mnt/glusterfs/images/debian/debian-11.qcow2"),
             Distro::Arch => PathBuf::from("/mnt/glusterfs/images/arch/arch-linux-x86_64.qcow2"),
             Distro::Alpine => PathBuf::from("/mnt/glusterfs/images/alpine/alpine-3.20.qcow2"),
+            Distro::Other => PathBuf::from("/mnt/glusterfs/images/ubuntu/ubuntu-22.04.qcow2"),
+        }
+    }
+}
+
+impl From<i32> for Distro {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => Distro::Ubuntu,
+            1 => Distro::CentOS,
+            2 => Distro::Fedora,
+            3 => Distro::Debian,
+            4 => Distro::Arch,
+            5 => Distro::Alpine,
+            _ => Distro::Other,
         }
     }
 }
@@ -36,6 +52,7 @@ impl FromStr for Distro {
             "debian" => Ok(Distro::Debian),
             "arch" => Ok(Distro::Arch),
             "alpine" => Ok(Distro::Alpine),
+            "other" => Ok(Distro::Other),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("unsupported distro {s}"),
@@ -66,6 +83,7 @@ impl From<Distro> for ProtoDistro {
             Distro::Debian => ProtoDistro::Debian,
             Distro::Fedora => ProtoDistro::Fedora,
             Distro::Ubuntu => ProtoDistro::Ubuntu,
+            Distro::Other => ProtoDistro::Ubuntu,
         }
     }
 }
@@ -79,6 +97,7 @@ impl From<Distro> for i32 {
             Distro::Debian => 3,
             Distro::Arch => 4,
             Distro::Alpine => 5,
+            Distro::Other => 0,
         }
     }
 }
@@ -92,24 +111,7 @@ impl From<&Distro> for i32 {
             Distro::Debian => 3,
             Distro::Arch => 4,
             Distro::Alpine => 5,
-        }
-    }
-}
-
-impl TryFrom<i32> for Distro {
-    type Error = std::io::Error;
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Distro::Ubuntu),
-            1 => Ok(Distro::CentOS),
-            2 => Ok(Distro::Fedora),
-            3 => Ok(Distro::Debian),
-            4 => Ok(Distro::Arch),
-            5 => Ok(Distro::Alpine),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "invalid value",
-            )),
+            Distro::Other => 0,
         }
     }
 }
