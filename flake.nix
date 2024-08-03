@@ -156,13 +156,23 @@
             });
           };
 
-          packages = {
-            inherit server cli vmm monitor broker state quorum network;
+          packages = (
+            let
+              pkgs = import nixpkgs {
+                overlays = [
+                  self.overlays.rust
+                  self.overlays.allegra
+                ];
+                inherit system;
+              };
+            in
+            {
+              inherit server vmm monitor broker state quorum network;
 
-            test = pkgs.callPackage ./package.nix {
-              inherit craneLib rustToolchain;
-            };
-          } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
+              inherit (pkgs) cli;
+
+            }
+          ) // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
             my-crate-llvm-coverage = craneLib.cargoLlvmCov (commonArgs // {
               inherit cargoArtifacts;
             });
@@ -216,5 +226,16 @@
           };
 
           formatter = pkgs.nixpkgs-fmt;
-        }) // { };
+        }) // {
+      overlays = {
+        rust = final: prev: {
+          rustToolchain = versatus-nix.lib.${final.system}.toolchains.mkRustToolchainFromTOML
+            ./rust-toolchain.toml
+            "sha256-6eN/GKzjVSjEhGO9FhWObkRFaE1Jf+uqMSdQnb8lcB4=";
+
+          craneLib = (crane.mkLib final).overrideToolchain final.rustToolchain.fenix-pkgs;
+        };
+        allegra = import ./overlay.nix;
+      };
+    };
 }
