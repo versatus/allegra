@@ -265,20 +265,24 @@ impl QuorumManager {
             ))?;
 
         for peer in peers {
-            let event_id = Uuid::new_v4().to_string();
-            let task_id = TaskId::new(Uuid::new_v4().to_string());
-            let event = NetworkEvent::PreparedForLaunch {
-                event_id,
-                task_id,
-                instance: instance.clone(),
-                dst: peer.clone(),
-                local_peer: local_peer.clone(),
-            };
+            if peer != local_peer {
+                let event_id = Uuid::new_v4().to_string();
+                let task_id = TaskId::new(Uuid::new_v4().to_string());
+                let event = NetworkEvent::PreparedForLaunch {
+                    event_id,
+                    task_id,
+                    instance: instance.clone(),
+                    dst: peer.clone(),
+                    local_peer: local_peer.clone(),
+                };
 
-            self.publisher_mut()
-                .publish(Box::new(NetworkTopic), Box::new(event))
-                .await?;
+                self.publisher_mut()
+                    .publish(Box::new(NetworkTopic), Box::new(event))
+                    .await?;
+            }
         }
+
+        self.accept_launch_preparation(local_peer, instance).await?;
 
         Ok(())
     }

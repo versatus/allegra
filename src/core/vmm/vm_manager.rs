@@ -684,14 +684,6 @@ impl VmManager {
             &next_ip,
         )?;
         // Inform peers we are prepared to setup glusterfs volume
-        let event_id = uuid::Uuid::new_v4().to_string();
-        let task_id = TaskId::new(uuid::Uuid::new_v4().to_string());
-        let event = QuorumEvent::PreparedForLaunch {
-            event_id,
-            task_id: task_id.clone(),
-            instance: namespace.clone(),
-        };
-
         let uri = publisher.peer_addr()?;
         update_iptables(
             &uri,
@@ -705,6 +697,14 @@ impl VmManager {
             next_port,
         )
         .await?;
+
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let task_id = TaskId::new(uuid::Uuid::new_v4().to_string());
+        let event = QuorumEvent::PreparedForLaunch {
+            event_id,
+            task_id: task_id.clone(),
+            instance: namespace.clone(),
+        };
 
         publisher
             .publish(Box::new(QuorumTopic), Box::new(event))
