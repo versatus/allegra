@@ -1,6 +1,6 @@
-use std::fmt::Display;
 use clap::ValueEnum;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
@@ -212,19 +212,19 @@ pub enum VmType {
     #[serde(rename = "m7gd.2xlarge")]
     M7GD2XLarge,
     #[serde(rename = "m7gd.4xlarge")]
-    M7GD4XLarge
+    M7GD4XLarge,
 }
 
 impl Display for VmType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::T2Nano => write!(f, "t2.nano"), 
+            Self::T2Nano => write!(f, "t2.nano"),
             Self::T2Micro => write!(f, "t2.micro"),
             Self::T2Small => write!(f, "t2.small"),
             Self::T2Medium => write!(f, "t2.medium"),
             Self::T2Large => write!(f, "t2.large"),
             Self::T2XLarge => write!(f, "t2.xlarge"),
-            Self::T22XLarge=> write!(f, "t2.2xlarge"),
+            Self::T22XLarge => write!(f, "t2.2xlarge"),
             Self::T3ANano => write!(f, "t3a.nano"),
             Self::T3AMicro => write!(f, "t3a.micro"),
             Self::T3ASmall => write!(f, "t3a.small"),
@@ -326,8 +326,8 @@ impl Display for VmType {
     }
 }
 
-use std::str::FromStr;
 use std::io;
+use std::str::FromStr;
 
 impl FromStr for VmType {
     type Err = io::Error;
@@ -438,7 +438,10 @@ impl FromStr for VmType {
             "m7gd.xlarge" => Ok(VmType::M7GDXLarge),
             "m7gd.2xlarge" => Ok(VmType::M7GD2XLarge),
             "m7gd.4xlarge" => Ok(VmType::M7GD4XLarge),
-            _ => Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid VmType")),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid VmType",
+            )),
         }
     }
 }

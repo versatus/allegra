@@ -6,3 +6,4 @@ logs
 .images
 .GLUSTER-SETUP.md
 .INSTANCE-LAUNCH.md
+result*
