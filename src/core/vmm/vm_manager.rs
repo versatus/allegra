@@ -720,96 +720,106 @@ impl VmManager {
         next_port: u16,
         uri: String,
     ) -> std::io::Result<()> {
-        virt_install.execute()?;
-        //Update task status, etc. etc.
-        log::info!("executed launch command...");
+        let output = virt_install.execute()?;
 
-        let domain = virt::domain::Domain::lookup_by_name(&conn, &namespace.inner().to_string())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        if output.status.success() {
 
-        let info = domain
-            .get_info()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            //Update task status, etc. etc.
+            log::info!("executed launch command...");
 
-        let (state, state_reason) = domain
-            .get_state()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        let vm_info = VmInfoBuilder::default()
-            .name(namespace.inner().to_string())
-            .uuid(
-                domain
-                    .get_uuid_string()
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
-            )
-            .id(domain.get_id())
-            .state(state.into())
-            .state_reason(state_reason)
-            .memory(MemoryInfo::new(
-                info.memory,
-                domain
-                    .get_max_memory()
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
-                domain
-                    .get_max_memory()
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
-                0,
-                0,
-            ))
-            .vcpus(VCPUInfo::new(
-                info.nr_virt_cpu,
-                domain
-                    .get_max_vcpus()
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
-                    .try_into()
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
-            ))
-            .cpu_time(info.cpu_time)
-            .autostart(
-                domain
-                    .get_autostart()
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
-            )
-            .persistent(true)
-            .os_type(
-                domain
-                    .get_os_type()
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
-            )
-            .os_arch("x86_64".to_string())
-            .network_interfaces(Vec::new())
-            .storage_volumes(Vec::new())
-            .block_stats(HashMap::new())
-            .interface_stats(HashMap::new())
-            .snapshots(Vec::new())
-            .build()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let domain = virt::domain::Domain::lookup_by_name(&conn, &namespace.inner().to_string())
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        let task_id = TaskId::new(Uuid::new_v4().to_string());
-        log::info!("acquired vminfo...");
-        let event_id = uuid::Uuid::new_v4();
-        let state_event = StateEvent::PutInstance {
-            event_id: event_id.to_string(),
-            task_id: task_id.clone(),
-            task_status: TaskStatus::Success,
-            namespace: namespace.clone(),
-            vm_info: vm_info.clone(),
-            port_map: vec![(22u16, (next_port, ServiceType::Ssh))]
-                .into_iter()
-                .collect(),
-            last_snapshot: None,
-            last_sync: None,
-        };
+            let info = domain
+                .get_info()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        let mut publisher = GenericPublisher::new(&uri).await?;
-        publisher
-            .publish(Box::new(StateTopic), Box::new(state_event))
-            .await?;
+            let (state, state_reason) = domain
+                .get_state()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            let vm_info = VmInfoBuilder::default()
+                .name(namespace.inner().to_string())
+                .uuid(
+                    domain
+                        .get_uuid_string()
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                )
+                .id(domain.get_id())
+                .state(state.into())
+                .state_reason(state_reason)
+                .memory(MemoryInfo::new(
+                    info.memory,
+                    domain
+                        .get_max_memory()
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                    domain
+                        .get_max_memory()
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                    0,
+                    0,
+                ))
+                .vcpus(VCPUInfo::new(
+                    info.nr_virt_cpu,
+                    domain
+                        .get_max_vcpus()
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                        .try_into()
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                ))
+                .cpu_time(info.cpu_time)
+                .autostart(
+                    domain
+                        .get_autostart()
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                )
+                .persistent(true)
+                .os_type(
+                    domain
+                        .get_os_type()
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
+                )
+                .os_arch("x86_64".to_string())
+                .network_interfaces(Vec::new())
+                .storage_volumes(Vec::new())
+                .block_stats(HashMap::new())
+                .interface_stats(HashMap::new())
+                .snapshots(Vec::new())
+                .build()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        log::info!(
-            "published event {} to topic {}",
-            event_id.to_string(),
-            StateTopic
-        );
+            let task_id = TaskId::new(Uuid::new_v4().to_string());
+            log::info!("acquired vminfo...");
+            let event_id = uuid::Uuid::new_v4();
+            let state_event = StateEvent::PutInstance {
+                event_id: event_id.to_string(),
+                task_id: task_id.clone(),
+                task_status: TaskStatus::Success,
+                namespace: namespace.clone(),
+                vm_info: vm_info.clone(),
+                port_map: vec![(22u16, (next_port, ServiceType::Ssh))]
+                    .into_iter()
+                    .collect(),
+                last_snapshot: None,
+                last_sync: None,
+            };
+
+            let mut publisher = GenericPublisher::new(&uri).await?;
+            publisher
+                .publish(Box::new(StateTopic), Box::new(state_event))
+                .await?;
+
+            log::info!(
+                "published event {} to topic {}",
+                event_id.to_string(),
+                StateTopic
+            );
+        } else {
+            let err_str = std::str::from_utf8(&output.stderr).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, e)
+            })?;
+
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, err_str))
+        }
 
         Ok(())
     }
