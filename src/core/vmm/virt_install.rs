@@ -682,6 +682,8 @@ impl VirtInstall {
             }
         }
 
+        command.arg("--check").arg("disk_size=off");
+
         command.output()
     }
 }

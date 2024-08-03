@@ -586,15 +586,13 @@ impl VmManager {
         // Convert image
         std::process::Command::new("qemu-img")
             .arg("convert")
-            .arg("-f")
-            .arg("qcow2")
+            .arg(&format!("{}", image_path.display()))
             .arg("-O")
             .arg("raw")
-            .arg(&format!("{}", image_path.display()))
-            .arg(&format!("{}/{}", tmp_dest, image_name))
+            .arg(&format!("{}/{}.raw", tmp_dest, image_name))
             .output()?;
 
-        log::info!("converted image to qcow2...");
+        log::info!("converted image to raw...");
         // Setup loop device
         let loop_device_output = std::process::Command::new("losetup")
             .arg("-fP")
