@@ -621,7 +621,7 @@ impl VmManager {
 
         // Move contents of copied disk image to the brick directory
         std::process::Command::new("mv")
-            .arg(&format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
+            .arg(&format!("/mnt/tmp/iso/{}/*", namespace.inner().to_string()))
             .arg(&format!(
                 "/mnt/glusterfs/vms/{}/brick/",
                 namespace.inner().to_string()
