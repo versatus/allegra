@@ -581,14 +581,14 @@ impl VmManager {
         log::info!("acquired image name for {}: {}...", params.distro, image_name);
         // Copy image
         let tmp_dest = format!("/mnt/tmp/images/{}-{}", Distro::try_from(&params.distro)?, params.version);
-        std::fs::create_dir(&tmp_dest)?;
+        std::fs::create_dir_all(&tmp_dest)?;
         log::info!("setup tmp directory for image: {}...", tmp_dest);
         // Convert image
         std::process::Command::new("qemu-img")
             .arg("convert")
-            .arg(&format!("{}", image_path.display()))
             .arg("-O")
             .arg("raw")
+            .arg(&format!("{}", image_path.display()))
             .arg(&format!("{}/{}.raw", tmp_dest, image_name))
             .output()?;
 
