@@ -682,8 +682,6 @@ impl VirtInstall {
             }
         }
 
-        command.arg("--check all=off");
-
         command.output()
     }
 }
