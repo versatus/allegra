@@ -236,13 +236,6 @@ pub async fn update_iptables(
         StateTopic
     );
 
-    let port_map = vec![(internal_port, (next_port, service_type))];
-    let vminfo = vmlist.get(&namespace.inner()).ok_or(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        format!("unable to find namespace {} in vmlist", &namespace),
-    ))?;
-    log::info!("acquired vminfo...");
-
     update_nginx_config(
         &instance_ip,
         internal_port
@@ -255,27 +248,6 @@ pub async fn update_iptables(
     .await?;
 
     log::info!("updated nginx config...");
-
-    let event_id = uuid::Uuid::new_v4();
-    let event = StateEvent::PutInstance {
-        event_id: event_id.to_string(),
-        task_id: task_id.clone(),
-        task_status: TaskStatus::Success,
-        namespace: namespace.clone(),
-        vm_info: vminfo.clone(),
-        port_map: port_map.into_par_iter().collect(),
-        last_snapshot: None,
-        last_sync: None,
-    };
-    publisher
-        .publish(Box::new(StateTopic), Box::new(event))
-        .await?;
-
-    log::info!(
-        "published event {} to topic {}",
-        event_id.to_string(),
-        StateTopic
-    );
 
     Ok((owner, task_id, TaskStatus::Success))
 }
