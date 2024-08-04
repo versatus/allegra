@@ -32,30 +32,6 @@ install_dependencies() {
     apt-get install -y curl qemu-utils libvirt-clients libvirt-daemon-system
 }
 
-setup_rust() {
-    local user_home
-    local actual_user
-
-    if [ "$SUDO_USER" ]; then
-        actual_user="$SUDO_USER"
-        user_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-    else
-        actual_user="$USER"
-        user_home="$HOME"
-    fi
-
-    if ! sudo -u "$actual_user" command -v rustc &> /dev/null; then
-        echo "Installing Rust for user $actual_user"
-        sudo -u "$actual_user" bash -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RUST_VERSION"
-        echo "Rust successfully installed"
-    else
-        echo "Updating Rust for user $actual_user"
-        sudo -u "$actual_user" bash -c "source $user_home/.cargo/env && rustup update && rustup default $RUST_VERSION"
-    fi
-    
-    echo "Rust setup complete"
-}
-
 # Create necessary directories and set permissions
 setup_directories() {
     mkdir -p $IMAGES_DIR $VMS_DIR
@@ -125,7 +101,6 @@ print_distros() {
 
 check_root
 install_dependencies
-setup_rust
 setup_directories
 print_distros
 download_images

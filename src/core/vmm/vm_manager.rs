@@ -1,5 +1,6 @@
 use crate::distro::Distro;
 use crate::event::QuorumEvent;
+use crate::prepare::{alternative_prepare_disk_image, get_image_name, get_image_path, prepare_disk_image, prepare_nfs_brick};
 use crate::virt_install::{generate_cloud_init_files, CloudInit, UserData};
 use crate::{
     account::{Namespace, TaskId, TaskStatus},
@@ -13,7 +14,7 @@ use crate::{
     VmManagerMessage,
 };
 use crate::{
-    get_image_name, get_image_path, statics::*, GeneralResponseSubscriber, GeneralResponseTopic,
+    statics::*, GeneralResponseSubscriber, GeneralResponseTopic,
     Instance, MemoryInfo, QuorumTopic, VCPUInfo, VirtInstall, VmInfo, VmInfoBuilder, VmmResult,
     VmmSubscriber,
 };
@@ -569,76 +570,21 @@ impl VmManager {
         let event_id = uuid::Uuid::new_v4();
 
         // Setup directory
-        std::fs::create_dir_all(&format!(
-            "/mnt/glusterfs/vms/{}/brick",
-            namespace.inner().to_string()
-        ))?;
+        prepare_nfs_brick(&namespace)?;
         log::info!("created dir for instance...");
+
         // Get image path
-        let image_path = get_image_path(Distro::try_from(&params.distro)?, &params.version);
+        let image_path = get_image_path(Distro::try_from(&params.distro)?);
         log::info!("acquired image path for {}: {}...", params.distro, image_path.display());
-        let image_name = get_image_name(Distro::try_from(&params.distro)?, &params.version).await?;
+        let image_name = get_image_name(Distro::try_from(&params.distro)?).await?;
         log::info!("acquired image name for {}: {}...", params.distro, image_name);
-        // Copy image
-        let tmp_dest = format!("/mnt/tmp/images/{}-{}", Distro::try_from(&params.distro)?, params.version);
-        std::fs::create_dir_all(&tmp_dest)?;
-        log::info!("setup tmp directory for image: {}...", tmp_dest);
-        // Convert image
-        std::process::Command::new("qemu-img")
-            .arg("convert")
-            .arg("-O")
-            .arg("raw")
-            .arg(&format!("{}", image_path.display()))
-            .arg(&format!("{}/{}.raw", tmp_dest, image_name))
-            .output()?;
 
-        log::info!("converted image to raw...");
-        // Setup loop device
-        let loop_device_output = std::process::Command::new("losetup")
-            .arg("-fP")
-            .arg("--show")
-            .arg(format!("{}/{}", tmp_dest, image_name))
-            .output()?;
-
-        // Acquire loop device
-        let loop_device = std::str::from_utf8(&loop_device_output.stdout)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
-            .to_string();
-        log::info!("loop device {}...", &loop_device);
-
-        // Create mountpoint directory
-        std::fs::create_dir_all(format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))?;
-        log::info!("loop device {}...", &loop_device);
-
-        // Mount loop device partition 1 to the mountpoint
-        std::process::Command::new("mount")
-            .arg(&format!("{}p1", loop_device)) // partition 1 of loop device
-            .arg(&format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
-            .output()?;
-        log::info!("mounted loop device");
-
-        // Move contents of copied disk image to the brick directory
-        std::process::Command::new("mv")
-            .arg(&format!("/mnt/tmp/iso/{}/*", namespace.inner().to_string()))
-            .arg(&format!(
-                "/mnt/glusterfs/vms/{}/brick/",
-                namespace.inner().to_string()
-            ))
-            .output()?;
-        log::info!("moved root filesystem into brick directory");
-
-        // Unmount the loop device from temporary mountpoint
-        std::process::Command::new("umount")
-            .arg(format!("/mnt/tmp/iso/{}", namespace.inner().to_string()))
-            .output()?;
-        log::info!("unmounted loop device");
-
-        // detach the disk image from the loop device
-        std::process::Command::new("losetup")
-            .arg("-d")
-            .arg(&loop_device)
-            .output()?;
-        log::info!("detached loop device");
+        alternative_prepare_disk_image(
+            &format!("{}/{}", image_path.display().to_string(), image_name),
+            &format!("/mnt/glusterfs/vms/{}/tmp_iso_mount", namespace.inner().to_string()),
+            &format!("/var/lib/libvirt/images/{}-{}/{}", Distro::try_from(&params.distro)?, params.version, image_name),
+            &namespace
+        )?;
 
         //TODO:(asmith) Cleanup temporary directories and mount points and disk devices
         let state_event = StateEvent::PutAccount {
@@ -655,6 +601,7 @@ impl VmManager {
         publisher
             .publish(Box::new(StateTopic), Box::new(state_event))
             .await?;
+
         log::info!("published event to state topic");
 
         log::info!("published {} to topic {}", event_id.to_string(), StateTopic);

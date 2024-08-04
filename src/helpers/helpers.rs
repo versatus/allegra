@@ -1043,18 +1043,3 @@ pub async fn get_container_ip(container_name: &str) -> std::io::Result<String> {
         "unable to acquire docker container's ip address",
     ));
 }
-
-pub fn get_image_path(distro: Distro, version: &str) -> PathBuf {
-    PathBuf::from(distro)
-}
-
-pub async fn get_image_name(distro: Distro, version: &str) -> std::io::Result<String> {
-    get_image_path(distro, version)
-        .file_name()
-        .and_then(|os_str| os_str.to_str())
-        .map(String::from)
-        .ok_or(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "unable to extract the image name",
-        ))
-}

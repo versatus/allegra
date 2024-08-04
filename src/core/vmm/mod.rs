@@ -4,6 +4,7 @@ pub mod types;
 pub mod utils;
 pub mod virt_install;
 pub mod vm_manager;
+pub mod prepare;
 
 pub use domain::Domain;
 pub use types::*;
