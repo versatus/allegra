@@ -503,7 +503,7 @@ impl VirtInstall {
     pub fn execute(&self, namespace: &Namespace) -> std::io::Result<std::process::Output> {
         let mut command = Command::new("virt-install");
 
-        command.arg("--name").arg(&self.name);
+        command.arg("--name").arg(&namespace.inner().to_string());
 
         if let Some(memory) = &self.memory {
             command.arg("--memory").arg(memory);
