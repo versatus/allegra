@@ -6,6 +6,7 @@ use nix::fcntl::{open, OFlag};
 use nix::mount::{mount, umount};
 use nix::sys::stat::Mode;
 use nix::unistd::close;
+use serde::de::Error;
 use std::fs;
 use std::path::Path;
 use libc;
@@ -58,7 +59,14 @@ fn convert_disk_image(source: &str, dest: &str, fmt: &str) -> std::io::Result<()
 }
 
 fn copy_disk_image(source: &str, dest: &str) -> std::io::Result<()> {
-    std::fs::create_dir_all(dest)?;
+    let dest_path = Path::new(dest).parent().ok_or(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "invalid path for dest in copy_disk_image function"
+        )
+    )?;
+
+    std::fs::create_dir_all(dest_path)?;
     std::fs::copy(source, dest)?;
     Ok(())
 }
