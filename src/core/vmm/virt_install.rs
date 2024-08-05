@@ -521,7 +521,8 @@ impl VirtInstall {
         }
 
         command.arg("--network").arg("bridge=virbr0,model=virtio");
-        command.arg("--graphics").arg("vnc,listen=0.0.0.0 --noautoconsole");
+        command.arg("--graphics").arg("vnc,listen=0.0.0.0");
+        command.arg("--noautoconsole");
 
         let cloud_init_path = format!("/var/lib/libvirt/profiles/{}", namespace); 
         let user_data_arg = format!("user-data={}/user-data.yaml", cloud_init_path);
