@@ -663,7 +663,12 @@ pub fn generate_cloud_init_files<D: DistroType>(
 ) -> std::io::Result<()> {
     let mut default_user_data = UserData::<D>::default();
 
-    merge_user_data(host_ip, instance_id, &mut default_user_data, user_provided);
+    let host_ip_stripped = if let Some(pos) = host_ip.to_string().find(':') {
+        host_ip.to_string()[..pos].to_string()
+    } else {
+        host_ip.to_string()
+    };
+    merge_user_data(&host_ip_stripped, instance_id, &mut default_user_data, user_provided);
 
     let network_config = NetworkConfig {
         version: 2,
