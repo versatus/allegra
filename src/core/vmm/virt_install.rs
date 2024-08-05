@@ -693,9 +693,10 @@ pub fn generate_cloud_init_files<D: DistroType>(
     let full_user_data = format!("#cloud-config\n{}", user_data_str);
 
     fs::write(
-        full_user_data,
         profile_dir.join("user-data.yaml"),
+        full_user_data
     )?;
+
     fs::write(
         profile_dir.join("network-config.yaml"),
         serde_yml::to_string(&network_config)
