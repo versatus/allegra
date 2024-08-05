@@ -582,7 +582,7 @@ impl VmManager {
         alternative_prepare_disk_image(
             &format!("{}/{}", image_path.display().to_string(), image_name),
             &format!("/mnt/glusterfs/vms/{}/tmp_iso_mount", namespace.inner().to_string()),
-            &format!("/var/lib/libvirt/images/{}-{}/{}", Distro::try_from(&params.distro)?, params.version, image_name),
+            &format!("/var/lib/libvirt/images/{}-{}/{}/{}", Distro::try_from(&params.distro)?, params.version, namespace, image_name),
             &namespace
         )?;
 

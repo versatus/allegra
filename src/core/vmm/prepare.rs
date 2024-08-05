@@ -58,6 +58,7 @@ fn convert_disk_image(source: &str, dest: &str, fmt: &str) -> std::io::Result<()
 }
 
 fn copy_disk_image(source: &str, dest: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dest)?;
     std::fs::copy(source, dest)?;
     Ok(())
 }
