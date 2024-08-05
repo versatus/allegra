@@ -88,8 +88,6 @@ impl VmManager {
         stop_rx: &mut tokio::sync::mpsc::Receiver<()>,
     ) -> std::io::Result<()> {
         log::info!("Starting VmManager");
-        log::info!("Loading instances...");
-        self.refresh_vmlist().await?;
 
         loop {
             tokio::select! {
