@@ -47,6 +47,14 @@ pub fn prepare_nfs_brick(namespace: &Namespace) -> std::io::Result<()> {
 }
 
 fn convert_disk_image(source: &str, dest: &str, fmt: &str) -> std::io::Result<()> {
+
+    let dest_path = Path::new(dest).parent().ok_or(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "invalid path to destination in convert_disk_image"
+        )
+    )?;
+    std::fs::create_dir_all(dest_path)?;
     std::process::Command::new("qemu-img")
         .arg("convert")
         .arg("-O")
