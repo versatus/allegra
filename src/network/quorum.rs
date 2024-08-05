@@ -76,7 +76,10 @@ impl Quorum {
             .arg(instance.inner().to_string());
 
         let replica = peers.len();
-        command.arg("replica").arg(&replica.to_string());
+        
+        if replica > 1 {
+            command.arg("replica").arg(&replica.to_string());
+        }
 
         for peer in peers {
             let ip_address = if let Some(pos) = peer.ip_address().to_string().find(':') {
