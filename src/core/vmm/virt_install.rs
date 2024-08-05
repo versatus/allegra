@@ -675,6 +675,8 @@ pub fn generate_cloud_init_files<D: DistroType>(
         local_hostname: format!("{}.versatus.io", hostname.to_string()),
     };
 
+    log::info!("CLOUDINIT USERDATA: {:?}", default_user_data);
+
     let profile_dir = Path::new("/var/lib/libvirt/profiles").join(instance_id);
     fs::create_dir_all(&profile_dir)?;
     fs::write(

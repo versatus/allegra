@@ -6,7 +6,7 @@ users:
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
     groups: sudo
     shell: /bin/bash
-    passwd: $6$0f4yT5HWBWUwGSJS$UBKG/mob7M9n.SBi/ZYsdo69nTjmA7qua9OMQr/IA/ERXVh21cSMirY7Pu7a3ts8uYxI2FBrH257p6Br1EMvU/
+    passwd: $6$bdjzdCkT7TDXJupd$9pH8UdRdowft78IKpmpKHetd7Gd7sJuxGxp4.Yyfx928PUxI/A.iRZUNURUwTBV66F9mJ6KJIyM5Y6ReT6Q46/
     lock-passwd: false
     chpasswd: { expire: False }
     ssh_pwauth: True
