@@ -75,6 +75,29 @@
         "type": "github"
       }
     },
+    "nix-watch": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1722827840,
+        "narHash": "sha256-BP2brXZm6+sKx4B2k/o/WSB81WuFgqLwLX7t7KnWlnw=",
+        "owner": "Cloud-Scythe-Labs",
+        "repo": "nix-watch",
+        "rev": "d4bf17ca085e6ed75c41cd6ad3744c1d46e90c90",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Cloud-Scythe-Labs",
+        "repo": "nix-watch",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1722415718,
@@ -97,6 +120,7 @@
         "crane": "crane",
         "fenix": "fenix",
         "flake-utils": "flake-utils",
+        "nix-watch": "nix-watch",
         "nixpkgs": "nixpkgs",
         "versatus-nix": "versatus-nix"
       }

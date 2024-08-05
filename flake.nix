@@ -22,6 +22,12 @@
       flake = false;
     };
 
+    nix-watch = {
+      url = "github:Cloud-Scythe-Labs/nix-watch";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
+
     versatus-nix = {
       url = "github:versatus/versatus.nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -30,7 +36,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, crane, fenix, flake-utils, advisory-db, versatus-nix, ... }:
+  outputs = { self, nixpkgs, crane, fenix, flake-utils, advisory-db, nix-watch, versatus-nix, ... }:
     flake-utils.lib.eachDefaultSystem
       (system:
         let
@@ -223,7 +229,7 @@
               # ripgrep
               nil # nix lsp
               nixpkgs-fmt # nix formatter
-            ];
+            ] ++ nix-watch.nix-watch.${system}.devTools;
           };
 
           formatter = pkgs.nixpkgs-fmt;
