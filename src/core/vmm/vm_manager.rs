@@ -579,7 +579,7 @@ impl VmManager {
         let image_name = get_image_name(Distro::try_from(&params.distro)?).await?;
         log::info!("acquired image name for {}: {}...", params.distro, image_name);
 
-        let disk_source = format!("{}/{}", image_path.display().to_string(), image_name);
+        let disk_source = image_path.display().to_string();
         let raw_tmp_dest = format!("/mnt/glusterfs/vms/{}/tmp_iso_mount", namespace.inner().to_string());
         let use_from = format!("/var/lib/libvirt/images/{}-{}/{}", Distro::try_from(&params.distro)?, params.version, namespace.inner().to_string());
         log::info!("attempting to prepare disk_image...");
