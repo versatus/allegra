@@ -613,12 +613,16 @@ impl VmManager {
         log::info!("published {} to topic {}", event_id.to_string(), StateTopic);
         let virt_install: VirtInstall = params.clone().into();
 
+        log::info!("CLOUD_INIT: {:?}", params.cloud_init);
+
         if let Some(cloud_init) = params.cloud_init {
             let cloud_init: CloudInit = cloud_init.into();
             if let Some(user_data) = cloud_init.user_data {
+            log::info!("CLOUD_INIT_USER_DATA: {:?}", user_data);
                 let distro: Distro = params.distro.into();
                 match distro {
                     Distro::Ubuntu => {
+                        let res = serde_yml::from_str::<UserData<Ubuntu>>(&user_data); 
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Ubuntu>>(&user_data) {
                             log::info!("attempting to generate cloud_init files");
                             generate_cloud_init_files(
@@ -627,7 +631,9 @@ impl VmManager {
                                 Some(user_provided),
                                 &next_ip,
                             )?;
-                        } 
+                        } else {
+                            log::error!("ERROR DESERIALIZING USER_DATA: {:?}", res);
+                        }
                     }
                     Distro::CentOS => {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Centos>>(&user_data) {
