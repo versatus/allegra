@@ -500,232 +500,28 @@ impl VirtInstall {
         self
     }
 
-    pub fn execute(&self, namespace: &Namespace) -> std::io::Result<std::process::Output> {
+    pub fn execute(&self, namespace: &Namespace, use_disk: &str) -> std::io::Result<std::process::Output> {
         let mut command = Command::new("virt-install");
 
         command.arg("--name").arg(&namespace.inner().to_string());
 
         if let Some(memory) = &self.memory {
-            command.arg("--memory").arg(memory);
+            command.arg("--ram").arg(memory);
         }
 
         if let Some(vcpus) = &self.vcpus {
             command.arg("--vcpus").arg(vcpus);
         }
 
-        if let Some(cpu) = &self.cpu {
-            command.arg("--cpu").arg(cpu);
-        }
-
-        if let Some(metadata) = &self.metadata {
-            command.arg("--metadata").arg(metadata);
-        }
+        command.arg("--import");
+        command.arg("--disk").arg(&format!("{},format=qcow2", use_disk));
 
         if let Some(os_variant) = &self.os_variant {
             command.arg("--os-variant").arg(os_variant);
         }
 
-        for host_device in &self.host_device {
-            command.arg("--host-device").arg(host_device);
-        }
-
-        for network in &self.network {
-            command.arg("--network").arg(network);
-        }
-
-        for disk in &self.disk {
-            command.arg("--disk").arg(disk);
-        }
-
-        for filesystem in &self.filesystem {
-            command.arg("--filesystem").arg(filesystem);
-        }
-
-        for controller in &self.controller {
-            command.arg("--controller").arg(controller);
-        }
-
-        for input in &self.input {
-            command.arg("--input").arg(input);
-        }
-
-        if let Some(graphics) = &self.graphics {
-            command.arg("--graphics").arg(graphics);
-        }
-
-        if let Some(sound) = &self.sound {
-            command.arg("--sound").arg(sound);
-        }
-
-        if let Some(video) = &self.video {
-            command.arg("--video").arg(video);
-        }
-
-        if let Some(smartcard) = &self.smartcard {
-            command.arg("--smartcard").arg(smartcard);
-        }
-
-        for redirdev in &self.redirdev {
-            command.arg("--redirdev").arg(redirdev);
-        }
-
-        if let Some(memballoon) = &self.memballoon {
-            command.arg("--memballoon").arg(memballoon);
-        }
-
-        if let Some(tpm) = &self.tpm {
-            command.arg("--tpm").arg(tpm);
-        }
-
-        if let Some(rng) = &self.rng {
-            command.arg("--rng").arg(rng);
-        }
-
-        if let Some(panic) = &self.panic {
-            command.arg("--panic").arg(panic);
-        }
-
-        if let Some(shmem) = &self.shmem {
-            command.arg("--shmem").arg(shmem);
-        }
-
-        for memdev in &self.memdev {
-            command.arg("--memdev").arg(memdev);
-        }
-
-        if let Some(vsock) = &self.vsock {
-            command.arg("--vsock").arg(vsock);
-        }
-
-        if let Some(iommu) = &self.iommu {
-            command.arg("--iommu").arg(iommu);
-        }
-
-        if let Some(watchdog) = &self.watchdog {
-            command.arg("--watchdog").arg(watchdog);
-        }
-
-        for serial in &self.serial {
-            command.arg("--serial").arg(serial);
-        }
-
-        for parallel in &self.parallel {
-            command.arg("--parallel").arg(parallel);
-        }
-
-        for channel in &self.channel {
-            command.arg("--channel").arg(channel);
-        }
-
-        for console in &self.console {
-            command.arg("--console").arg(console);
-        }
-
-        if let Some(install) = &self.install {
-            command.arg("--install").arg(install);
-        }
-
-        if let Some(cdrom) = &self.cdrom {
-            command.arg("--cdrom").arg(cdrom);
-        }
-
-        if let Some(location) = &self.location {
-            command.arg("--location").arg(location);
-        }
-
-        if self.pxe {
-            command.arg("--pxe");
-        }
-
-        if self.import {
-            command.arg("--import");
-        }
-
-        if let Some(boot) = &self.boot {
-            command.arg("--boot").arg(boot);
-        }
-
-        if let Some(idmap) = &self.idmap {
-            command.arg("--idmap").arg(idmap);
-        }
-
-        for (key, value) in &self.features {
-            command.arg("--features").arg(format!("{}={}", key, value));
-        }
-
-        if let Some(clock) = &self.clock {
-            command.arg("--clock").arg(clock);
-        }
-
-        if let Some(launch_security) = &self.launch_security {
-            command.arg("--launchSecurity").arg(launch_security);
-        }
-
-        if let Some(numatune) = &self.numatune {
-            command.arg("--numatune").arg(numatune);
-        }
-
-        for boot_dev in &self.boot_dev {
-            command.arg("--boot").arg(boot_dev);
-        }
-
-        if self.unattended {
-            command.arg("--unattended");
-        }
-
-        if let Some(print_xml) = &self.print_xml {
-            command.arg("--print-xml").arg(print_xml);
-        }
-
-        if self.dry_run {
-            command.arg("--dry-run");
-        }
-
-        if let Some(connect) = &self.connect {
-            command.arg("--connect").arg(connect);
-        }
-
-        if let Some(virt_type) = &self.virt_type {
-            command.arg("--virt-type").arg(virt_type);
-        }
-
-        /*
-        if let Some(cloud_init) = &self.cloud_init {
-            let mut cloud_init_args = Vec::new();
-
-            if cloud_init.root_password_generate {
-                cloud_init_args.push("root-password-generate=on".to_string());
-            }
-            if cloud_init.disable {
-                cloud_init_args.push("disable=on".to_string());
-            }
-            if let Some(file) = &cloud_init.root_password_file {
-                cloud_init_args.push(format!("root-password-file={}", file.clone()));
-            }
-            if let Some(meta_data) = &cloud_init.meta_data {
-                cloud_init_args.push(format!("meta-data={}", meta_data.clone()));
-            }
-            if let Some(user_data) = &cloud_init.user_data {
-                cloud_init_args.push(format!("user-data={}", user_data.clone()));
-            }
-            if let Some(root_ssh_key) = &cloud_init.root_ssh_key {
-                cloud_init_args.push(format!("root-ssh-key={}", root_ssh_key.clone()));
-            }
-            if let Some(clouduser_ssh_key) = &cloud_init.clouduser_ssh_key {
-                cloud_init_args.push(format!("clouduser-ssh-key={}", clouduser_ssh_key.clone()));
-            }
-            if let Some(network_config) = &cloud_init.network_config {
-                cloud_init_args.push(format!("network-config={}", network_config.clone()));
-            }
-
-            if !cloud_init_args.is_empty() {
-                command.arg("--cloud-init");
-                command.arg(cloud_init_args.join(","));
-            } else {
-                command.arg("--cloud-init");
-            }
-        }
-        */
+        command.arg("--network").arg("bridge=virbr0,model=virtio");
+        command.arg("--graphics").arg("vnc,listen=0.0.0.0 --noautoconsole");
 
         let cloud_init_path = format!("/var/lib/libvirt/profiles/{}", namespace); 
         let user_data_arg = format!("user-data={}/user-data.yaml", cloud_init_path);

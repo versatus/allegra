@@ -41,7 +41,7 @@ pub struct VmManager {
     next_ip: [u8; 4],
     next_port: u16,
     handles: FuturesUnordered<JoinHandle<std::io::Result<VmmResult>>>,
-    pending_launch: HashMap<Namespace, (VirtInstall, u16)>,
+    pending_launch: HashMap<Namespace, (VirtInstall, String, u16)>,
     vmlist: VmList,
     publisher: GenericPublisher,
     pub subscriber: VmmSubscriber,
@@ -327,7 +327,7 @@ impl VmManager {
                     "{}.{}.{}.{}",
                     self.next_ip[0], self.next_ip[1], self.next_ip[2], self.next_ip[3]
                 );
-                let (namespace, virt_install, next_port) = Self::prepare_instance(
+                let (namespace, virt_install, use_disk, next_port) = Self::prepare_instance(
                     params,
                     task_id,
                     vmlist,
@@ -339,7 +339,7 @@ impl VmManager {
 
                 self.next_ip[3] += 1;
                 self.pending_launch
-                    .insert(namespace, (virt_install, next_port));
+                    .insert(namespace, (virt_install, use_disk, next_port));
 
                 Ok(())
             }
@@ -348,7 +348,7 @@ impl VmManager {
                 self.refresh_vmlist().await?;
                 let uri = self.publisher.peer_addr()?;
                 let mut _publisher = GenericPublisher::new(&uri).await?;
-                let (virt_install, next_port) =
+                let (virt_install, use_disk, next_port) =
                     self.pending_launch
                         .get(&namespace)
                         .ok_or(std::io::Error::new(
@@ -363,6 +363,7 @@ impl VmManager {
                     &namespace,
                     *next_port,
                     uri,
+                    &use_disk
                 )
                 .await;
             }
@@ -556,7 +557,7 @@ impl VmManager {
         publisher: &mut GenericPublisher,
         next_ip: String,
         next_port: u16,
-    ) -> std::io::Result<(Namespace, VirtInstall, u16)> {
+    ) -> std::io::Result<(Namespace, VirtInstall, String, u16)> {
         log::info!("Attempting to start instance...");
         let payload = params.into_payload();
         log::info!("converted params into payload...");
@@ -711,7 +712,7 @@ impl VmManager {
             .publish(Box::new(QuorumTopic), Box::new(event))
             .await?;
 
-        Ok((namespace, virt_install, next_port))
+        Ok((namespace, virt_install, use_from, next_port))
     }
 
     pub async fn launch_instance(
@@ -720,8 +721,9 @@ impl VmManager {
         namespace: &Namespace,
         next_port: u16,
         uri: String,
+        use_disk: &str,
     ) -> std::io::Result<()> {
-        let output = virt_install.execute(namespace)?;
+        let output = virt_install.execute(namespace, use_disk)?;
 
         if output.status.success() {
 
