@@ -234,6 +234,7 @@ impl QuorumManager {
         }
 
         if prepared {
+            log::info!("attempting to create gluster volume for {}", &instance.inner().to_string());
             quorum
                 .create_gluster_volume(instance.clone(), quorum.peers().clone().iter().collect())
                 .await?;

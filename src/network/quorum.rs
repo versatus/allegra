@@ -97,6 +97,11 @@ impl Quorum {
         Ok(())
     }
 
+    pub(super) fn mount_gluster_volume(&self) -> std::io::Result<()> {
+        // run mount
+        todo!()
+    }
+
     pub(super) fn get_gluster_volumes(&self) -> std::io::Result<Vec<String>> {
         let output = std::process::Command::new("gluster")
             .arg("volume")
