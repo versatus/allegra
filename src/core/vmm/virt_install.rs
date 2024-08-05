@@ -69,11 +69,17 @@ pub struct CloudInit {
 
 #[derive(Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct UserData<D: DistroType> {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     users: Vec<User>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     packages: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     write_files: Vec<WriteFile>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     mounts: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     runcmd: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     bootcmd: Vec<String>,
     #[serde(skip)]
     phantom: PhantomData<D>
