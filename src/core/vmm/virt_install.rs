@@ -731,7 +731,7 @@ impl VirtInstall {
         let user_data_arg = format!("user-data={}/user-data.yaml", cloud_init_path);
         let meta_data_arg = format!("meta-data={}/meta-data.yaml", cloud_init_path);
         let network_config_arg = format!("network-config={}/network-config.yaml", cloud_init_path);
-        let cloud_init_arg = format!("--cloud_init {user_data_arg},{meta_data_arg},{network_config_arg}");
+        let cloud_init_arg = format!("--cloud-init {user_data_arg},{meta_data_arg},{network_config_arg}");
 
         command.arg(&cloud_init_arg);
 
