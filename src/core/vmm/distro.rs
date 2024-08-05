@@ -7,7 +7,7 @@ use sha3::{Sha3_512, Digest};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::{Rng, thread_rng};
 
-pub trait DistroType: Display + Default {
+pub trait DistroType: Display + Default + std::fmt::Debug {
     fn default_username() -> String {
         Self::default().to_string()
     }
