@@ -676,6 +676,8 @@ pub fn generate_cloud_init_files<D: DistroType>(
     };
 
     log::info!("CLOUDINIT USERDATA: {:?}", default_user_data);
+    log::info!("CLOUDINIT NETWORK CONFIG: {:?}", network_config);
+    log::info!("CLOUDINIT METADATA: {:?}", metadata);
 
     let profile_dir = Path::new("/var/lib/libvirt/profiles").join(instance_id);
     fs::create_dir_all(&profile_dir)?;
