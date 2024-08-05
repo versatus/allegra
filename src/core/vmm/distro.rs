@@ -2,6 +2,46 @@ use crate::allegra_rpc::Distro as ProtoDistro;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, path::PathBuf, str::FromStr};
+use derive_more::Display;
+use sha3::{Sha3_512, Digest};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use rand::{Rng, thread_rng};
+
+pub trait DistroType: Display + Default {
+    fn default_username() -> String {
+        Self::default().to_string()
+    }
+    fn default_password() -> String {
+        generate_password_hash(
+            &Self::default().to_string(), 
+            &generate_salt()
+        )
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Default)]
+pub struct Ubuntu;
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Default)]
+pub struct Centos;
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Default)]
+pub struct Fedora;
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Default)]
+pub struct Debian;
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Default)]
+pub struct Arch;
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Default)]
+pub struct Alpine;
+#[derive(Clone, Debug, Serialize, Deserialize, Display, Default)]
+pub struct Other;
+
+impl DistroType for Ubuntu {}
+impl DistroType for Centos {}
+impl DistroType for Fedora {}
+impl DistroType for Debian {}
+impl DistroType for Arch {}
+impl DistroType for Alpine {}
+impl DistroType for Other {}
+
 
 #[derive(Clone, Debug, Serialize, Deserialize, ValueEnum)]
 pub enum Distro {
@@ -146,4 +186,17 @@ impl TryFrom<&i32> for Distro {
             )),
         }
     }
+}
+
+fn generate_salt() -> String {
+    let mut rng = thread_rng();
+    let salt: [u8; 16] = rng.gen();
+    URL_SAFE_NO_PAD.encode(&salt)
+}
+
+fn generate_password_hash(password: &str, salt: &str) -> String {
+    let mut hasher = Sha3_512::new();
+    hasher.update(format!("{}{}", salt, password));
+    let hash = hasher.finalize();
+    format!("$6${}${}", salt, URL_SAFE_NO_PAD.encode(&hash))
 }

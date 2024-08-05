@@ -1,6 +1,6 @@
-use crate::distro::Distro;
+use crate::distro::{Alpine, Arch, Centos, Debian, Distro, DistroType, Fedora, Ubuntu};
 use crate::event::QuorumEvent;
-use crate::prepare::{alternative_prepare_disk_image, get_image_name, get_image_path, prepare_disk_image, prepare_nfs_brick};
+use crate::prepare::{alternative_prepare_disk_image, get_image_name, get_image_path, prepare_nfs_brick};
 use crate::virt_install::{generate_cloud_init_files, CloudInit, UserData};
 use crate::{
     account::{Namespace, TaskId, TaskStatus},
@@ -607,27 +607,76 @@ impl VmManager {
         log::info!("published {} to topic {}", event_id.to_string(), StateTopic);
         let virt_install: VirtInstall = params.clone().into();
 
-        let user_provided = if let Some(cloud_init) = params.cloud_init {
+        if let Some(cloud_init) = params.cloud_init {
             let cloud_init: CloudInit = cloud_init.into();
             if let Some(user_data) = cloud_init.user_data {
-                if let Ok(user_provided) = serde_yml::from_str::<UserData>(&user_data) {
-                    Some(user_provided)
-                } else {
-                    None
+                let distro: Distro = params.distro.into();
+                match distro {
+                    Distro::Ubuntu => {
+                        if let Ok(user_provided) = serde_yml::from_str::<UserData<Ubuntu>>(&user_data) {
+                            generate_cloud_init_files(
+                                &namespace.inner().to_string(),
+                                &namespace.inner().to_string(),
+                                Some(user_provided),
+                                &next_ip,
+                            )?;
+                        } 
+                    }
+                    Distro::CentOS => {
+                        if let Ok(user_provided) = serde_yml::from_str::<UserData<Centos>>(&user_data) {
+                            generate_cloud_init_files(
+                                &namespace.inner().to_string(),
+                                &namespace.inner().to_string(),
+                                Some(user_provided),
+                                &next_ip,
+                            )?;
+                        }
+                    }
+                    Distro::Fedora => {
+                        if let Ok(user_provided) = serde_yml::from_str::<UserData<Fedora>>(&user_data) {
+                            generate_cloud_init_files(
+                                &namespace.inner().to_string(),
+                                &namespace.inner().to_string(),
+                                Some(user_provided),
+                                &next_ip,
+                            )?;
+                        } 
+                    }
+                    Distro::Debian => {
+                        if let Ok(user_provided) = serde_yml::from_str::<UserData<Debian>>(&user_data) {
+                            generate_cloud_init_files(
+                                &namespace.inner().to_string(),
+                                &namespace.inner().to_string(),
+                                Some(user_provided),
+                                &next_ip,
+                            )?;
+                        }
+                    }
+                    Distro::Arch => {
+                        if let Ok(user_provided) = serde_yml::from_str::<UserData<Arch>>(&user_data) {
+                            generate_cloud_init_files(
+                                &namespace.inner().to_string(),
+                                &namespace.inner().to_string(),
+                                Some(user_provided),
+                                &next_ip,
+                            )?;
+                        }
+                    }
+                    Distro::Alpine => {
+                        if let Ok(user_provided) = serde_yml::from_str::<UserData<Alpine>>(&user_data) {
+                            generate_cloud_init_files(
+                                &namespace.inner().to_string(),
+                                &namespace.inner().to_string(),
+                                Some(user_provided),
+                                &next_ip,
+                            )?;
+                        }
+                    }
+                    _ => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Other distros not yet supported"))
                 }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+            } 
+        } 
 
-        generate_cloud_init_files(
-            &namespace.inner().to_string(),
-            &namespace.inner().to_string(),
-            user_provided,
-            &next_ip,
-        )?;
         // Inform peers we are prepared to setup glusterfs volume
         let uri = publisher.peer_addr()?;
         update_iptables(
@@ -665,7 +714,7 @@ impl VmManager {
         next_port: u16,
         uri: String,
     ) -> std::io::Result<()> {
-        let output = virt_install.execute()?;
+        let output = virt_install.execute(namespace)?;
 
         if output.status.success() {
 

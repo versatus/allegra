@@ -1,7 +1,7 @@
-use crate::allegra_rpc::{CloudInit as ProtoCloudInit, InstanceCreateParams};
+use crate::{allegra_rpc::{CloudInit as ProtoCloudInit, InstanceCreateParams}, distro::DistroType, Namespace};
 use getset::{Getters, MutGetters, Setters};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::Path, process::Command};
+use std::{collections::HashMap, fs, marker::PhantomData, path::Path, process::Command};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VirtInstall {
@@ -68,13 +68,58 @@ pub struct CloudInit {
 }
 
 #[derive(Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
-pub struct UserData {
+pub struct UserData<D: DistroType> {
     users: Vec<User>,
     packages: Vec<String>,
     write_files: Vec<WriteFile>,
     mounts: Vec<String>,
     runcmd: Vec<String>,
     bootcmd: Vec<String>,
+    #[serde(skip)]
+    phantom: PhantomData<D>
+}
+
+impl<D: DistroType> Default for UserData<D> {
+    fn default() -> Self {
+        UserData {
+            users: vec![User {
+                name: D::default_username(),
+                ssh_authorized_keys: None,
+                sudo: Some(vec!["ALL=(ALL) NOPASSWD:ALL".to_string()]),
+                groups: Some(vec!["sudo".to_string()]), 
+                shell: Some("/bin/bash".to_string()),
+                passwd: Some(D::default_password()),
+                lock_passwd: Some(false),
+                chpasswd: Some(Chpasswd { expire: false }),
+                ssh_pwauth: Some(true)
+            }],
+            packages: vec![
+                "glusterfs-client".to_string(),
+                "rsync".to_string(),
+                "inotify-tools".to_string()
+            ],
+            write_files: vec![
+                WriteFile {
+                    path: "/etc/systemd/system/glusterfs-sync.service".to_string(),
+                    content: include_str!("templates/glusterfs-sync.service").to_string(),
+                    permissions: None
+                },
+                WriteFile {
+                    path: "/usr/local/bin/glusterfs-sync.sh".to_string(),
+                    content: include_str!("templates/glusterfs-sync.sh").to_string(),
+                    permissions: Some("0755".to_string()),
+                }
+            ],
+            mounts: vec!["[ \"localhost:/gv0\", \"/mnt/glusterfs/\", \"glusterfs\", \"defaults,_netdev\", \"0\", \"0\" ]".to_string()],
+            runcmd: vec![
+                "systemctl daemon-reload".to_string(),
+                "systemctl enable glusterfs-sync.service".to_string(),
+                "systemctl start glusterfs-sync.service".to_string()
+            ],
+            bootcmd: vec![],
+            phantom: PhantomData
+        }
+    }
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
@@ -455,7 +500,7 @@ impl VirtInstall {
         self
     }
 
-    pub fn execute(&self) -> std::io::Result<std::process::Output> {
+    pub fn execute(&self, namespace: &Namespace) -> std::io::Result<std::process::Output> {
         let mut command = Command::new("virt-install");
 
         command.arg("--name").arg(&self.name);
@@ -644,8 +689,7 @@ impl VirtInstall {
             command.arg("--virt-type").arg(virt_type);
         }
 
-        // Make directory for profile
-        // use template and update
+        /*
         if let Some(cloud_init) = &self.cloud_init {
             let mut cloud_init_args = Vec::new();
 
@@ -681,6 +725,15 @@ impl VirtInstall {
                 command.arg("--cloud-init");
             }
         }
+        */
+
+        let cloud_init_path = format!("/var/lib/libvirt/profiles/{}", namespace); 
+
+        command.arg("--cloud-init")
+            .arg(&format!("user-data={}/user-data.yaml", cloud_init_path))
+            .arg(&format!("meta-data={}/meta-data.yaml", cloud_init_path))
+            .arg(&format!("network-config={}/network-config.yaml", cloud_init_path));
+
 
         command.arg("--check").arg("disk_size=off");
 
@@ -723,8 +776,7 @@ impl From<InstanceCreateParams> for VirtInstall {
             console: value.console,
             install: value.install,
             cdrom: value.cdrom,
-            location: value.location,
-            pxe: value.pxe,
+            location: value.location, pxe: value.pxe,
             import: value.import,
             boot: value.boot,
             idmap: value.idmap,
@@ -750,7 +802,7 @@ impl From<InstanceCreateParams> for VirtInstall {
     }
 }
 
-pub fn merge_user_data(default: &mut UserData, user_provided: Option<UserData>) {
+pub fn merge_user_data<D: DistroType>(default: &mut UserData<D>, user_provided: Option<UserData<D>>) {
     if let Some(user) = user_provided {
         if !user.users.is_empty() {
             default.users = user.users.clone();
@@ -790,49 +842,13 @@ pub fn merge_user_data(default: &mut UserData, user_provided: Option<UserData>) 
     }
 }
 
-pub fn generate_cloud_init_files(
+pub fn generate_cloud_init_files<D: DistroType>(
     instance_id: &str,
     hostname: &str,
-    user_provided: Option<UserData>,
+    user_provided: Option<UserData<D>>,
     ip_address: &str,
 ) -> std::io::Result<()> {
-    let mut default_user_data = UserData {
-        users: vec![User {
-            name: "ubuntu".to_string(),
-            ssh_authorized_keys: None,
-            sudo: Some(vec!["ALL=(ALL) NOPASSWD:ALL".to_string()]),
-            groups: Some(vec!["sudo".to_string()]), 
-            shell: Some("/bin/bash".to_string()),
-            passwd: Some("$6$ZP1jxGi3aYL9Cs2m$hh5hIXjvztsXarenhMWiLZNqXM.J/djgkuB3trkqi9fkDNCAANDrWZgFWymG0rUONkMXavx3kIFyqc5eEsnuV1".to_string()),
-            lock_passwd: Some(false),
-            chpasswd: Some(Chpasswd { expire: false }),
-            ssh_pwauth: Some(true)
-        }],
-        packages: vec![
-            "glusterfs-client".to_string(),
-            "rsync".to_string(),
-            "inotify-tools".to_string()
-        ],
-        write_files: vec![
-            WriteFile {
-                path: "/etc/systemd/system/glusterfs-sync.service".to_string(),
-                content: include_str!("templates/glusterfs-sync.service").to_string(),
-                permissions: None
-            },
-            WriteFile {
-                path: "/usr/local/bin/glusterfs-sync.sh".to_string(),
-                content: include_str!("templates/glusterfs-sync.sh").to_string(),
-                permissions: Some("0755".to_string()),
-            }
-        ],
-        mounts: vec!["[ \"localhost:/gv0\", \"/mnt/glusterfs/\", \"glusterfs\", \"defaults,_netdev\", \"0\", \"0\" ]".to_string()],
-        runcmd: vec![
-            "systemctl daemon-reload".to_string(),
-            "systemctl enable glusterfs-sync.service".to_string(),
-            "systemctl start glusterfs-sync.service".to_string()
-        ],
-        bootcmd: vec![]
-    };
+    let mut default_user_data = UserData::<D>::default();
 
     merge_user_data(&mut default_user_data, user_provided);
 
@@ -859,7 +875,7 @@ pub fn generate_cloud_init_files(
 
     let metadata = MetaData {
         instance_id: instance_id.to_string(),
-        local_hostname: hostname.to_string(),
+        local_hostname: format!("{}.versatus.io", hostname.to_string()),
     };
 
     let profile_dir = Path::new("/var/lib/libvirt/profiles").join(instance_id);
