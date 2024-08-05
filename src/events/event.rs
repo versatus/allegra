@@ -1,27 +1,30 @@
-use std::{collections::{HashMap, HashSet}, net::SocketAddr};
-use libretto::pubsub::LibrettoEvent;
-use rayon::iter::{ParallelIterator, IntoParallelRefIterator};
-use serde::{Serialize, Deserialize};
-use sha3::{Digest, Sha3_256};
-use crate::{
-    account::{
-        ExposedPort,
-        Namespace,
-        TaskId,
-        TaskStatus
-    }, allegra_rpc::{
-        CloudInit, InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams, InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams, InstanceStopParams
-    }, network::quorum::Quorum, network::peer::Peer, helpers::{
-            generate_task_id, recover_namespace, recover_owner_address
-        }, params::{
-            HasOwner, Params, ServiceType
-        }, publish::GeneralResponseTopic, vm_info::{
-            VmInfo, 
-            VmList
-        }, vm_types::VmType, vmm::Instance, voting::Vote
-};
 use crate::payload_impls::Payload;
+use crate::{
+    account::{ExposedPort, Namespace, TaskId, TaskStatus},
+    allegra_rpc::{
+        InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams,
+        InstanceExposeServiceParams, InstanceGetSshDetails, InstanceStartParams,
+        InstanceStopParams,
+    },
+    helpers::{generate_task_id, recover_namespace, recover_owner_address},
+    network::peer::Peer,
+    params::{HasOwner, Params, ServiceType},
+    publish::GeneralResponseTopic,
+    virt_install::CloudInit,
+    vm_info::{VmInfo, VmList},
+    vm_types::VmType,
+    vmm::distro::Distro,
+    vmm::Instance,
+    voting::Vote,
+};
 use getset::Getters;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+};
 
 macro_rules! impl_into_event {
     ($($t:ty => $variant:ident),*) => {
@@ -82,78 +85,24 @@ pub trait SerializeIntoInner: Serialize {
 impl SerializeIntoInner for Event {
     fn inner_to_string(&self) -> std::io::Result<String> {
         match self {
-            Self::VmmEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::NetworkEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::DnsEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::StateEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::QuorumEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::TaskStatusEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::SyncEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::RpcResponseEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
-            Self::GeneralResponseEvent(event) => {
-                serde_json::to_string(&event).map_err(|e| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e
-                    )
-                })
-            }
+            Self::VmmEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::NetworkEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::DnsEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::StateEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::QuorumEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::TaskStatusEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::SyncEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::RpcResponseEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::GeneralResponseEvent(event) => serde_json::to_string(&event)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
         }
     }
 }
@@ -162,7 +111,7 @@ impl SerializeIntoInner for Event {
 pub enum StateValueType {
     Account,
     TaskStatus,
-    Instance
+    Instance,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -175,7 +124,7 @@ pub enum Event {
     TaskStatusEvent(TaskStatusEvent),
     SyncEvent(SyncEvent),
     RpcResponseEvent(RpcResponseEvent),
-    GeneralResponseEvent(GeneralResponseEvent)
+    GeneralResponseEvent(GeneralResponseEvent),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -186,13 +135,13 @@ pub enum TaskStatusEvent {
         task_status: TaskStatus,
         event_id: String,
     },
-    Get { 
+    Get {
         owner: [u8; 20],
         original_task_id: TaskId,
         current_task_id: TaskId,
         event_id: String,
-        response_topics: Vec<GeneralResponseTopic>
-    }, 
+        response_topics: Vec<GeneralResponseTopic>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -201,7 +150,7 @@ pub enum VmmEvent {
         event_id: String,
         task_id: TaskId,
         name: String,
-        distro: String,
+        distro: Distro,
         version: String,
         vmtype: VmType,
         sig: String,
@@ -258,18 +207,18 @@ pub enum VmmEvent {
     Start {
         event_id: String,
         task_id: TaskId,
-        name: String, 
-        console: bool, 
+        name: String,
+        console: bool,
         stateless: bool,
-        sig: String, 
-        recovery_id: u32 
+        sig: String,
+        recovery_id: u32,
     },
     Stop {
         event_id: String,
         task_id: TaskId,
         name: String,
         sig: String,
-        recovery_id: u32 
+        recovery_id: u32,
     },
     Delete {
         event_id: String,
@@ -287,7 +236,7 @@ pub enum VmmEvent {
         sig: String,
         recovery_id: u32,
         port: Vec<u16>,
-        service_type: Vec<ServiceType>
+        service_type: Vec<ServiceType>,
     },
     AddPubkey {
         event_id: String,
@@ -301,7 +250,7 @@ pub enum VmmEvent {
         event_id: String,
         task_id: TaskId,
         namespace: Namespace,
-    }
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -318,7 +267,7 @@ pub enum NetworkEvent {
         event_id: String,
         task_id: TaskId,
         name: String,
-        distro: String,
+        distro: Distro,
         version: String,
         vmtype: String,
         sig: String,
@@ -377,7 +326,7 @@ pub enum NetworkEvent {
         event_id: String,
         task_id: TaskId,
         name: String,
-        sig: String, 
+        sig: String,
         recovery_id: u32,
         port: Vec<u16>,
         service_type: Vec<ServiceType>,
@@ -396,7 +345,7 @@ pub enum NetworkEvent {
     Stop {
         event_id: String,
         task_id: TaskId,
-        name: String, 
+        name: String,
         sig: String,
         recovery_id: u32,
         dst: String,
@@ -424,13 +373,13 @@ pub enum NetworkEvent {
         event_id: String,
         task_id: TaskId,
         vote: Vote,
-        peers: Vec<Peer>
+        peers: Vec<Peer>,
     },
     ShareInstanceNamespaces {
         event_id: String,
         task_id: TaskId,
         instances: HashSet<Namespace>,
-        peer: Peer
+        peer: Peer,
     },
     BootstrapNewPeer {
         // This event ensures a new peer is fully bootstrapped into the network
@@ -443,7 +392,7 @@ pub enum NetworkEvent {
         // in the event this process leads to a quorum reshuffling,
         // the new peer should receive all of the network's peer information
         // such as the existing peers and the quorums they are members of
-        // after the quorum reshuffling and leader elections occur, and the 
+        // after the quorum reshuffling and leader elections occur, and the
         // peer is firmly a member of a quorum
         //
         // in the event this process is interrupted by a new leader election
@@ -453,13 +402,13 @@ pub enum NetworkEvent {
         event_id: String,
         task_id: TaskId,
         peer: Peer,
-        dst: Peer
+        dst: Peer,
     },
     BootstrapInstancesResponse {
         event_id: String,
         task_id: TaskId,
         requestor: Peer,
-        bootstrapper: Peer
+        bootstrapper: Peer,
     },
     BootstrapResponse {
         event_id: String,
@@ -478,7 +427,7 @@ pub enum NetworkEvent {
         task_id: TaskId,
         instance: Namespace,
         dst: Peer,
-        local_peer: Peer
+        local_peer: Peer,
     },
 }
 
@@ -502,12 +451,12 @@ pub enum SyncEvent {
         last_update: Option<u64>,
         new_quorum: String,
         dst: String,
-    }
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DnsEvent {
-    Register { 
+    Register {
         event_id: String,
         task_id: TaskId,
         name: String,
@@ -522,7 +471,7 @@ pub enum DnsEvent {
         name: String,
         sig: String,
         recovery_id: u32,
-        domain_name: String
+        domain_name: String,
     },
 }
 
@@ -532,9 +481,9 @@ pub enum StateEvent {
         event_id: String,
         task_id: TaskId,
         key: Vec<u8>,
-        value: Vec<u8> 
+        value: Vec<u8>,
     },
-    Get{
+    Get {
         event_id: String,
         task_id: TaskId,
         key: Vec<u8>,
@@ -545,7 +494,7 @@ pub enum StateEvent {
         event_id: String,
         task_id: TaskId,
         key: Vec<u8>,
-        value: Vec<u8>
+        value: Vec<u8>,
     },
     Delete {
         event_id: String,
@@ -608,7 +557,7 @@ pub enum StateEvent {
         event_id: String,
         task_id: TaskId,
         task_status: TaskStatus,
-        namespace: Namespace
+        namespace: Namespace,
     },
     PutTaskStatus {
         event_id: String,
@@ -617,7 +566,7 @@ pub enum StateEvent {
     },
     PostTaskStatus {
         event_id: String,
-        task_id: TaskId, 
+        task_id: TaskId,
         task_status: TaskStatus,
     },
     GetTaskStatus {
@@ -637,9 +586,9 @@ pub enum QuorumEvent {
         event_id: String,
         task_id: TaskId,
         quorum_id: String,
-        address: String
+        address: String,
     },
-    Consolidate{
+    Consolidate {
         event_id: String,
         task_id: TaskId,
         quorum_id: String,
@@ -648,7 +597,7 @@ pub enum QuorumEvent {
         event_id: String,
         task_id: TaskId,
         namespace: Namespace,
-        requestor_addr: Option<SocketAddr>
+        requestor_addr: Option<SocketAddr>,
     },
     CheckResponsibility {
         event_id: String,
@@ -683,7 +632,7 @@ pub enum QuorumEvent {
         task_id: TaskId,
         instance: Namespace,
         peer: Peer,
-    }
+    },
 }
 
 #[derive(Clone, Debug, Getters, Serialize, Deserialize)]
@@ -695,12 +644,12 @@ pub struct GeneralResponseEvent {
 }
 
 impl GeneralResponseEvent {
-    pub fn new(
-        event_id: String,
-        original_event_id: String,
-        response: String,
-    ) -> Self {
-        Self { event_id, original_event_id, response }
+    pub fn new(event_id: String, original_event_id: String, response: String) -> Self {
+        Self {
+            event_id,
+            original_event_id,
+            response,
+        }
     }
 }
 
@@ -709,44 +658,39 @@ impl GeneralResponseEvent {
 pub struct RpcResponseEvent {
     original_event_id: String,
     event_id: String,
-    response: String, 
+    response: String,
 }
 
 pub trait BrokerEvent {}
 
-impl BrokerEvent for Event {} 
-impl BrokerEvent for VmmEvent {} 
-impl BrokerEvent for NetworkEvent {} 
-impl BrokerEvent for DnsEvent {} 
-impl BrokerEvent for StateEvent {} 
-impl BrokerEvent for QuorumEvent {} 
-impl BrokerEvent for SyncEvent {} 
-impl BrokerEvent for TaskStatusEvent {} 
-impl BrokerEvent for RpcResponseEvent {} 
-impl BrokerEvent for GeneralResponseEvent {} 
+impl BrokerEvent for Event {}
+impl BrokerEvent for VmmEvent {}
+impl BrokerEvent for NetworkEvent {}
+impl BrokerEvent for DnsEvent {}
+impl BrokerEvent for StateEvent {}
+impl BrokerEvent for QuorumEvent {}
+impl BrokerEvent for SyncEvent {}
+impl BrokerEvent for TaskStatusEvent {}
+impl BrokerEvent for RpcResponseEvent {}
+impl BrokerEvent for GeneralResponseEvent {}
 
 impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
     type Error = std::io::Error;
     fn try_from(value: (Peer, InstanceCreateParams)) -> Result<Self, Self::Error> {
-        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = value
+            .1
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let event_id = uuid::Uuid::new_v4().to_string();
-        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
-        Ok(NetworkEvent::Create { 
-            name: value.1.name.clone(), 
-            distro: value.1.distro.clone(), 
-            version: value.1.version.clone(), 
-            vmtype: value.1.vmtype.clone(), 
-            sig: value.1.sig.clone(), 
+        let task_id = generate_task_id(value.1.clone())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        Ok(NetworkEvent::Create {
+            name: value.1.name.clone(),
+            distro: Distro::from(value.1.distro.clone()),
+            version: value.1.version.clone(),
+            vmtype: value.1.vmtype.clone(),
+            sig: value.1.sig.clone(),
             recovery_id,
             dst: value.0.ip_address().to_string(),
             event_id,
@@ -788,9 +732,12 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             import: value.1.import,
             boot: value.1.boot,
             idmap: value.1.idmap,
-            features: value.1.features.par_iter().map(|f| {
-                (f.name.clone(), f.feature.clone())
-            }).collect(),
+            features: value
+                .1
+                .features
+                .par_iter()
+                .map(|f| (f.name.clone(), f.feature.clone()))
+                .collect(),
             clock: value.1.clock,
             launch_security: value.1.launch_security,
             numatune: value.1.numatune,
@@ -800,35 +747,32 @@ impl TryFrom<(Peer, InstanceCreateParams)> for NetworkEvent {
             dry_run: value.1.dry_run,
             connect: value.1.connect,
             virt_type: value.1.virt_type,
-            cloud_init: value.1.cloud_init
+            cloud_init: match value.1.cloud_init {
+                Some(ci) => Some(ci.into()),
+                None => None,
+            },
         })
     }
 }
 
-
 impl TryFrom<(Peer, InstanceStopParams)> for NetworkEvent {
     type Error = std::io::Error;
     fn try_from(value: (Peer, InstanceStopParams)) -> Result<Self, Self::Error> {
-        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = value
+            .1
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let event_id = uuid::Uuid::new_v4().to_string();
-        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
-        Ok(NetworkEvent::Stop { 
+        let task_id = generate_task_id(value.1.clone())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        Ok(NetworkEvent::Stop {
             name: value.1.name,
             sig: value.1.sig,
-            recovery_id, 
-            dst: value.0.ip_address().to_string(), 
+            recovery_id,
+            dst: value.0.ip_address().to_string(),
             event_id,
-            task_id
+            task_id,
         })
     }
 }
@@ -836,28 +780,23 @@ impl TryFrom<(Peer, InstanceStopParams)> for NetworkEvent {
 impl TryFrom<(Peer, InstanceStartParams)> for NetworkEvent {
     type Error = std::io::Error;
     fn try_from(value: (Peer, InstanceStartParams)) -> Result<Self, Self::Error> {
-        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = value
+            .1
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let event_id = uuid::Uuid::new_v4().to_string();
-        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
-        Ok(NetworkEvent::Start { 
-            name: value.1.name.clone(), 
-            sig: value.1.sig.clone(), 
+        let task_id = generate_task_id(value.1.clone())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        Ok(NetworkEvent::Start {
+            name: value.1.name.clone(),
+            sig: value.1.sig.clone(),
             recovery_id,
-            console: value.1.console, 
-            stateless: value.1.stateless, 
-            dst: value.0.ip_address().to_string(), 
+            console: value.1.console,
+            stateless: value.1.stateless,
+            dst: value.0.ip_address().to_string(),
             event_id,
-            task_id
+            task_id,
         })
     }
 }
@@ -865,90 +804,83 @@ impl TryFrom<(Peer, InstanceStartParams)> for NetworkEvent {
 impl TryFrom<(Peer, InstanceAddPubkeyParams)> for NetworkEvent {
     type Error = std::io::Error;
     fn try_from(value: (Peer, InstanceAddPubkeyParams)) -> Result<Self, Self::Error> {
-        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = value
+            .1
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let event_id = uuid::Uuid::new_v4().to_string();
-        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
-        Ok(NetworkEvent::AddPubkey { 
-            name: value.1.name.clone(), 
-            sig: value.1.sig.clone(), 
-            recovery_id, 
-            pubkey: value.1.pubkey, 
-            dst: value.0.ip_address().to_string(), 
+        let task_id = generate_task_id(value.1.clone())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        Ok(NetworkEvent::AddPubkey {
+            name: value.1.name.clone(),
+            sig: value.1.sig.clone(),
+            recovery_id,
+            pubkey: value.1.pubkey,
+            dst: value.0.ip_address().to_string(),
             event_id,
-            task_id
-        })  
+            task_id,
+        })
     }
 }
 
 impl TryFrom<(Peer, InstanceDeleteParams)> for NetworkEvent {
     type Error = std::io::Error;
     fn try_from(value: (Peer, InstanceDeleteParams)) -> Result<Self, Self::Error> {
-        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = value
+            .1
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let event_id = uuid::Uuid::new_v4().to_string();
-        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
-        Ok(NetworkEvent::Delete { 
-            name: value.1.name.clone(), 
-            force: value.1.force, 
-            interactive: value.1.interactive, 
-            sig: value.1.sig, 
-            recovery_id, 
-            dst: value.0.ip_address().to_string(), 
+        let task_id = generate_task_id(value.1.clone())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        Ok(NetworkEvent::Delete {
+            name: value.1.name.clone(),
+            force: value.1.force,
+            interactive: value.1.interactive,
+            sig: value.1.sig,
+            recovery_id,
+            dst: value.0.ip_address().to_string(),
             event_id,
-            task_id
-        }) 
+            task_id,
+        })
     }
 }
 
 impl TryFrom<(Peer, InstanceExposeServiceParams)> for NetworkEvent {
     type Error = std::io::Error;
     fn try_from(value: (Peer, InstanceExposeServiceParams)) -> Result<Self, Self::Error> {
-        let recovery_id = value.1.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = value
+            .1
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let event_id = uuid::Uuid::new_v4().to_string();
-        let task_id = generate_task_id(value.1.clone()).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string()
-            )
-        })?;
-        Ok(NetworkEvent::ExposeService { 
-            name: value.1.name.clone(), 
-            sig: value.1.sig.clone(), 
-            recovery_id, 
-            port: value.1.port.par_iter().filter_map(|p| {
-                p.to_owned().try_into().ok()
-            }).collect::<Vec<u16>>().clone(), 
-            service_type: value.1.service_type.par_iter().map(|st| {
-                st.to_owned().into()
-            }).collect::<Vec<ServiceType>>().clone(), 
+        let task_id = generate_task_id(value.1.clone())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        Ok(NetworkEvent::ExposeService {
+            name: value.1.name.clone(),
+            sig: value.1.sig.clone(),
+            recovery_id,
+            port: value
+                .1
+                .port
+                .par_iter()
+                .filter_map(|p| p.to_owned().try_into().ok())
+                .collect::<Vec<u16>>()
+                .clone(),
+            service_type: value
+                .1
+                .service_type
+                .par_iter()
+                .map(|st| st.to_owned().into())
+                .collect::<Vec<ServiceType>>()
+                .clone(),
             dst: value.0.ip_address().to_string(),
             event_id,
-            task_id
-        }) 
+            task_id,
+        })
     }
 }
 
@@ -956,20 +888,16 @@ impl TryFrom<InstanceCreateParams> for Namespace {
     type Error = std::io::Error;
 
     fn try_from(params: InstanceCreateParams) -> Result<Self, Self::Error> {
-        let payload = params.into_payload(); 
+        let payload = params.into_payload();
         log::info!("converted params into payload...");
         let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
+        hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = params
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         log::info!("converted recovery_id into u32...");
         let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
@@ -978,26 +906,21 @@ impl TryFrom<InstanceCreateParams> for Namespace {
         Ok(namespace)
     }
 }
-
 
 impl TryFrom<InstanceStopParams> for Namespace {
     type Error = std::io::Error;
 
     fn try_from(params: InstanceStopParams) -> Result<Self, Self::Error> {
-        let payload = params.into_payload(); 
+        let payload = params.into_payload();
         log::info!("converted params into payload...");
         let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
+        hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = params
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         log::info!("converted recovery_id into u32...");
         let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
@@ -1006,26 +929,21 @@ impl TryFrom<InstanceStopParams> for Namespace {
         Ok(namespace)
     }
 }
-
 
 impl TryFrom<InstanceStartParams> for Namespace {
     type Error = std::io::Error;
 
     fn try_from(params: InstanceStartParams) -> Result<Self, Self::Error> {
-        let payload = params.into_payload(); 
+        let payload = params.into_payload();
         log::info!("converted params into payload...");
         let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
+        hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = params
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         log::info!("converted recovery_id into u32...");
         let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
@@ -1035,25 +953,20 @@ impl TryFrom<InstanceStartParams> for Namespace {
     }
 }
 
-
 impl TryFrom<InstanceDeleteParams> for Namespace {
     type Error = std::io::Error;
 
     fn try_from(params: InstanceDeleteParams) -> Result<Self, Self::Error> {
-        let payload = params.into_payload(); 
+        let payload = params.into_payload();
         log::info!("converted params into payload...");
         let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
+        hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = params
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         log::info!("converted recovery_id into u32...");
         let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
@@ -1067,20 +980,16 @@ impl TryFrom<InstanceExposeServiceParams> for Namespace {
     type Error = std::io::Error;
 
     fn try_from(params: InstanceExposeServiceParams) -> Result<Self, Self::Error> {
-        let payload = params.into_payload(); 
+        let payload = params.into_payload();
         log::info!("converted params into payload...");
         let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
+        hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = params
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         log::info!("converted recovery_id into u32...");
         let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
@@ -1094,20 +1003,16 @@ impl TryFrom<InstanceAddPubkeyParams> for Namespace {
     type Error = std::io::Error;
 
     fn try_from(params: InstanceAddPubkeyParams) -> Result<Self, Self::Error> {
-        let payload = params.into_payload(); 
+        let payload = params.into_payload();
         log::info!("converted params into payload...");
         let mut hasher = Sha3_256::new();
-        hasher.update(
-            payload.as_bytes()
-        );
+        hasher.update(payload.as_bytes());
         let hash = hasher.finalize().to_vec();
         log::info!("hashed params payload...");
-        let recovery_id = params.recovery_id.try_into().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?;
+        let recovery_id = params
+            .recovery_id
+            .try_into()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         log::info!("converted recovery_id into u32...");
         let owner = recover_owner_address(hash, params.sig.clone(), recovery_id)?;
@@ -1117,12 +1022,11 @@ impl TryFrom<InstanceAddPubkeyParams> for Namespace {
     }
 }
 
-
 impl TryFrom<InstanceGetSshDetails> for Namespace {
     type Error = std::io::Error;
 
     fn try_from(params: InstanceGetSshDetails) -> Result<Self, Self::Error> {
-        let owner = params.owner()?; 
+        let owner = params.owner()?;
         let namespace = recover_namespace(owner, &params.name);
         Ok(namespace)
     }

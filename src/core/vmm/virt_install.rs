@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fs, path::Path, process::Command};
-use crate::allegra_rpc::{InstanceCreateParams, CloudInit as ProtoCloudInit};
-use serde::{Serialize, Deserialize};
-use getset::{Getters, Setters, MutGetters};
+use crate::{allegra_rpc::{CloudInit as ProtoCloudInit, InstanceCreateParams}, distro::DistroType, Namespace};
+use getset::{Getters, MutGetters, Setters};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fs, marker::PhantomData, path::Path, process::Command};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VirtInstall {
@@ -55,26 +55,79 @@ pub struct VirtInstall {
     cloud_init: Option<CloudInit>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CloudInit {
-    root_password_generate: bool,
-    disable: bool,
-    root_password_file: Option<String>,
-    meta_data: Option<String>,
-    user_data: Option<String>,
-    root_ssh_key: Option<String>,
-    clouduser_ssh_key: Option<String>,
-    network_config: Option<String>
+    pub root_password_generate: bool,
+    pub disable: bool,
+    pub root_password_file: Option<String>,
+    pub meta_data: Option<String>,
+    pub user_data: Option<String>,
+    pub root_ssh_key: Option<String>,
+    pub clouduser_ssh_key: Option<String>,
+    pub network_config: Option<String>,
 }
 
 #[derive(Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
-pub struct UserData {
+pub struct UserData<D: DistroType> {
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     users: Vec<User>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     packages: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     write_files: Vec<WriteFile>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     mounts: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     runcmd: Vec<String>,
-    bootcmd: Vec<String>
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    bootcmd: Vec<String>,
+    #[serde(skip)]
+    phantom: PhantomData<D>
+}
+
+impl<D: DistroType> Default for UserData<D> {
+    fn default() -> Self {
+        let glusterfs_sync_script = include_str!("templates/glusterfs-sync.sh");
+        let glusterfs_sync_service = include_str!("templates/glusterfs-sync.service");
+        UserData {
+            users: vec![User {
+                name: D::default_username(),
+                ssh_authorized_keys: None,
+                sudo: Some(vec!["ALL=(ALL) NOPASSWD:ALL".to_string()]),
+                groups: Some(vec!["sudo".to_string()]), 
+                shell: Some("/bin/bash".to_string()),
+                passwd: Some(D::default_password()),
+                lock_passwd: Some(false),
+                chpasswd: Some(Chpasswd { expire: false }),
+                ssh_pwauth: Some(true)
+            }],
+            packages: vec![
+                "glusterfs-client".to_string(),
+                "rsync".to_string(),
+                "inotify-tools".to_string()
+            ],
+            write_files: vec![
+                WriteFile {
+                    path: "/etc/systemd/system/glusterfs-sync.service".to_string(),
+                    content: glusterfs_sync_service.to_string(),
+                    permissions: Some("0644".to_string()), 
+                },
+                WriteFile {
+                    path: "/usr/local/bin/glusterfs-sync.sh".to_string(),
+                    content: glusterfs_sync_script.to_string(), 
+                    permissions: Some("0755".to_string()),
+                },
+            ],
+            mounts: vec!["[ \"localhost:/gv0\", \"/mnt/glusterfs/\", \"glusterfs\", \"defaults,_netdev\", \"0\", \"0\" ]".to_string()],
+            runcmd: vec![
+                "systemctl daemon-reload".to_string(),
+                "systemctl enable glusterfs-sync.service".to_string(),
+                "systemctl start glusterfs-sync.service".to_string()
+            ],
+            bootcmd: vec![],
+            phantom: PhantomData
+        }
+    }
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
@@ -95,26 +148,25 @@ pub struct User {
     #[serde(skip_serializing_if = "Option::is_none")]
     chpasswd: Option<Chpasswd>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ssh_pwauth: Option<bool>
+    ssh_pwauth: Option<bool>,
 }
-
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct Chpasswd {
-    expire: bool
+    expire: bool,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct WriteFile {
     path: String,
     content: String,
-    permissions: Option<String>
+    permissions: Option<String>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct NetworkConfig {
     version: u8,
-    ethernets: std::collections::HashMap<String, EthernetConfig>
+    ethernets: std::collections::HashMap<String, EthernetConfig>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
@@ -122,24 +174,24 @@ pub struct EthernetConfig {
     dhcp4: bool,
     addresses: Vec<String>,
     nameservers: Nameservers,
-    routes: Vec<Route>
+    routes: Vec<Route>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct Nameservers {
-    addresses: Vec<String>
+    addresses: Vec<String>,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct Route {
     to: String,
-    via: String
+    via: String,
 }
 
 #[derive(Clone, Getters, MutGetters, Setters, Debug, Serialize, Deserialize)]
 pub struct MetaData {
     instance_id: String,
-    local_hostname: String
+    local_hostname: String,
 }
 
 impl From<ProtoCloudInit> for CloudInit {
@@ -152,7 +204,22 @@ impl From<ProtoCloudInit> for CloudInit {
             user_data: value.user_data,
             root_ssh_key: value.root_ssh_key,
             clouduser_ssh_key: value.clouduser_ssh_key,
-            network_config: value.network_config
+            network_config: value.network_config,
+        }
+    }
+}
+
+impl From<CloudInit> for ProtoCloudInit {
+    fn from(value: CloudInit) -> Self {
+        ProtoCloudInit {
+            root_password_generate: value.root_password_generate,
+            disable: value.disable,
+            root_password_file: value.root_password_file,
+            meta_data: value.meta_data,
+            user_data: value.user_data,
+            root_ssh_key: value.root_ssh_key,
+            clouduser_ssh_key: value.clouduser_ssh_key,
+            network_config: value.network_config,
         }
     }
 }
@@ -162,42 +229,42 @@ impl CloudInit {
         CloudInit::default()
     }
 
-    pub fn root_password_generate(mut self, value: bool) -> Self {
+    pub fn set_root_password_generate(mut self, value: bool) -> Self {
         self.root_password_generate = value;
         self
     }
 
-    pub fn disable(mut self, value: bool) -> Self {
+    pub fn set_disable(mut self, value: bool) -> Self {
         self.disable = value;
         self
     }
 
-    pub fn root_password_file(mut self, file: String) -> Self {
+    pub fn set_root_password_file(mut self, file: String) -> Self {
         self.root_password_file = Some(file);
         self
     }
 
-    pub fn meta_data(mut self, data: String) -> Self {
+    pub fn set_meta_data(mut self, data: String) -> Self {
         self.meta_data = Some(data);
         self
     }
 
-    pub fn user_data(mut self, data: String) -> Self {
+    pub fn set_user_data(mut self, data: String) -> Self {
         self.user_data = Some(data);
         self
     }
 
-    pub fn root_ssh_key(mut self, key: String) -> Self {
+    pub fn set_root_ssh_key(mut self, key: String) -> Self {
         self.root_ssh_key = Some(key);
         self
     }
 
-    pub fn clouduser_ssh_key(mut self, key: String) -> Self {
+    pub fn set_clouduser_ssh_key(mut self, key: String) -> Self {
         self.clouduser_ssh_key = Some(key);
         self
     }
 
-    pub fn network_config(mut self, config: String) -> Self {
+    pub fn set_network_config(mut self, config: String) -> Self {
         self.network_config = Some(config);
         self
     }
@@ -441,232 +508,39 @@ impl VirtInstall {
         self
     }
 
-    pub fn execute(&self) -> std::io::Result<std::process::Output> {
+    pub fn execute(&self, namespace: &Namespace, use_disk: &str) -> std::io::Result<std::process::Output> {
         let mut command = Command::new("virt-install");
 
-        command.arg("--name").arg(&self.name);
+        command.arg("--name").arg(&namespace.inner().to_string());
 
         if let Some(memory) = &self.memory {
-            command.arg("--memory").arg(memory);
+            command.arg("--ram").arg(memory);
         }
 
         if let Some(vcpus) = &self.vcpus {
             command.arg("--vcpus").arg(vcpus);
         }
 
-        if let Some(cpu) = &self.cpu {
-            command.arg("--cpu").arg(cpu);
-        }
-
-        if let Some(metadata) = &self.metadata {
-            command.arg("--metadata").arg(metadata);
-        }
+        command.arg("--import");
+        command.arg("--disk").arg(&format!("{},format=qcow2", use_disk));
 
         if let Some(os_variant) = &self.os_variant {
             command.arg("--os-variant").arg(os_variant);
         }
 
-        for host_device in &self.host_device {
-            command.arg("--host-device").arg(host_device);
-        }
+        command.arg("--network").arg("bridge=virbr0,model=virtio");
+        command.arg("--graphics").arg("vnc,listen=0.0.0.0");
+        command.arg("--noautoconsole");
 
-        for network in &self.network {
-            command.arg("--network").arg(network);
-        }
+        let cloud_init_path = format!("/var/lib/libvirt/profiles/{}", namespace); 
+        let user_data_arg = format!("user-data={}/user-data.yaml", cloud_init_path);
+        let meta_data_arg = format!("meta-data={}/meta-data.yaml", cloud_init_path);
+        let network_config_arg = format!("network-config={}/network-config.yaml", cloud_init_path);
+        let cloud_init_arg = format!("{user_data_arg},{meta_data_arg},{network_config_arg}");
 
-        for disk in &self.disk {
-            command.arg("--disk").arg(disk);
-        }
+        command.arg("--cloud-init").arg(&cloud_init_arg);
 
-        for filesystem in &self.filesystem {
-            command.arg("--filesystem").arg(filesystem);
-        }
-
-        for controller in &self.controller {
-            command.arg("--controller").arg(controller);
-        }
-
-        for input in &self.input {
-            command.arg("--input").arg(input);
-        }
-
-        if let Some(graphics) = &self.graphics {
-            command.arg("--graphics").arg(graphics);
-        }
-
-        if let Some(sound) = &self.sound {
-            command.arg("--sound").arg(sound);
-        }
-
-        if let Some(video) = &self.video {
-            command.arg("--video").arg(video);
-        }
-
-        if let Some(smartcard) = &self.smartcard {
-            command.arg("--smartcard").arg(smartcard);
-        }
-
-        for redirdev in &self.redirdev {
-            command.arg("--redirdev").arg(redirdev);
-        }
-
-        if let Some(memballoon) = &self.memballoon {
-            command.arg("--memballoon").arg(memballoon);
-        }
-
-        if let Some(tpm) = &self.tpm {
-            command.arg("--tpm").arg(tpm);
-        }
-
-        if let Some(rng) = &self.rng {
-            command.arg("--rng").arg(rng);
-        }
-
-        if let Some(panic) = &self.panic {
-            command.arg("--panic").arg(panic);
-        }
-
-        if let Some(shmem) = &self.shmem {
-            command.arg("--shmem").arg(shmem);
-        }
-
-        for memdev in &self.memdev {
-            command.arg("--memdev").arg(memdev);
-        }
-
-        if let Some(vsock) = &self.vsock {
-            command.arg("--vsock").arg(vsock);
-        }
-
-        if let Some(iommu) = &self.iommu {
-            command.arg("--iommu").arg(iommu);
-        }
-
-        if let Some(watchdog) = &self.watchdog {
-            command.arg("--watchdog").arg(watchdog);
-        }
-
-        for serial in &self.serial {
-            command.arg("--serial").arg(serial);
-        }
-
-        for parallel in &self.parallel {
-            command.arg("--parallel").arg(parallel);
-        }
-
-        for channel in &self.channel {
-            command.arg("--channel").arg(channel);
-        }
-
-        for console in &self.console {
-            command.arg("--console").arg(console);
-        }
-
-        if let Some(install) = &self.install {
-            command.arg("--install").arg(install);
-        }
-
-        if let Some(cdrom) = &self.cdrom {
-            command.arg("--cdrom").arg(cdrom);
-        }
-
-        if let Some(location) = &self.location {
-            command.arg("--location").arg(location);
-        }
-
-        if self.pxe {
-            command.arg("--pxe");
-        }
-
-        if self.import {
-            command.arg("--import");
-        }
-
-        if let Some(boot) = &self.boot {
-            command.arg("--boot").arg(boot);
-        }
-
-        if let Some(idmap) = &self.idmap {
-            command.arg("--idmap").arg(idmap);
-        }
-
-        for (key, value) in &self.features {
-            command.arg("--features").arg(format!("{}={}", key, value));
-        }
-
-        if let Some(clock) = &self.clock {
-            command.arg("--clock").arg(clock);
-        }
-
-        if let Some(launch_security) = &self.launch_security {
-            command.arg("--launchSecurity").arg(launch_security);
-        }
-
-        if let Some(numatune) = &self.numatune {
-            command.arg("--numatune").arg(numatune);
-        }
-
-        for boot_dev in &self.boot_dev {
-            command.arg("--boot").arg(boot_dev);
-        }
-
-        if self.unattended {
-            command.arg("--unattended");
-        }
-
-        if let Some(print_xml) = &self.print_xml {
-            command.arg("--print-xml").arg(print_xml);
-        }
-
-        if self.dry_run {
-            command.arg("--dry-run");
-        }
-
-        if let Some(connect) = &self.connect {
-            command.arg("--connect").arg(connect);
-        }
-
-        if let Some(virt_type) = &self.virt_type {
-            command.arg("--virt-type").arg(virt_type);
-        }
-
-        // Make directory for profile
-        // use template and update
-        if let Some(cloud_init) = &self.cloud_init {
-            let mut cloud_init_args = Vec::new();
-
-            if cloud_init.root_password_generate {
-                cloud_init_args.push("root-password-generate=on".to_string());
-            }
-            if cloud_init.disable {
-                cloud_init_args.push("disable=on".to_string());
-            }
-            if let Some(file) = &cloud_init.root_password_file {
-                cloud_init_args.push(format!("root-password-file={}", file.clone()));
-            }
-            if let Some(meta_data) = &cloud_init.meta_data {
-                cloud_init_args.push(format!("meta-data={}", meta_data.clone()));
-            }
-            if let Some(user_data) = &cloud_init.user_data {
-                cloud_init_args.push(format!("user-data={}", user_data.clone()));
-            }
-            if let Some(root_ssh_key) = &cloud_init.root_ssh_key {
-                cloud_init_args.push(format!("root-ssh-key={}", root_ssh_key.clone()));
-            }
-            if let Some(clouduser_ssh_key) = &cloud_init.clouduser_ssh_key {
-                cloud_init_args.push(format!("clouduser-ssh-key={}", clouduser_ssh_key.clone()));
-            }
-            if let Some(network_config) = &cloud_init.network_config {
-                cloud_init_args.push(format!("network-config={}", network_config.clone()));
-            }
-
-            if !cloud_init_args.is_empty() {
-                command.arg("--cloud-init");
-                command.arg(cloud_init_args.join(","));
-            } else {
-                command.arg("--cloud-init");
-            }
-        }
+        command.arg("--check").arg("disk_size=off");
 
         command.output()
     }
@@ -677,42 +551,45 @@ impl From<InstanceCreateParams> for VirtInstall {
         Self {
             name: value.name,
             memory: value.memory,
-            vcpus: value.vcpus, 
+            vcpus: value.vcpus,
             cpu: value.cpu,
             metadata: value.metadata,
-            os_variant: value.os_variant, 
-            host_device: value.host_device, 
-            network: value.network, 
-            disk: value.disk, 
-            filesystem: value.filesystem, 
-            controller: value.controller, 
-            input: value.input, 
-            graphics: value.graphics, 
-            sound: value.sound,  
-            video: value.video, 
-            smartcard: value.smartcard, 
-            redirdev: value.redirdev, 
-            memballoon: value.memballoon, 
-            tpm: value.tpm, 
-            rng: value.rng, 
-            panic: value.panic, 
-            shmem: value.shmem, 
-            memdev: value.memdev, 
-            vsock: value.vsock, 
-            iommu: value.iommu, 
-            watchdog: value.watchdog, 
-            serial: value.serial, 
-            parallel: value.parallel, 
-            channel: value.channel, 
-            console: value.console, 
-            install: value.install, 
-            cdrom: value.cdrom, 
-            location: value.location, 
-            pxe: value.pxe,
+            os_variant: value.os_variant,
+            host_device: value.host_device,
+            network: value.network,
+            disk: value.disk,
+            filesystem: value.filesystem,
+            controller: value.controller,
+            input: value.input,
+            graphics: value.graphics,
+            sound: value.sound,
+            video: value.video,
+            smartcard: value.smartcard,
+            redirdev: value.redirdev,
+            memballoon: value.memballoon,
+            tpm: value.tpm,
+            rng: value.rng,
+            panic: value.panic,
+            shmem: value.shmem,
+            memdev: value.memdev,
+            vsock: value.vsock,
+            iommu: value.iommu,
+            watchdog: value.watchdog,
+            serial: value.serial,
+            parallel: value.parallel,
+            channel: value.channel,
+            console: value.console,
+            install: value.install,
+            cdrom: value.cdrom,
+            location: value.location, pxe: value.pxe,
             import: value.import,
             boot: value.boot,
             idmap: value.idmap,
-            features: value.features.iter().map(|f| (f.name.clone(), f.feature.clone())).collect(),
+            features: value
+                .features
+                .iter()
+                .map(|f| (f.name.clone(), f.feature.clone()))
+                .collect(),
             clock: value.clock,
             launch_security: value.launch_security,
             numatune: value.numatune,
@@ -724,13 +601,20 @@ impl From<InstanceCreateParams> for VirtInstall {
             virt_type: value.virt_type,
             cloud_init: match value.cloud_init {
                 Some(ci) => Some(ci.into()),
-                None => None
-            }
+                None => None,
+            },
         }
     }
 }
 
-pub fn merge_user_data(default: &mut UserData, user_provided: Option<&UserData>) {
+pub fn merge_user_data<D: DistroType>(host_ip: &str, namespace: &str, default: &mut UserData<D>, user_provided: Option<UserData<D>>) {
+    let glusterfs_sync_env = format!("GLUSTER_NODE_IP={}\nGLUSTER_VOLUME_NAME={}\n", host_ip, namespace);
+    let gluster_env = WriteFile {
+        path: "/etc/glusterfs-sync.env".to_string(),
+        content: glusterfs_sync_env,
+        permissions: Some("0644".to_string())
+    };
+    default.write_files.push(gluster_env);
     if let Some(user) = user_provided {
         if !user.users.is_empty() {
             default.users = user.users.clone();
@@ -770,51 +654,21 @@ pub fn merge_user_data(default: &mut UserData, user_provided: Option<&UserData>)
     }
 }
 
-pub fn generate_cloud_init_files(
+pub fn generate_cloud_init_files<D: DistroType>(
+    host_ip: &str,
     instance_id: &str,
     hostname: &str,
-    user_provided: Option<&UserData>,
+    user_provided: Option<UserData<D>>,
     ip_address: &str,
 ) -> std::io::Result<()> {
-    let mut default_user_data = UserData {
-        users: vec![User {
-            name: "ubuntu".to_string(),
-            ssh_authorized_keys: None,
-            sudo: Some(vec!["ALL=(ALL) NOPASSWD:ALL".to_string()]),
-            groups: Some(vec!["sudo".to_string()]), 
-            shell: Some("/bin/bash".to_string()),
-            passwd: Some("$6$ZP1jxGi3aYL9Cs2m$hh5hIXjvztsXarenhMWiLZNqXM.J/djgkuB3trkqi9fkDNCAANDrWZgFWymG0rUONkMXavx3kIFyqc5eEsnuV1".to_string()),
-            lock_passwd: Some(false),
-            chpasswd: Some(Chpasswd { expire: false }),
-            ssh_pwauth: Some(true)
-        }],
-        packages: vec![
-            "glusterfs-client".to_string(),
-            "rsync".to_string(),
-            "inotify-tools".to_string()
-        ],
-        write_files: vec![
-            WriteFile {
-                path: "/etc/systemd/system/glusterfs-sync.service".to_string(),
-                content: include_str!("templates/glusterfs-sync.service").to_string(),
-                permissions: None
-            },
-            WriteFile {
-                path: "/usr/local/bin/glusterfs-sync.sh".to_string(),
-                content: include_str!("templates/glusterfs-sync.sh").to_string(),
-                permissions: Some("0755".to_string()),
-            }
-        ],
-        mounts: vec!["[ \"localhost:/gv0\", \"/mnt/glusterfs/\", \"glusterfs\", \"defaults,_netdev\", \"0\", \"0\" ]".to_string()],
-        runcmd: vec![
-            "systemctl daemon-reload".to_string(),
-            "systemctl enable glusterfs-sync.service".to_string(),
-            "systemctl start glusterfs-sync.service".to_string()
-        ],
-        bootcmd: vec![]
-    };
+    let mut default_user_data = UserData::<D>::default();
 
-    merge_user_data(&mut default_user_data, user_provided);
+    let host_ip_stripped = if let Some(pos) = host_ip.to_string().find(':') {
+        host_ip.to_string()[..pos].to_string()
+    } else {
+        host_ip.to_string()
+    };
+    merge_user_data(&host_ip_stripped, instance_id, &mut default_user_data, user_provided);
 
     let network_config = NetworkConfig {
         version: 2,
@@ -828,46 +682,46 @@ pub fn generate_cloud_init_files(
                 },
                 routes: vec![Route {
                     to: "0.0.0.0/0".to_string(),
-                    via: "192.168.122.1".to_string()
-                }]
-            }
-        )].iter().cloned().collect()
+                    via: "192.168.122.1".to_string(),
+                }],
+            },
+        )]
+        .iter()
+        .cloned()
+        .collect(),
     };
 
     let metadata = MetaData {
         instance_id: instance_id.to_string(),
-        local_hostname: hostname.to_string()
-    }; 
+        local_hostname: format!("{}.versatus.io", hostname.to_string()),
+    };
+
+    log::info!("CLOUDINIT USERDATA: {:?}", default_user_data);
+    log::info!("CLOUDINIT NETWORK CONFIG: {:?}", network_config);
+    log::info!("CLOUDINIT METADATA: {:?}", metadata);
 
     let profile_dir = Path::new("/var/lib/libvirt/profiles").join(instance_id);
     fs::create_dir_all(&profile_dir)?;
+    let user_data_str = serde_yml::to_string(&default_user_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    let full_user_data = format!("#cloud-config\n{}", user_data_str);
+
     fs::write(
         profile_dir.join("user-data.yaml"),
-        serde_yml::to_string(&default_user_data).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?,
+        full_user_data
     )?;
+
     fs::write(
         profile_dir.join("network-config.yaml"),
-        serde_yml::to_string(&network_config).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?,
+        serde_yml::to_string(&network_config)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
     )?;
 
     fs::write(
         profile_dir.join("meta-data.yaml"),
-        serde_yml::to_string(&metadata).map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e
-            )
-        })?,
+        serde_yml::to_string(&metadata)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
     )?;
 
     Ok(())

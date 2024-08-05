@@ -14,6 +14,15 @@ enum ServiceType {
     CUSTOM = 8;
 }
 
+enum Distro {
+    UBUNTU = 0;
+    CENTOS = 1;
+    FEDORA = 2;
+    DEBIAN = 3;
+    ARCH = 4;
+    ALPINE = 5;
+}
+
 enum SyncEvent {
     LIBRETTO_EVENT = 0;
     INTERVAL_EVENT = 1;
@@ -48,7 +57,7 @@ message CloudInit {
 
 message InstanceCreateParams {
   string name = 1;
-  string distro = 2;
+  Distro distro = 2;
   string version = 3;
   string vmtype = 4;
   string sig = 5;

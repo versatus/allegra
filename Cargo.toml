@@ -98,6 +98,18 @@ regex = "1.10.5"
 virt = { version = "0.4.0", features = [ "qemu" ] }
 chrono = { version = "0.4.38", features = [ "serde" ]}
 serde_xml = "0.9.1"
+roxmltree = "0.20.0"
+nix = { version = "0.29.0", features = [ "fs", "ioctl", "mount" ]}
+libc = "0.2.155"
+tempfile = "3.11.0"
+mockall = "0.13.0"
+fs_extra = "1.3.0"
 
 [build-dependencies]
 tonic-build = "0.11.0"
+tokio = { version = "1.38.0", features = ["full"] }
+reqwest = "0.12.4"
+futures = "0.3"
+
+[dev-dependencies]
+mockall = "0.11.3"

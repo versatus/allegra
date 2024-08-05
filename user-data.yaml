@@ -1,0 +1,12 @@
+#cloud-config
+users:
+  - name: ubuntu
+    ssh_authorized_keys:
+      - ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBKQErZwWAAV+iGF9T/1aaRHyDvIFCqd24glAp6Ws7wm3PKlokxfJ/SUX2GIFsg7Td5WqriTbFop4Y+UMUJMWvQ4= root@versatus.io
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    groups: ["sudo"]
+    shell: /bin/bash
+    passwd: $6$bdjzdCkT7TDXJupd$9pH8UdRdowft78IKpmpKHetd7Gd7sJuxGxp4.Yyfx928PUxI/A.iRZUNURUwTBV66F9mJ6KJIyM5Y6ReT6Q46/
+    lock-passwd: false
+    chpasswd: { expire: False }
+    ssh_pwauth: True

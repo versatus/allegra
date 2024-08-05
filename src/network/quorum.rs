@@ -1,55 +1,74 @@
-use serde::{Serialize, Deserialize};
+use crate::{event::NetworkEvent, GenericPublisher, Namespace, NetworkTopic, Peer, TaskId};
+use conductor::publisher::PubStream;
 use getset::{Getters, MutGetters};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
-use conductor::publisher::PubStream;
-use crate::{Peer, TaskId, GenericPublisher, Namespace, NetworkTopic, event::NetworkEvent};
 
 #[derive(Debug, Clone, Getters, MutGetters, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quorum {
-    #[getset(get_copy="pub", get="pub", get_mut)]
+    #[getset(get_copy = "pub", get = "pub", get_mut)]
     pub(super) id: Uuid,
-    #[getset(get_copy="pub", get="pub", get_mut)]
+    #[getset(get_copy = "pub", get = "pub", get_mut)]
     pub(super) peers: HashSet<Peer>,
 }
 
-
 impl Quorum {
     pub fn new() -> Self {
-        let id = Uuid::new_v4(); 
-        Self { id, peers: HashSet::new() }
+        let id = Uuid::new_v4();
+        Self {
+            id,
+            peers: HashSet::new(),
+        }
     }
 
-    pub fn add_peer(&mut self, peer: &Peer) -> bool {
+    pub async fn add_peer(&mut self, peer: &Peer) -> std::io::Result<bool> {
         if !self.peers.contains(peer) {
             self.peers.insert(peer.clone());
-            return true
+            self.add_glusterfs_peer(peer).await?;
+            return Ok(true);
         } else {
-            return false
+            return Ok(false);
         }
     }
 
     pub(super) async fn add_glusterfs_peer(&mut self, peer: &Peer) -> std::io::Result<()> {
+        log::info!(
+            "Attempting to add peer {}; ip_address: {} to gluster peers",
+            peer.wallet_address_hex(),
+            peer.ip_address().to_string()
+        );
+        let ip_address = if let Some(pos) = peer.ip_address().to_string().find(':') {
+            peer.ip_address().to_string()[..pos].to_string()
+        } else {
+            peer.ip_address().to_string()
+        };
         let output = std::process::Command::new("gluster")
             .arg("peer")
             .arg("probe")
-            .arg(peer.ip_address().to_string())
+            .arg(&ip_address)
             .arg("--mode=script")
             .output()?;
 
         if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to NFS volume"))
+            let err_str = std::str::from_utf8(&output.stderr)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to add peer to NFS volume: {}", err_str),
+            ));
         }
 
         Ok(())
     }
 
-    pub(super) async fn create_gluster_volume(
+    pub(super) async fn create_and_start_gluster_volume(
         &mut self,
         instance: Namespace,
-        peers: Vec<&Peer>
+        peers: Vec<&Peer>,
     ) -> std::io::Result<()> {
         // Simply create the volume
+        log::info!("attempting to create gluster volume: {}", instance.inner().to_string());
         let mut command = std::process::Command::new("gluster");
         command
             .arg("volume")
@@ -57,23 +76,56 @@ impl Quorum {
             .arg(instance.inner().to_string());
 
         let replica = peers.len();
-        command.arg("replica")
-            .arg(&replica.to_string());
+        
+        if replica > 1 {
+            command.arg("replica").arg(&replica.to_string());
+        }
 
         for peer in peers {
-            command.arg(
-                &format!(
-                    "{}:/mnt/glusterfs/vms/{}/brick", 
-                    peer.ip_address().to_string(),
-                    instance.inner().to_string()
-                )
-            );
+            let ip_address = if let Some(pos) = peer.ip_address().to_string().find(':') {
+                peer.ip_address().to_string()[..pos].to_string()
+            } else {
+                peer.ip_address().to_string()
+            };
+
+            command.arg(&format!(
+                "{}:/mnt/glusterfs/vms/{}/brick",
+                ip_address,
+                instance.inner().to_string()
+            ));
         }
 
         command.arg("force").arg("--mode=script");
-        command.output()?;
+        let output = command.output()?;
+
+        if output.status.success() {
+            log::info!("successfully created gluster volume {}", instance.inner().to_string());
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("Error creating gluster volume: {}: {err}", instance.inner().to_string());
+        }
+
+        let output = std::process::Command::new("gluster")
+            .arg("volume")
+            .arg("start")
+            .arg(&instance.inner().to_string())
+            .arg("force")
+            .arg("--mode=script")
+            .output()?;
+
+        if output.status.success() {
+            log::info!("successfully started gluster volume {}", instance.inner().to_string());
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("Error starting gluster volume: {}: {err}", instance.inner().to_string());
+        }
 
         Ok(())
+    }
+
+    pub(super) fn mount_gluster_volume(&self) -> std::io::Result<()> {
+        // run mount
+        todo!()
     }
 
     pub(super) fn get_gluster_volumes(&self) -> std::io::Result<Vec<String>> {
@@ -83,7 +135,10 @@ impl Quorum {
             .output()?;
 
         if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to list gluster volumes"))
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to list gluster volumes",
+            ));
         }
 
         let volumes = String::from_utf8_lossy(&output.stdout)
@@ -94,18 +149,35 @@ impl Quorum {
         Ok(volumes)
     }
 
-    pub(super) async fn add_peer_to_gluster_volume(&self, peer: &Peer, instance: Namespace) -> std::io::Result<()> {
+    pub(super) async fn add_peer_to_gluster_volume(
+        &self,
+        peer: &Peer,
+        instance: Namespace,
+    ) -> std::io::Result<()> {
+        let ip_address = if let Some(pos) = peer.ip_address().to_string().find(':') {
+            peer.ip_address().to_string()[..pos].to_string()
+        } else {
+            peer.ip_address().to_string()
+        };
+
         let output = std::process::Command::new("gluster")
             .arg("volume")
             .arg("add-brick")
             .arg(&instance.inner().to_string())
-            .arg(&format!("{}:/mnt/glusterfs/vms/{}/brick", peer.ip_address(), instance.inner().to_string()))
+            .arg(&format!(
+                "{}:/mnt/glusterfs/vms/{}/brick",
+                ip_address,
+                instance.inner().to_string()
+            ))
             .arg("force")
             .arg("--mode=script")
             .output()?;
 
         if !output.status.success() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add peer to GlusterFS volume"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to add peer to GlusterFS volume",
+            ));
         }
 
         Ok(())
@@ -124,12 +196,10 @@ impl Quorum {
                 .arg("--mode=script")
                 .output()?;
             if !output.status.success() {
-                return Err(
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other, 
-                        format!("Failed to set replica for volume {}", volume)
-                    )
-                )
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set replica for volume {}", volume),
+                ));
             }
         }
 
@@ -137,22 +207,26 @@ impl Quorum {
     }
 
     pub(super) async fn share_instances(
-        &mut self, 
-        publisher: &mut GenericPublisher, 
+        &mut self,
+        publisher: &mut GenericPublisher,
         instances: HashSet<Namespace>,
-        peer: Peer
+        peer: Peer,
     ) -> std::io::Result<()> {
         let event_id = Uuid::new_v4().to_string();
         let task_id = TaskId::new(Uuid::new_v4().to_string());
-        let event = NetworkEvent::ShareInstanceNamespaces { event_id, task_id, instances, peer };
-        publisher.publish(
-            Box::new(NetworkTopic),
-            Box::new(event)
-        ).await?;
+        let event = NetworkEvent::ShareInstanceNamespaces {
+            event_id,
+            task_id,
+            instances,
+            peer,
+        };
+        publisher
+            .publish(Box::new(NetworkTopic), Box::new(event))
+            .await?;
 
         Ok(())
     }
-    
+
     pub fn size(&self) -> usize {
         self.peers().len()
     }
@@ -162,4 +236,3 @@ pub enum QuorumResult {
     Unit(()),
     Other(String),
 }
-

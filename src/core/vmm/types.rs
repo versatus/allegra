@@ -1,30 +1,23 @@
-use std::collections::HashMap;
 use crate::{
-    account::{
-        Namespace, 
-        TaskId, 
-        TaskStatus
-    }, allegra_rpc::Features, event::VmmEvent, params::ServiceType, vm_info::VmInfo
+    account::{Namespace, TaskId, TaskStatus},
+    allegra_rpc::Features,
+    event::VmmEvent,
+    params::ServiceType,
+    vm_info::VmInfo,
 };
+use std::collections::HashMap;
 
 use crate::allegra_rpc::{
-    InstanceCreateParams,
-    InstanceStopParams,
-    InstanceStartParams,
-    InstanceAddPubkeyParams,
-    InstanceExposeServiceParams,
-    InstanceDeleteParams,
+    InstanceAddPubkeyParams, InstanceCreateParams, InstanceDeleteParams,
+    InstanceExposeServiceParams, InstanceStartParams, InstanceStopParams,
 };
 
-use rayon::iter::{
-    IntoParallelIterator, 
-    IntoParallelRefIterator, 
-    ParallelExtend, 
-    ParallelIterator
-};
-use tokio::time::Interval;
-use serde::{Serialize, Deserialize};
 use getset::Getters;
+use rayon::iter::{
+    IntoParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
+};
+use serde::{Deserialize, Serialize};
+use tokio::time::Interval;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
@@ -57,7 +50,7 @@ impl SyncInterval {
             self = self.tick().await?;
         }
 
-        return Ok(self)
+        return Ok(self);
     }
 }
 
@@ -67,7 +60,7 @@ impl Instance {
         vminfo: VmInfo,
         port_map: impl IntoParallelIterator<Item = (u16, (u16, ServiceType))>,
         last_snapshot: Option<u64>,
-        last_sync: Option<u64>
+        last_sync: Option<u64>,
     ) -> Self {
         Self {
             namespace,
@@ -92,7 +85,7 @@ impl Instance {
 
     pub fn extend_port_mapping(
         &mut self,
-        extend: impl ParallelIterator<Item = (u16, (u16, ServiceType))>
+        extend: impl ParallelIterator<Item = (u16, (u16, ServiceType))>,
     ) {
         log::info!("extending port mapping");
         self.port_map.par_extend(extend);
@@ -102,21 +95,14 @@ impl Instance {
         self.vminfo = vminfo
     }
 
-    pub fn insert_port_mapping(
-        &mut self,
-        ext: u16,
-        dest: u16, 
-        service_type: ServiceType
-    ) {
+    pub fn insert_port_mapping(&mut self, ext: u16, dest: u16, service_type: ServiceType) {
         self.port_map.insert(ext, (dest, service_type));
     }
 
-    pub fn port_mapping_mut(
-        &mut self
-    ) -> &mut HashMap<u16, (u16, ServiceType)> {
+    pub fn port_mapping_mut(&mut self) -> &mut HashMap<u16, (u16, ServiceType)> {
         &mut self.port_map
     }
-    
+
     pub fn update_last_snapshot(&mut self, last_snapshot: Option<u64>) {
         self.last_snapshot = last_snapshot;
     }
@@ -131,10 +117,10 @@ pub enum VmmResult {
     UpdateIptables {
         owner: [u8; 20],
         task_id: TaskId,
-        task_status: TaskStatus
+        task_status: TaskStatus,
     },
     Unit(()),
-    Other(String)
+    Other(String),
 }
 
 #[derive(Debug)]
@@ -142,31 +128,31 @@ pub enum VmManagerMessage {
     NewInstance {
         event_id: String,
         params: InstanceCreateParams,
-        task_id: TaskId 
+        task_id: TaskId,
     },
     StopInstance {
         event_id: String,
         params: InstanceStopParams,
         sig: String,
-        task_id: TaskId
+        task_id: TaskId,
     },
     DeleteInstance {
         event_id: String,
         params: InstanceDeleteParams,
         sig: String,
-        task_id: TaskId 
+        task_id: TaskId,
     },
     InjectAuth {
         event_id: String,
         params: InstanceAddPubkeyParams,
         sig: String,
-        task_id: TaskId 
+        task_id: TaskId,
     },
     StartInstance {
         event_id: String,
         params: InstanceStartParams,
         sig: String,
-        task_id: TaskId 
+        task_id: TaskId,
     },
     ExposeService {
         event_id: String,
@@ -189,13 +175,13 @@ pub enum VmManagerMessage {
         event_id: String,
         task_id: TaskId,
         namespace: Namespace,
-    }
+    },
 }
 
 impl From<VmmEvent> for VmManagerMessage {
     fn from(value: VmmEvent) -> Self {
         match value {
-            VmmEvent::Create { 
+            VmmEvent::Create {
                 event_id,
                 task_id,
                 name,
@@ -254,11 +240,11 @@ impl From<VmmEvent> for VmManagerMessage {
                 cloud_init,
             } => {
                 let params = InstanceCreateParams {
-                    name, 
-                    distro, 
-                    version, 
+                    name,
+                    distro: distro.into(),
+                    version,
                     vmtype: vmtype.to_string(),
-                    sig, 
+                    sig,
                     recovery_id: recovery_id.into(),
                     sync,
                     memory,
@@ -297,12 +283,13 @@ impl From<VmmEvent> for VmManagerMessage {
                     import,
                     boot,
                     idmap,
-                    features: features.into_iter().map(|(name, feature)| {
-                        Features {
+                    features: features
+                        .into_iter()
+                        .map(|(name, feature)| Features {
                             name: name.clone(),
                             feature: feature.clone(),
-                        }
-                    }).collect(),
+                        })
+                        .collect(),
                     clock,
                     launch_security,
                     numatune,
@@ -312,130 +299,150 @@ impl From<VmmEvent> for VmManagerMessage {
                     dry_run,
                     connect,
                     virt_type,
-                    cloud_init,
+                    cloud_init: match cloud_init {
+                        Some(ci) => Some(ci.into()),
+                        None => None,
+                    },
                 };
-                VmManagerMessage::NewInstance { 
+                VmManagerMessage::NewInstance {
                     params,
-                    task_id, 
-                    event_id 
+                    task_id,
+                    event_id,
                 }
             }
-            VmmEvent::Start { 
-                event_id, 
-                task_id, 
-                name, 
-                console, 
-                stateless, 
-                sig, 
-                recovery_id 
+            VmmEvent::Start {
+                event_id,
+                task_id,
+                name,
+                console,
+                stateless,
+                sig,
+                recovery_id,
             } => {
                 let params = InstanceStartParams {
-                    name, 
-                    console, 
-                    stateless, 
-                    sig: sig.clone(), 
-                    recovery_id: recovery_id.into()
+                    name,
+                    console,
+                    stateless,
+                    sig: sig.clone(),
+                    recovery_id: recovery_id.into(),
                 };
-                VmManagerMessage::StartInstance { 
-                    event_id, 
-                    params, 
-                    sig, 
-                    task_id 
+                VmManagerMessage::StartInstance {
+                    event_id,
+                    params,
+                    sig,
+                    task_id,
                 }
             }
-            VmmEvent::Stop { event_id, task_id, name, sig, recovery_id } => {
+            VmmEvent::Stop {
+                event_id,
+                task_id,
+                name,
+                sig,
+                recovery_id,
+            } => {
                 let params = InstanceStopParams {
                     name,
                     sig: sig.clone(),
-                    recovery_id: recovery_id.into()
+                    recovery_id: recovery_id.into(),
                 };
-                VmManagerMessage::StopInstance { 
-                    event_id, 
-                    params, 
-                    sig, 
-                    task_id
+                VmManagerMessage::StopInstance {
+                    event_id,
+                    params,
+                    sig,
+                    task_id,
                 }
             }
-            VmmEvent::Delete { 
+            VmmEvent::Delete {
                 event_id,
-                task_id, 
-                name, 
-                sig, 
-                recovery_id, 
-                force, 
-                interactive 
+                task_id,
+                name,
+                sig,
+                recovery_id,
+                force,
+                interactive,
             } => {
                 let params = InstanceDeleteParams {
                     name,
                     sig: sig.clone(),
                     force,
                     interactive,
-                    recovery_id: recovery_id.into()
+                    recovery_id: recovery_id.into(),
                 };
 
-                VmManagerMessage::DeleteInstance { 
-                    event_id, 
-                    params, 
-                    sig, 
-                    task_id
-                } 
+                VmManagerMessage::DeleteInstance {
+                    event_id,
+                    params,
+                    sig,
+                    task_id,
+                }
             }
-            VmmEvent::AddPubkey { 
+            VmmEvent::AddPubkey {
                 event_id,
                 task_id,
                 name,
-                sig, 
+                sig,
                 recovery_id,
-                pubkey 
+                pubkey,
             } => {
                 let params = InstanceAddPubkeyParams {
                     name,
                     pubkey: pubkey.clone(),
                     sig: sig.clone(),
-                    recovery_id: recovery_id.into()
+                    recovery_id: recovery_id.into(),
                 };
-                VmManagerMessage::InjectAuth { 
+                VmManagerMessage::InjectAuth {
                     event_id,
-                    params, 
+                    params,
                     sig,
-                    task_id
+                    task_id,
                 }
             }
-            VmmEvent::ExposeService { 
-                event_id, 
-                task_id, 
-                name, 
-                sig, 
-                recovery_id, 
-                port, 
-                service_type 
+            VmmEvent::ExposeService {
+                event_id,
+                task_id,
+                name,
+                sig,
+                recovery_id,
+                port,
+                service_type,
             } => {
                 let params = InstanceExposeServiceParams {
                     name,
-                    port: port.par_iter().map(|n| {
-                        let n = *n;
-                        n.into()
-                    }).collect(),
-                    service_type: service_type.par_iter().map(|s| {
-                        let s = s.clone();
-                        s.into()
-                    }).collect(),
+                    port: port
+                        .par_iter()
+                        .map(|n| {
+                            let n = *n;
+                            n.into()
+                        })
+                        .collect(),
+                    service_type: service_type
+                        .par_iter()
+                        .map(|s| {
+                            let s = s.clone();
+                            s.into()
+                        })
+                        .collect(),
                     sig: sig.clone(),
-                    recovery_id: recovery_id.into()
+                    recovery_id: recovery_id.into(),
                 };
 
-                VmManagerMessage::ExposeService { 
-                    event_id, 
-                    params, 
-                    sig, 
-                    task_id 
+                VmManagerMessage::ExposeService {
+                    event_id,
+                    params,
+                    sig,
+                    task_id,
                 }
             }
 
-            VmmEvent::LaunchInstance { event_id, task_id, namespace } => {
-                VmManagerMessage::LaunchInstance { event_id, task_id, namespace }
-            }
+            VmmEvent::LaunchInstance {
+                event_id,
+                task_id,
+                namespace,
+            } => VmManagerMessage::LaunchInstance {
+                event_id,
+                task_id,
+                namespace,
+            },
         }
     }
 }
-
