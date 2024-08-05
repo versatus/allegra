@@ -68,6 +68,7 @@ impl Quorum {
         peers: Vec<&Peer>,
     ) -> std::io::Result<()> {
         // Simply create the volume
+        log::info!("attempting to create gluster volume: {}", instance.inner().to_string());
         let mut command = std::process::Command::new("gluster");
         command
             .arg("volume")
@@ -92,7 +93,14 @@ impl Quorum {
         }
 
         command.arg("force").arg("--mode=script");
-        command.output()?;
+        let output = command.output()?;
+
+        if output.status.success() {
+            log::info!("successfully created gluster volume {}", instance.inner().to_string());
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("Error creating gluster volume: {}: {err}", instance.inner().to_string());
+        }
 
         Ok(())
     }
