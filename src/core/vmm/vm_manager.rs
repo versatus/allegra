@@ -620,6 +620,7 @@ impl VmManager {
                 match distro {
                     Distro::Ubuntu => {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Ubuntu>>(&user_data) {
+                            log::info!("attempting to generate cloud_init files");
                             generate_cloud_init_files(
                                 &namespace.inner().to_string(),
                                 &namespace.inner().to_string(),
@@ -738,6 +739,7 @@ impl VmManager {
             let (state, state_reason) = domain
                 .get_state()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
             let vm_info = VmInfoBuilder::default()
                 .name(namespace.inner().to_string())
                 .uuid(
@@ -780,11 +782,20 @@ impl VmManager {
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
                 )
                 .os_arch("x86_64".to_string())
+                .devices(None)
                 .network_interfaces(Vec::new())
                 .storage_volumes(Vec::new())
+                .metadata(None)
+                .creation_time(None)
+                .modification_time(None)
+                .cpu_stats(None)
                 .block_stats(HashMap::new())
                 .interface_stats(HashMap::new())
+                .security_model(None)
                 .snapshots(Vec::new())
+                .hostname(Some(format!("{}.versatus.io", namespace.inner().to_string())))
+                .title(None)
+                .description(None)
                 .build()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
