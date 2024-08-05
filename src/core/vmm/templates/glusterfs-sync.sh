@@ -3,8 +3,8 @@
 # glusterfs-sync.sh
 
 # Load environment variables
-if [ -f /etc/default/glusterfs_mount ]; then
-    source /etc/default/glusterfs_mount
+if [ -f /etc/glusterfs-sync.env ]; then
+    source /etc/glusterfs-sync.env
 else
     echo "Environment file not found. Exiting."
     exit 1
