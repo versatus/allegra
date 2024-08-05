@@ -1,4 +1,4 @@
-use crate::distro::{Alpine, Arch, Centos, Debian, Distro, DistroType, Fedora, Ubuntu};
+use crate::distro::{Alpine, Arch, Centos, Debian, Distro, Fedora, Ubuntu};
 use crate::event::QuorumEvent;
 use crate::prepare::{alternative_prepare_disk_image, get_image_name, get_image_path, prepare_nfs_brick};
 use crate::virt_install::{generate_cloud_init_files, CloudInit, UserData};
@@ -14,9 +14,7 @@ use crate::{
     VmManagerMessage,
 };
 use crate::{
-    statics::*, GeneralResponseSubscriber, GeneralResponseTopic,
-    Instance, MemoryInfo, QuorumTopic, VCPUInfo, VirtInstall, VmInfo, VmInfoBuilder, VmmResult,
-    VmmSubscriber,
+    statics::*, GeneralResponseSubscriber, GeneralResponseTopic, Instance, MemoryInfo, Peer, QuorumTopic, VCPUInfo, VirtInstall, VmInfo, VmInfoBuilder, VmmResult, VmmSubscriber
 };
 use std::collections::{HashMap, HashSet};
 
@@ -44,11 +42,12 @@ pub struct VmManager {
     pending_launch: HashMap<Namespace, (VirtInstall, String, u16)>,
     vmlist: VmList,
     publisher: GenericPublisher,
+    local_peer: Peer,
     pub subscriber: VmmSubscriber,
 }
 
 impl VmManager {
-    pub async fn new(next_port: u16) -> std::io::Result<Self> {
+    pub async fn new(next_port: u16, local_peer: Peer) -> std::io::Result<Self> {
         let network = DEFAULT_NETWORK.to_string();
         log::info!("set network interface to {}", &network);
         let mut connection = Connect::open(Some("qemu:///system"))
@@ -80,6 +79,7 @@ impl VmManager {
             vmlist,
             subscriber,
             publisher,
+            local_peer
         })
     }
 
@@ -325,6 +325,7 @@ impl VmManager {
                     "{}.{}.{}.{}",
                     self.next_ip[0], self.next_ip[1], self.next_ip[2], self.next_ip[3]
                 );
+                let host_ip = self.local_peer.ip_address().to_string();
                 let (namespace, virt_install, use_disk, next_port) = Self::prepare_instance(
                     params,
                     task_id,
@@ -332,6 +333,7 @@ impl VmManager {
                     &mut publisher,
                     next_ip,
                     next_port,
+                    &host_ip
                 )
                 .await?;
 
@@ -555,6 +557,7 @@ impl VmManager {
         publisher: &mut GenericPublisher,
         next_ip: String,
         next_port: u16,
+        host_ip: &str,
     ) -> std::io::Result<(Namespace, VirtInstall, String, u16)> {
         log::info!("Attempting to start instance...");
         let payload = params.into_payload();
@@ -626,6 +629,7 @@ impl VmManager {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Ubuntu>>(&user_data) {
                             log::info!("attempting to generate cloud_init files");
                             generate_cloud_init_files(
+                                host_ip,
                                 &namespace.inner().to_string(),
                                 &namespace.inner().to_string(),
                                 Some(user_provided),
@@ -638,6 +642,7 @@ impl VmManager {
                     Distro::CentOS => {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Centos>>(&user_data) {
                             generate_cloud_init_files(
+                                host_ip,
                                 &namespace.inner().to_string(),
                                 &namespace.inner().to_string(),
                                 Some(user_provided),
@@ -648,6 +653,7 @@ impl VmManager {
                     Distro::Fedora => {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Fedora>>(&user_data) {
                             generate_cloud_init_files(
+                                host_ip,
                                 &namespace.inner().to_string(),
                                 &namespace.inner().to_string(),
                                 Some(user_provided),
@@ -658,6 +664,7 @@ impl VmManager {
                     Distro::Debian => {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Debian>>(&user_data) {
                             generate_cloud_init_files(
+                                host_ip, 
                                 &namespace.inner().to_string(),
                                 &namespace.inner().to_string(),
                                 Some(user_provided),
@@ -668,6 +675,7 @@ impl VmManager {
                     Distro::Arch => {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Arch>>(&user_data) {
                             generate_cloud_init_files(
+                                host_ip,
                                 &namespace.inner().to_string(),
                                 &namespace.inner().to_string(),
                                 Some(user_provided),
@@ -678,6 +686,7 @@ impl VmManager {
                     Distro::Alpine => {
                         if let Ok(user_provided) = serde_yml::from_str::<UserData<Alpine>>(&user_data) {
                             generate_cloud_init_files(
+                                host_ip, 
                                 &namespace.inner().to_string(),
                                 &namespace.inner().to_string(),
                                 Some(user_provided),

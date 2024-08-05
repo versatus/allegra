@@ -87,6 +87,8 @@ pub struct UserData<D: DistroType> {
 
 impl<D: DistroType> Default for UserData<D> {
     fn default() -> Self {
+        let glusterfs_sync_script = include_str!("templates/glusterfs-sync.sh");
+        let glusterfs_sync_service = include_str!("templates/glusterfs-sync.service");
         UserData {
             users: vec![User {
                 name: D::default_username(),
@@ -107,14 +109,14 @@ impl<D: DistroType> Default for UserData<D> {
             write_files: vec![
                 WriteFile {
                     path: "/etc/systemd/system/glusterfs-sync.service".to_string(),
-                    content: include_str!("templates/glusterfs-sync.service").to_string(),
-                    permissions: None
+                    content: glusterfs_sync_service.to_string(),
+                    permissions: Some("0644".to_string()), 
                 },
                 WriteFile {
                     path: "/usr/local/bin/glusterfs-sync.sh".to_string(),
-                    content: include_str!("templates/glusterfs-sync.sh").to_string(),
+                    content: glusterfs_sync_script.to_string(), 
                     permissions: Some("0755".to_string()),
-                }
+                },
             ],
             mounts: vec!["[ \"localhost:/gv0\", \"/mnt/glusterfs/\", \"glusterfs\", \"defaults,_netdev\", \"0\", \"0\" ]".to_string()],
             runcmd: vec![
@@ -605,7 +607,14 @@ impl From<InstanceCreateParams> for VirtInstall {
     }
 }
 
-pub fn merge_user_data<D: DistroType>(default: &mut UserData<D>, user_provided: Option<UserData<D>>) {
+pub fn merge_user_data<D: DistroType>(host_ip: &str, namespace: &str, default: &mut UserData<D>, user_provided: Option<UserData<D>>) {
+    let glusterfs_sync_env = format!("GLUSTER_NODE_IP={}\nGLUSTER_VOLUME_NAME={}\n", host_ip, namespace);
+    let gluster_env = WriteFile {
+        path: "/etc/glusterfs-sync.env".to_string(),
+        content: glusterfs_sync_env,
+        permissions: Some("0644".to_string())
+    };
+    default.write_files.push(gluster_env);
     if let Some(user) = user_provided {
         if !user.users.is_empty() {
             default.users = user.users.clone();
@@ -646,6 +655,7 @@ pub fn merge_user_data<D: DistroType>(default: &mut UserData<D>, user_provided: 
 }
 
 pub fn generate_cloud_init_files<D: DistroType>(
+    host_ip: &str,
     instance_id: &str,
     hostname: &str,
     user_provided: Option<UserData<D>>,
@@ -653,7 +663,7 @@ pub fn generate_cloud_init_files<D: DistroType>(
 ) -> std::io::Result<()> {
     let mut default_user_data = UserData::<D>::default();
 
-    merge_user_data(&mut default_user_data, user_provided);
+    merge_user_data(host_ip, instance_id, &mut default_user_data, user_provided);
 
     let network_config = NetworkConfig {
         version: 2,
