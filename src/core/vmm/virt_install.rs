@@ -728,12 +728,12 @@ impl VirtInstall {
         */
 
         let cloud_init_path = format!("/var/lib/libvirt/profiles/{}", namespace); 
+        let user_data_arg = format!("user-data={}/user-data.yaml", cloud_init_path);
+        let meta_data_arg = format!("meta-data={}/meta-data.yaml", cloud_init_path);
+        let network_config_arg = format!("network-config={}/network-config.yaml", cloud_init_path);
+        let cloud_init_arg = format!("--cloud_init {user_data_arg},{meta_data_arg},{network_config_arg}");
 
-        command.arg("--cloud-init")
-            .arg(&format!("user-data={}/user-data.yaml", cloud_init_path))
-            .arg(&format!("meta-data={}/meta-data.yaml", cloud_init_path))
-            .arg(&format!("network-config={}/network-config.yaml", cloud_init_path));
-
+        command.arg(&cloud_init_arg);
 
         command.arg("--check").arg("disk_size=off");
 
