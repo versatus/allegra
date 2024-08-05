@@ -8,7 +8,7 @@ Type=simple
 ExecStart=/usr/local/bin/glusterfs-sync.sh
 Restart=on-failure
 RestartSec=5
-EnvironmentFile=/etc/default/glusterfs_mount
+EnvironmentFile=/etc/glusterfs_mount.env
 
 [Install]
 WantedBy=multi-user.target
