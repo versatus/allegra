@@ -687,10 +687,14 @@ pub fn generate_cloud_init_files<D: DistroType>(
 
     let profile_dir = Path::new("/var/lib/libvirt/profiles").join(instance_id);
     fs::create_dir_all(&profile_dir)?;
+    let user_data_str = serde_yml::to_string(&default_user_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    let full_user_data = format!("#cloud-config\n{}", user_data_str);
+
     fs::write(
+        full_user_data,
         profile_dir.join("user-data.yaml"),
-        serde_yml::to_string(&default_user_data)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
     )?;
     fs::write(
         profile_dir.join("network-config.yaml"),
