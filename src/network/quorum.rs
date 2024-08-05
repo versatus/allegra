@@ -62,7 +62,7 @@ impl Quorum {
         Ok(())
     }
 
-    pub(super) async fn create_gluster_volume(
+    pub(super) async fn create_and_start_gluster_volume(
         &mut self,
         instance: Namespace,
         peers: Vec<&Peer>,
@@ -103,6 +103,21 @@ impl Quorum {
         } else {
             let err = String::from_utf8_lossy(&output.stderr);
             log::error!("Error creating gluster volume: {}: {err}", instance.inner().to_string());
+        }
+
+        let output = std::process::Command::new("gluster")
+            .arg("volume")
+            .arg("start")
+            .arg(&instance.inner().to_string())
+            .arg("force")
+            .arg("--mode=script")
+            .output()?;
+
+        if output.status.success() {
+            log::info!("successfully started gluster volume {}", instance.inner().to_string());
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("Error starting gluster volume: {}: {err}", instance.inner().to_string());
         }
 
         Ok(())
