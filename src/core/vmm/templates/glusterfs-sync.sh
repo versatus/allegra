@@ -30,7 +30,7 @@ sync_directory() {
         log "Creating directory $dest in GlusterFS"
         mkdir -p "$dest"
     fi
-    rsync -avz --delete "$src/" "$dest/"
+    rsync -avz "$src/" "$dest/"
     if [ $? -eq 0 ]; then
         log "Sync successful for $src"
     else
