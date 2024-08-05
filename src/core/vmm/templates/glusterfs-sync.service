@@ -1,0 +1,14 @@
+[Unit]
+Description=Mount GlusterFS and bind mount directories
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/glusterfs-sync.sh
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/etc/default/glusterfs_mount
+
+[Install]
+WantedBy=multi-user.target
